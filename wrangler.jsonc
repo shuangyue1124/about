@@ -2,6 +2,14 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "about",
   "compatibility_date": "2026-06-13",
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [
+    {
+      "pattern": "about.shuangyue.space/*",
+      "zone_name": "shuangyue.space"
+    }
+  ],
   "assets": {
     "directory": "public",
     "html_handling": "auto-trailing-slash",
