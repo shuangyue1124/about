@@ -1,3 +1,2 @@
 /travel /travel/ 301
 /cities/:slug /cities/:slug.html 200
-/* /index.html 200
