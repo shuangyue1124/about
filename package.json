@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "build:pages": "node scripts/build-pages.mjs",
-    "deploy": "wrangler deploy",
+    "build:worker": "npm run build:pages && node scripts/prepare-worker-assets.mjs",
+    "deploy": "npm run build:worker && wrangler deploy",
     "serve": "npx serve ."
   }
 }

@@ -3,7 +3,7 @@
   "name": "about",
   "compatibility_date": "2026-06-13",
   "assets": {
-    "directory": ".",
+    "directory": "public",
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "single-page-application"
   }
