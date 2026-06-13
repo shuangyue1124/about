@@ -198,7 +198,7 @@ export const homeCards = [
   },
   {
     key: "anime",
-    art: "moon",
+    art: "none",
     title: {
       zh: "喜欢新海诚式的天空，也喜欢战争题材的锋利感",
       ja: "新海誠の空と、戦争ものの鋭さが好きです",

@@ -43,6 +43,30 @@ function rootUrl(path) {
   return root === "." ? path : `${root}/${path}`;
 }
 
+const provinceGlyphs = new Map([
+  ["北京", "京"],
+  ["天津", "津"],
+  ["上海", "沪"],
+  ["河北", "冀"],
+  ["山西", "晋"],
+  ["内蒙古", "蒙"],
+  ["河南", "豫"],
+  ["湖北", "鄂"],
+  ["辽宁", "辽"],
+  ["江苏", "苏"],
+  ["山东", "鲁"],
+  ["福建", "闽"],
+  ["湖南", "湘"],
+  ["陕西", "陕"],
+  ["甘肃", "甘"],
+  ["日本", "日"],
+]);
+
+function provinceGlyph(city) {
+  const region = typeof city.region === "object" ? city.region.zh : city.region;
+  return provinceGlyphs.get(region) || city.visual?.glyph || text(city.name).slice(0, 1);
+}
+
 function fmtDate(date) {
   const [year, month, day] = date.split("-");
   if (lang === "en") return `${year}.${month}.${day}`;
@@ -105,7 +129,9 @@ function layout(main) {
     <a class="skip-link" href="#main-content">${esc(label("skipToContent"))}</a>
     <header class="topbar">
       <a class="brand" href="${esc(rootUrl(""))}" aria-label="${esc(label("navHome"))}">
-        <span class="brand__mark">霜</span>
+        <span class="brand__mark brand__mark--avatar">
+          <img src="${esc(profile.avatar)}" alt="" loading="lazy">
+        </span>
         <span>
           <span class="brand__name">${esc(label("heroTitle"))}</span>
           <span class="brand__kicker">${esc(label("brandKicker"))}</span>
@@ -195,11 +221,14 @@ function terminal(copyText, shownText) {
 
 function homeCard(card, index) {
   const tags = card.tags[lang] || card.tags.zh;
+  const hasArt = card.art && card.art !== "none";
   return `
-    <article class="feature-card feature-card--${index % 2 === 0 ? "image-left" : "image-right"}">
-      <div class="ink-art ink-art--${card.art}" aria-hidden="true">
-        <span></span>
-      </div>
+    <article class="feature-card feature-card--${index % 2 === 0 ? "image-left" : "image-right"} ${hasArt ? "" : "feature-card--no-art"}">
+      ${hasArt ? `
+        <div class="ink-art ink-art--${card.art}" aria-hidden="true">
+          <span></span>
+        </div>
+      ` : ""}
       <div class="feature-card__text">
         <p class="eyebrow">${esc(label(`${card.key}Title`))}</p>
         <h3>${esc(text(card.title))}</h3>
@@ -380,7 +409,7 @@ function renderCity() {
 function renderCityVisual(city, size) {
   const visual = city.visual || {};
   const shape = visual.shape || "plain";
-  const glyph = visual.glyph || text(city.name).slice(0, 1);
+  const glyph = provinceGlyph(city);
   const accent = visual.accent || "#35584a";
   const title = text(city.landmark || city.name);
   const food = text(city.food || city.tags?.[2] || "");
@@ -478,7 +507,7 @@ function bindCommon() {
 }
 
 function bindAvatarFallback() {
-  document.querySelectorAll(".avatar-ring img").forEach((img) => {
+  document.querySelectorAll(".avatar-ring img, .brand__mark img").forEach((img) => {
     const fail = () => img.classList.add("is-broken");
     img.addEventListener("error", fail, { once: true });
     if (img.complete && img.naturalWidth === 0) fail();

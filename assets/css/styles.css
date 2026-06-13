@@ -102,12 +102,24 @@ input {
   place-items: center;
   width: 34px;
   height: 34px;
-  color: var(--paper);
-  background: var(--cinnabar);
-  border-radius: 4px;
-  font-family: var(--font-serif);
-  font-size: 18px;
-  box-shadow: inset 0 0 0 1px rgba(255, 253, 248, 0.28);
+  padding: 2px;
+  overflow: hidden;
+  background: rgba(255, 253, 248, 0.84);
+  border: 1px solid rgba(38, 37, 30, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(38, 37, 30, 0.12);
+}
+
+.brand__mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.brand__mark img.is-broken {
+  opacity: 0;
 }
 
 .brand__name,
@@ -487,6 +499,15 @@ input {
 
 .feature-card--image-right .ink-art {
   order: 2;
+}
+
+.feature-card--no-art {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.feature-card--no-art .feature-card__text {
+  max-width: 780px;
 }
 
 .feature-card__text {
