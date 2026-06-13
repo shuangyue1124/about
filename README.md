@@ -56,17 +56,21 @@ Cloudflare Pages 也可以部署，构建设置为：
 - Build output directory: `public`
 - Root directory: 仓库根目录
 
-Pages 部署会使用 `functions/api/` 下的 Pages Functions 复用 `worker.js` 里的 API 逻辑。如果要在 `*.pages.dev` 域名上启用留言写入和后台设置，需要在 Cloudflare Pages 项目的 Settings -> Functions 中添加：
+Pages 部署会使用 `functions/api/` 下的 Pages Functions 复用 `worker.js` 里的 API 逻辑。如果要在 `*.pages.dev` 或绑定到 Pages 的自定义域名上启用留言写入和后台设置，需要在 Cloudflare Pages 项目的 Settings -> Functions 中添加：
 
 - Variable name: `COMMENTS_KV`
 - KV namespace: `COMMENTS_KV`
-- Environment variable: `ADMIN_PASSWORD`
+- Secret / Environment variable: `ADMIN_PASSWORD`
 
-Workers 部署时，管理员密码通过 secret 设置：
+Workers 部署时，管理员密码通过 Worker secret 设置：
 
 ```powershell
 npx wrangler secret put ADMIN_PASSWORD
 ```
+
+如果自定义域名被 `wrangler.jsonc` 的 Worker route 接管，例如当前配置里的 `about.shuangyue.space/*`，后台读取的是 Worker 项目的 secret，而不是 Pages 项目的变量。Pages 自定义域名则读取 Pages 项目的 Functions 变量。两边都要可用时，请在 Workers 和 Pages 两个项目里都配置同名 `ADMIN_PASSWORD`，配置后重新部署对应项目。
+
+后台密码读取兼容这些绑定名：`ADMIN_PASSWORD`、`ADMIN_SECRET`、`SFSY_ADMIN_PASSWORD`、`SITE_ADMIN_PASSWORD`。也兼容 Cloudflare Secrets Store 绑定名 `SECRETS`、`SECRET_STORE`、`ADMIN_SECRETS`，其中保存同名密钥即可。
 
 ## 留言区存储
 

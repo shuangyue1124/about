@@ -49,6 +49,8 @@ function assetCandidates(pathname) {
 const COMMENT_INDEX_KEY = "comments:index";
 const SITE_SETTINGS_KEY = "site:settings";
 const ADMIN_COOKIE_NAME = "sfsy_admin";
+const ADMIN_PASSWORD_KEYS = ["ADMIN_PASSWORD", "ADMIN_SECRET", "SFSY_ADMIN_PASSWORD", "SITE_ADMIN_PASSWORD"];
+const ADMIN_SECRET_STORE_KEYS = ["SECRETS", "SECRET_STORE", "ADMIN_SECRETS"];
 const MAX_STORED_COMMENTS = 100;
 const DEFAULT_LIST_LIMIT = 30;
 const ADMIN_SESSION_SECONDS = 60 * 60 * 24;
@@ -185,14 +187,19 @@ export async function handleAdmin(request, env) {
 }
 
 async function adminLogin(request, env) {
-  if (!env.ADMIN_PASSWORD) return json({ error: "ADMIN_PASSWORD is not configured" }, 503);
+  const adminPassword = await loadAdminPassword(env);
+  if (!adminPassword) {
+    return json({
+      error: "Admin password is not configured for this deployment. Set ADMIN_PASSWORD on the Worker or Pages project that serves this custom domain.",
+    }, 503);
+  }
 
   const payload = await request.json().catch(() => ({}));
   const password = String(payload.password || "");
-  const ok = await verifyPassword(password, env.ADMIN_PASSWORD);
+  const ok = await verifyPassword(password, adminPassword);
   if (!ok) return json({ error: "invalid password" }, 401);
 
-  const token = await createAdminToken(env);
+  const token = await createAdminToken(adminPassword);
   return json({ ok: true }, 200, {
     "set-cookie": `${ADMIN_COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ADMIN_SESSION_SECONDS}`,
   });
@@ -366,29 +373,30 @@ function localizedText(value, fallback, maxLength) {
 }
 
 async function adminSession(request, env) {
-  if (!env.ADMIN_PASSWORD) return null;
+  const adminPassword = await loadAdminPassword(env);
+  if (!adminPassword) return null;
   const token = cookieValue(request.headers.get("Cookie"), ADMIN_COOKIE_NAME);
   if (!token) return null;
-  return verifyAdminToken(env, token);
+  return verifyAdminToken(adminPassword, token);
 }
 
-async function createAdminToken(env) {
+async function createAdminToken(adminPassword) {
   const now = Math.floor(Date.now() / 1000);
   const payload = base64UrlEncode(JSON.stringify({
     iat: now,
     exp: now + ADMIN_SESSION_SECONDS,
     role: "admin",
   }));
-  const signature = await signText(env.ADMIN_PASSWORD, payload);
+  const signature = await signText(adminPassword, payload);
   return `${payload}.${signature}`;
 }
 
-async function verifyAdminToken(env, token) {
+async function verifyAdminToken(adminPassword, token) {
   try {
     const [payload, signature] = String(token || "").split(".");
     if (!payload || !signature) return null;
 
-    const expected = await signText(env.ADMIN_PASSWORD, payload);
+    const expected = await signText(adminPassword, payload);
     if (!(await timingSafeEqual(signature, expected))) return null;
 
     const data = JSON.parse(base64UrlDecode(payload));
@@ -397,6 +405,44 @@ async function verifyAdminToken(env, token) {
   } catch {
     return null;
   }
+}
+
+async function loadAdminPassword(env) {
+  for (const key of ADMIN_PASSWORD_KEYS) {
+    const value = await readSecretBinding(env?.[key], key);
+    if (value) return value;
+  }
+
+  for (const storeKey of ADMIN_SECRET_STORE_KEYS) {
+    const store = env?.[storeKey];
+    if (!store || typeof store.get !== "function") continue;
+    for (const key of ADMIN_PASSWORD_KEYS) {
+      const value = await readSecretBinding(store, key);
+      if (value) return value;
+    }
+  }
+
+  return "";
+}
+
+async function readSecretBinding(binding, key) {
+  if (!binding) return "";
+  if (typeof binding === "string") return cleanOneLine(binding, 512);
+  if (typeof binding.get !== "function") return "";
+
+  for (const args of [[key], []]) {
+    try {
+      const value = await binding.get(...args);
+      if (typeof value === "string") return cleanOneLine(value, 512);
+      if (value && typeof value === "object" && typeof value.value === "string") {
+        return cleanOneLine(value.value, 512);
+      }
+    } catch {
+      // Try the next binding shape.
+    }
+  }
+
+  return "";
 }
 
 async function verifyPassword(input, expected) {

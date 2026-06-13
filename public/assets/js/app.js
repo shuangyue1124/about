@@ -333,10 +333,13 @@ function terminal(copyText, shownText) {
 function homeCard(card, index) {
   const tags = card.tags[lang] || card.tags.zh;
   const hasArt = card.art && card.art !== "none";
+  const image = card.image ? rootUrl(card.image) : "";
   return `
     <article class="feature-card feature-card--${index % 2 === 0 ? "image-left" : "image-right"} ${hasArt ? "" : "feature-card--no-art"}">
       ${hasArt ? `
-        <div class="ink-art ink-art--${card.art}" aria-hidden="true"></div>
+        <div class="ink-art ink-art--${card.art}" aria-hidden="true">
+          ${image ? `<img src="${esc(image)}" alt="" loading="lazy">` : ""}
+        </div>
       ` : ""}
       <div class="feature-card__text">
         <p class="eyebrow">${esc(label(`${card.key}Title`))}</p>
@@ -520,11 +523,13 @@ function renderCityVisual(city, size) {
   const shape = visual.shape || "plain";
   const glyph = provinceGlyph(city);
   const accent = visual.accent || "#35584a";
+  const image = visual.image ? rootUrl(visual.image) : "";
   const title = text(city.landmark || city.name);
   const food = text(city.food || city.tags?.[2] || "");
   const region = text(city.region);
   return `
-    <span class="city-visual city-visual--${esc(size)} city-visual--${esc(shape)}" style="--city-accent: ${esc(accent)};" aria-hidden="true">
+    <span class="city-visual city-visual--${esc(size)} city-visual--${esc(shape)} ${image ? "city-visual--with-image" : ""}" style="--city-accent: ${esc(accent)};" aria-hidden="true">
+      ${image ? `<img class="city-visual__image" src="${esc(image)}" alt="" loading="lazy">` : ""}
       <span class="city-visual__wash"></span>
       <span class="city-visual__sun"></span>
       <span class="city-visual__scape">

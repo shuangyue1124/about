@@ -180,6 +180,7 @@ export const homeCards = [
   {
     key: "about",
     art: "mountain",
+    image: "assets/images/region-inner-mongolia.png",
     title: {
       zh: "高中生一枚，网名「朔风霜月」",
       ja: "高校生の「朔風霜月」です",
@@ -218,6 +219,7 @@ export const homeCards = [
   {
     key: "games",
     art: "river",
+    image: "assets/images/region-hunan-hubei.png",
     title: {
       zh: "游戏里也在到处旅行",
       ja: "ゲームの世界でも旅を続けています",
@@ -237,6 +239,7 @@ export const homeCards = [
   {
     key: "travel",
     art: "pagoda",
+    image: "assets/images/region-henan.png",
     title: {
       zh: "已经点亮 32 座城市",
       ja: "これまで32都市を訪問",
@@ -256,6 +259,7 @@ export const homeCards = [
   {
     key: "github",
     art: "seal",
+    image: "assets/images/region-northwest.png",
     title: {
       zh: "把想法整理成能打开的网页和小工具",
       ja: "アイデアを開けるページや小さなツールにします",
@@ -844,6 +848,24 @@ const cityDetails = {
 };
 
 const accentCycle = ["#35584a", "#4f7d72", "#b95f37", "#c1943d", "#6c7650", "#7b684d"];
+const regionalImages = {
+  default: "assets/images/region-north-china.png",
+  "内蒙古": "assets/images/region-inner-mongolia.png",
+  "河南": "assets/images/region-henan.png",
+  "河北": "assets/images/region-north-china.png",
+  "山西": "assets/images/region-north-china.png",
+  "北京": "assets/images/region-north-china.png",
+  "天津": "assets/images/region-north-china.png",
+  "辽宁": "assets/images/region-liaoning.png",
+  "江苏": "assets/images/region-east-coast.png",
+  "山东": "assets/images/region-east-coast.png",
+  "福建": "assets/images/region-east-coast.png",
+  "湖北": "assets/images/region-hunan-hubei.png",
+  "湖南": "assets/images/region-hunan-hubei.png",
+  "陕西": "assets/images/region-northwest.png",
+  "甘肃": "assets/images/region-northwest.png",
+  "日本": "assets/images/region-japan.png",
+};
 
 function enrichStop(stop, index = 0) {
   const detail = cityDetails[stop.slug] || {};
@@ -858,6 +880,7 @@ function enrichStop(stop, index = 0) {
     glyph: detail.glyph || textFirst(stop.name).replace(/[市区县]$/u, "").slice(0, 1),
     accent: detail.accent || accentCycle[index % accentCycle.length],
   };
+  stop.visual.image ||= regionalImages[textFirst(stop.region)] || regionalImages.default;
   stop.notes ||= {
     scenery: c(
       `${textFirst(stop.landmark)} 是这座城市的水墨主景，负责撑起第一眼的轮廓。`,
@@ -891,6 +914,7 @@ Object.assign(japanPlan, {
     shape: cityDetails.japan.shape,
     glyph: cityDetails.japan.glyph,
     accent: cityDetails.japan.accent,
+    image: regionalImages["日本"],
   },
   notes: {
     scenery: c("用电车、鸟居和富士山远影做占位，不提前写死具体城市。", "電車、鳥居、富士山の遠影で、具体的な都市を決めずに置いておきます。", "Trains, torii, and a distant Mount Fuji hold the page without fixing the route."),
