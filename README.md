@@ -119,6 +119,17 @@ npx wrangler kv namespace create COMMENTS_KV
 
 登录态使用 HttpOnly Cookie 保存 24 小时，Cookie 签名由 `ADMIN_PASSWORD` 派生。没有配置 `ADMIN_PASSWORD` 时，后台登录会返回 `ADMIN_PASSWORD is not configured`。
 
+## 字体
+
+站点已内置自托管字体文件，放在 `assets/fonts/`：
+
+- `SFSY Inter`：来自开源字体 Inter，用作 Claude 风格无衬线近似字体
+- `SFSY Source Serif 4`：来自开源字体 Source Serif 4，用作 Claude 风格衬线近似字体
+
+CSS 会优先使用这些本地 woff2 文件，然后回退到 `Styrene B` / `Tiempos Text`、系统字体和中文字体。中文正文仍主要使用系统中文字体回退，避免打包大型中文字体文件。
+
+注意：仓库没有打包 Claude.ai 使用的商业字体原文件。若你拥有合法授权的 `Styrene B` / `Tiempos Text` 字体文件，可以再替换 `assets/fonts/` 中的文件和 `@font-face` 配置。
+
 当前仓库已经绑定的 Workers KV namespace id：
 
 ```text
