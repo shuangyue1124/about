@@ -225,9 +225,7 @@ function homeCard(card, index) {
   return `
     <article class="feature-card feature-card--${index % 2 === 0 ? "image-left" : "image-right"} ${hasArt ? "" : "feature-card--no-art"}">
       ${hasArt ? `
-        <div class="ink-art ink-art--${card.art}" aria-hidden="true">
-          <span></span>
-        </div>
+        <div class="ink-art ink-art--${card.art}" aria-hidden="true"></div>
       ` : ""}
       <div class="feature-card__text">
         <p class="eyebrow">${esc(label(`${card.key}Title`))}</p>

@@ -587,27 +587,6 @@ input {
   transform: skewY(-3deg);
 }
 
-.ink-art > span {
-  position: absolute;
-  right: 34px;
-  bottom: 32px;
-  width: 58px;
-  height: 58px;
-  border: 2px solid rgba(185, 95, 55, 0.72);
-  border-radius: 6px;
-}
-
-.ink-art > span::before {
-  content: "月";
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: rgba(185, 95, 55, 0.74);
-  font-family: var(--font-serif);
-  font-size: 30px;
-}
-
 .ink-art--moon {
   background:
     radial-gradient(circle at 64% 28%, rgba(209, 181, 111, 0.38) 0 42px, transparent 43px),
