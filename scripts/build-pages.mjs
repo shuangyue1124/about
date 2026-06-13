@@ -6,6 +6,7 @@ import { cities, japanPlan } from "../assets/js/data.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 const outDir = resolve(root, "cities");
+const assetVersion = "20260613-ink-images";
 
 function pageFor(stop) {
   const zhName = stop.name.zh;
@@ -22,12 +23,12 @@ function pageFor(stop) {
     <meta property="og:title" content="${escapeAttr(zhName)} | 朔风霜月旅行足迹">
     <meta property="og:description" content="${escapeAttr(description)}">
     <title>${escapeHtml(zhName)} | 朔风霜月旅行足迹</title>
-    <link rel="stylesheet" href="../assets/css/styles.css?v=20260613-fonts">
+    <link rel="stylesheet" href="../assets/css/styles.css?v=${assetVersion}">
   </head>
   <body data-page="city" data-root=".." data-city="${escapeAttr(stop.slug)}">
     <div id="app"></div>
     <noscript>请启用 JavaScript 以查看城市水墨页。</noscript>
-    <script type="module" src="../assets/js/app.js?v=20260613-fonts"></script>
+    <script type="module" src="../assets/js/app.js?v=${assetVersion}"></script>
   </body>
 </html>
 `;
