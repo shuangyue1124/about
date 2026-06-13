@@ -189,13 +189,11 @@ function render() {
   if (page === "city") {
     app.innerHTML = layout(renderCity());
     bindCommon();
-    setupInkCanvas();
     return;
   }
 
   app.innerHTML = layout(renderHome());
   bindCommon();
-  setupInkCanvas();
 }
 
 function layout(main) {
@@ -245,7 +243,6 @@ function renderHome() {
     <main id="main-content" tabindex="-1">
       <section class="hero hero--home" id="top">
         <div class="hero__painting" aria-hidden="true"></div>
-        <canvas class="hero__mask" id="heroMask" aria-hidden="true"></canvas>
         <div class="hero__content">
           <div class="avatar-ring">
             <img src="${esc(profile.avatar)}" alt="QQ Avatar">
@@ -334,10 +331,11 @@ function homeCard(card, index) {
   const tags = card.tags[lang] || card.tags.zh;
   const hasArt = card.art && card.art !== "none";
   const image = card.image ? rootUrl(card.image) : "";
+  const imageStyle = image ? ` style="--ink-art-image: url(${esc(image)});"` : "";
   return `
     <article class="feature-card feature-card--${index % 2 === 0 ? "image-left" : "image-right"} ${hasArt ? "" : "feature-card--no-art"}">
       ${hasArt ? `
-        <div class="ink-art ink-art--${card.art}" aria-hidden="true">
+        <div class="ink-art ink-art--${card.art}"${imageStyle} aria-hidden="true">
           ${image ? `<img src="${esc(image)}" alt="" loading="lazy">` : ""}
         </div>
       ` : ""}
@@ -521,22 +519,16 @@ function renderCity() {
 function renderCityVisual(city, size) {
   const visual = city.visual || {};
   const shape = visual.shape || "plain";
-  const glyph = provinceGlyph(city);
   const accent = visual.accent || "#35584a";
   const image = visual.image ? rootUrl(visual.image) : "";
+  const imageStyle = image ? ` --city-image: url(${esc(image)});` : "";
   const title = text(city.landmark || city.name);
   const food = text(city.food || city.tags?.[2] || "");
   const region = text(city.region);
   return `
-    <span class="city-visual city-visual--${esc(size)} city-visual--${esc(shape)} ${image ? "city-visual--with-image" : ""}" style="--city-accent: ${esc(accent)};" aria-hidden="true">
+    <span class="city-visual city-visual--${esc(size)} city-visual--${esc(shape)} ${image ? "city-visual--with-image" : ""}" style="--city-accent: ${esc(accent)};${imageStyle}" aria-hidden="true">
       ${image ? `<img class="city-visual__image" src="${esc(image)}" alt="" loading="lazy">` : ""}
       <span class="city-visual__wash"></span>
-      <span class="city-visual__sun"></span>
-      <span class="city-visual__scape">
-        <span class="city-visual__line city-visual__line--one"></span>
-        <span class="city-visual__line city-visual__line--two"></span>
-        <span class="city-visual__mark" data-glyph="${esc(glyph)}"></span>
-      </span>
       <span class="city-visual__caption">${esc(title)}</span>
       <span class="city-visual__food">${esc(food)}</span>
       <span class="city-visual__region">${esc(region)}</span>
@@ -790,118 +782,6 @@ function commentTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
-}
-
-function setupInkCanvas() {
-  const hero = document.querySelector(".hero, .city-hero");
-  const canvas = document.getElementById("heroMask");
-  if (
-    !hero ||
-    !canvas ||
-    !window.matchMedia("(hover: hover)").matches ||
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  ) {
-    return;
-  }
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const stamps = [];
-  let w = 0;
-  let h = 0;
-  let last = null;
-  let running = false;
-
-  function resize() {
-    const rect = hero.getBoundingClientRect();
-    w = rect.width;
-    h = rect.height;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    paint();
-  }
-
-  function add(x, y) {
-    if (stamps.length > 120) stamps.shift();
-    stamps.push({ x, y, born: performance.now(), r: 92 + Math.random() * 48 });
-  }
-
-  function trail(x, y) {
-    if (!last) {
-      add(x, y);
-      last = { x, y };
-      return;
-    }
-    const dx = x - last.x;
-    const dy = y - last.y;
-    const dist = Math.hypot(dx, dy);
-    const steps = Math.max(1, Math.ceil(dist / 18));
-    for (let i = 1; i <= steps; i += 1) add(last.x + (dx * i) / steps, last.y + (dy * i) / steps);
-    last = { x, y };
-  }
-
-  function paint() {
-    ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = "rgb(252, 250, 248)";
-    ctx.fillRect(0, 0, w, h);
-  }
-
-  function carve(stamp, alpha, radius) {
-    const gradient = ctx.createRadialGradient(stamp.x, stamp.y, radius * 0.2, stamp.x, stamp.y, radius);
-    gradient.addColorStop(0, `rgba(0,0,0,${0.9 * alpha})`);
-    gradient.addColorStop(0.65, `rgba(0,0,0,${0.65 * alpha})`);
-    gradient.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    for (let i = 0; i <= 28; i += 1) {
-      const a = (i / 28) * Math.PI * 2;
-      const wobble = 0.82 + 0.11 * Math.sin(a * 3 + stamp.r) + 0.07 * Math.sin(a * 8);
-      const x = stamp.x + Math.cos(a) * radius * wobble;
-      const y = stamp.y + Math.sin(a) * radius * wobble;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  function loop() {
-    paint();
-    ctx.globalCompositeOperation = "destination-out";
-    const now = performance.now();
-    for (let i = stamps.length - 1; i >= 0; i -= 1) {
-      const age = (now - stamps[i].born) / 620;
-      if (age >= 1) {
-        stamps.splice(i, 1);
-        continue;
-      }
-      carve(stamps[i], 1 - age * age, 10 + stamps[i].r * (1 - Math.pow(1 - age, 3)));
-    }
-    if (stamps.length) requestAnimationFrame(loop);
-    else running = false;
-  }
-
-  function start() {
-    if (!running) {
-      running = true;
-      requestAnimationFrame(loop);
-    }
-  }
-
-  resize();
-  window.addEventListener("resize", resize, { passive: true });
-  hero.addEventListener("mousemove", (event) => {
-    const rect = hero.getBoundingClientRect();
-    trail(event.clientX - rect.left, event.clientY - rect.top);
-    start();
-  });
-  hero.addEventListener("mouseleave", () => {
-    last = null;
-  });
 }
 
 loadSiteSettings().finally(render);
