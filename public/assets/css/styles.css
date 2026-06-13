@@ -14,9 +14,9 @@
   --gold: #d1b56f;
   --white: #fffdf8;
   --shadow: 0 22px 60px rgba(38, 37, 30, 0.12);
-  --font-sans: "PingFang SC", "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
-  --font-serif: "Noto Serif SC", "Songti SC", STSong, Georgia, serif;
-  --font-display: "Questrial", "Avenir Next", "MiSans", var(--font-sans);
+  --font-sans: "Styrene B", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-serif: "Tiempos Text", "Noto Serif SC", "Songti SC", STSong, Georgia, serif;
+  --font-display: "Styrene B", "Inter", "MiSans", var(--font-sans);
 }
 
 * {
@@ -1091,6 +1091,16 @@ button.contact-link {
   font-size: 13px;
 }
 
+.comment-notice {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  color: var(--green-dark);
+  background: rgba(231, 238, 231, 0.78);
+  border: 1px solid rgba(53, 88, 74, 0.14);
+  border-radius: 8px;
+  line-height: 1.65;
+}
+
 .comment-list {
   display: grid;
   gap: 12px;
@@ -1489,6 +1499,194 @@ button.contact-link {
   color: rgba(38, 37, 30, 0.28);
 }
 
+.admin-shell {
+  width: min(1120px, calc(100% - 48px));
+  margin: 58px auto 84px;
+}
+
+.admin-hero {
+  display: grid;
+  gap: 14px;
+  padding: 46px;
+  background: rgba(255, 253, 248, 0.76);
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.admin-hero h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(38px, 6vw, 68px);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.admin-hero p,
+.admin-panel p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.admin-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.72fr) minmax(340px, 1fr);
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.admin-panel {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+  background: rgba(255, 253, 248, 0.72);
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  border-radius: 8px;
+}
+
+.admin-panel h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.admin-form,
+.admin-fieldset {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-fieldset {
+  padding: 0;
+  border: 0;
+}
+
+.admin-fieldset legend {
+  margin-bottom: 2px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.admin-form label,
+.admin-toggle {
+  display: grid;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-form input,
+.admin-form textarea {
+  width: 100%;
+  color: var(--ink);
+  background: var(--white);
+  border: 1px solid rgba(38, 37, 30, 0.16);
+  border-radius: 8px;
+  outline: 0;
+}
+
+.admin-form input {
+  height: 46px;
+  padding: 0 14px;
+}
+
+.admin-form textarea {
+  min-height: 86px;
+  padding: 12px 14px;
+  resize: vertical;
+}
+
+.admin-form input:focus,
+.admin-form textarea:focus {
+  border-color: rgba(53, 88, 74, 0.55);
+  box-shadow: 0 0 0 3px rgba(53, 88, 74, 0.12);
+}
+
+.admin-toggle {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-height: 48px;
+  padding: 12px 14px;
+  background: var(--paper-deep);
+  border-radius: 8px;
+}
+
+.admin-toggle input {
+  width: 20px;
+  height: 20px;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.admin-status {
+  min-height: 20px;
+  margin: 0;
+  color: var(--green-dark);
+  font-size: 13px;
+}
+
+.admin-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-comment {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  background: var(--paper-deep);
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  border-radius: 8px;
+}
+
+.admin-comment__head,
+.admin-comment__meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.admin-comment__head strong {
+  overflow-wrap: anywhere;
+}
+
+.admin-comment__meta,
+.admin-comment small {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+
+.admin-comment p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.btn--danger {
+  color: var(--cinnabar);
+  border-color: rgba(185, 95, 55, 0.36);
+}
+
+.btn--danger:hover {
+  color: var(--paper);
+  background: var(--cinnabar);
+  border-color: var(--cinnabar);
+}
+
+.admin-hidden {
+  display: none !important;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -1522,7 +1720,8 @@ button.contact-link {
   .travel-hero,
   .city-hero,
   .city-details,
-  .story-grid {
+  .story-grid,
+  .admin-layout {
     grid-template-columns: 1fr;
   }
 
@@ -1616,7 +1815,8 @@ button.contact-link {
   .timeline,
   .city-hero,
   .city-details,
-  .city-pager {
+  .city-pager,
+  .admin-shell {
     width: min(100% - 28px, 1120px);
   }
 
@@ -1637,7 +1837,8 @@ button.contact-link {
   }
 
   .travel-hero,
-  .city-hero {
+  .city-hero,
+  .admin-hero {
     margin-top: 28px;
     padding: 24px;
   }

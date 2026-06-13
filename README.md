@@ -1,6 +1,6 @@
 # 朔风霜月 NFC 名片站
 
-多文件静态站，支持 Cloudflare Pages / Workers 部署。页面包含 NFC 名片、三语切换、QQ 头像同步、旅行城市页和首页留言区。
+多文件静态站，支持 Cloudflare Pages / Workers 部署。页面包含 NFC 名片、三语切换、QQ 头像同步、旅行城市页、首页留言区和管理员后台。
 
 ## 本地预览
 
@@ -21,6 +21,13 @@ npx wrangler dev
 
 静态预览只能看页面，评论提交需要 Worker 环境和存储绑定。
 
+本地预览管理员后台时，需要给 Wrangler 设置临时变量：
+
+```powershell
+$env:ADMIN_PASSWORD="你的管理员密码"
+npx wrangler dev
+```
+
 ## 部署
 
 Workers 部署：
@@ -37,7 +44,11 @@ npm run deploy
 - `/travel/index.html`
 - `/cities/<slug>`
 - `/cities/<slug>.html`
+- `/admin`
+- `/admin.html`
+- `/api/site`
 - `/api/comments`
+- `/api/admin/*`
 
 Cloudflare Pages 也可以部署，构建设置为：
 
@@ -45,10 +56,17 @@ Cloudflare Pages 也可以部署，构建设置为：
 - Build output directory: `public`
 - Root directory: 仓库根目录
 
-Pages 部署会使用 `functions/api/comments.js` 提供 `/api/comments`。如果要在 `*.pages.dev` 域名上启用留言写入，需要在 Cloudflare Pages 项目的 Settings -> Functions -> KV namespace bindings 中添加同名绑定：
+Pages 部署会使用 `functions/api/` 下的 Pages Functions 复用 `worker.js` 里的 API 逻辑。如果要在 `*.pages.dev` 域名上启用留言写入和后台设置，需要在 Cloudflare Pages 项目的 Settings -> Functions 中添加：
 
 - Variable name: `COMMENTS_KV`
 - KV namespace: `COMMENTS_KV`
+- Environment variable: `ADMIN_PASSWORD`
+
+Workers 部署时，管理员密码通过 secret 设置：
+
+```powershell
+npx wrangler secret put ADMIN_PASSWORD
+```
 
 ## 留言区存储
 
@@ -87,7 +105,19 @@ npx wrangler kv namespace create COMMENTS_KV
 }
 ```
 
-默认读取和写入 `COMMENTS_KV`。留言列表保存在 `comments:index`，最多保留最近 100 条。
+默认读取和写入 `COMMENTS_KV`。留言列表保存在 `comments:index`，最多保留最近 100 条；站点设置保存在 `site:settings`。
+
+## 管理员后台
+
+访问 `/admin.html` 或 `/admin` 进入后台。后台功能：
+
+- 使用 `ADMIN_PASSWORD` 登录
+- 删除留言
+- 开启或关闭新留言发布
+- 修改首页标题、首页副标题、浏览器标题
+- 设置评论区公告
+
+登录态使用 HttpOnly Cookie 保存 24 小时，Cookie 签名由 `ADMIN_PASSWORD` 派生。没有配置 `ADMIN_PASSWORD` 时，后台登录会返回 `ADMIN_PASSWORD is not configured`。
 
 当前仓库已经绑定的 Workers KV namespace id：
 
@@ -118,6 +148,8 @@ npx wrangler secret put COMMENTS_DB_TOKEN
 - 返回 `[{...}]` 或 `{ "comments": [{...}] }`
 - `POST COMMENTS_DB_URL`
 - 请求体为单条留言 JSON，包含 `id`、`name`、`message`、`ip`、`ipLocation`、`createdAt`
+- `DELETE COMMENTS_DB_URL/<id>`
+- 删除指定留言
 - 如果配置了 `COMMENTS_DB_TOKEN`，请求头会带 `Authorization: Bearer <token>`
 
 也可以设置双写：
@@ -143,6 +175,7 @@ npm run build:pages
 
 ```powershell
 node --check assets/js/app.js
+node --check assets/js/admin.js
 node --check assets/js/data.js
 node --check worker.js
 npm run build:worker

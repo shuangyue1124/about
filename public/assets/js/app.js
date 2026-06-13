@@ -7,6 +7,7 @@ const currentCitySlug = document.body.dataset.city || citySlugFromPath();
 const langKey = "sfsy-lang";
 
 let lang = normalizeLang(localStorage.getItem(langKey)) || detectLang();
+let siteSettings = null;
 
 function normalizeLang(value) {
   if (!value) return "";
@@ -26,6 +27,16 @@ function text(value) {
 
 function label(key) {
   return ui[lang][key] || ui.zh[key] || key;
+}
+
+function settingText(key, fallback) {
+  const value = siteSettings?.[key];
+  if (value && typeof value === "object") return value[lang] || value.zh || fallback;
+  return value || fallback;
+}
+
+function commentsEnabled() {
+  return siteSettings?.commentsEnabled !== false;
 }
 
 function citySlugFromPath() {
@@ -80,6 +91,7 @@ const commentUi = {
     empty: "还没有留言。",
     success: "留言已发布。",
     error: "留言暂时不可用。",
+    disabled: "留言发布暂时关闭，已有留言仍可查看。",
     ip: "IP",
     location: "归属地",
     unknownLocation: "未知归属地",
@@ -97,6 +109,7 @@ const commentUi = {
     empty: "まだコメントはありません。",
     success: "コメントを投稿しました。",
     error: "コメント機能は一時的に利用できません。",
+    disabled: "コメント投稿は一時停止中です。既存のコメントは表示できます。",
     ip: "IP",
     location: "所在地",
     unknownLocation: "所在地不明",
@@ -114,6 +127,7 @@ const commentUi = {
     empty: "No comments yet.",
     success: "Comment posted.",
     error: "Comments are temporarily unavailable.",
+    disabled: "Posting is temporarily closed. Existing comments remain visible.",
     ip: "IP",
     location: "Location",
     unknownLocation: "Unknown location",
@@ -161,7 +175,9 @@ function esc(value) {
 
 function render() {
   document.documentElement.lang = languages.find((item) => item.code === lang)?.html || "zh-CN";
-  document.title = page === "home" ? label("siteTitle") : `${label("travelTitle")} | ${label("heroTitle")}`;
+  document.title = page === "home"
+    ? settingText("documentTitle", label("siteTitle"))
+    : `${label("travelTitle")} | ${settingText("title", label("heroTitle"))}`;
 
   if (page === "travel") {
     app.innerHTML = layout(renderTravel());
@@ -191,7 +207,7 @@ function layout(main) {
           <img src="${esc(profile.avatar)}" alt="" loading="lazy">
         </span>
         <span>
-          <span class="brand__name">${esc(label("heroTitle"))}</span>
+          <span class="brand__name">${esc(settingText("title", label("heroTitle")))}</span>
           <span class="brand__kicker">${esc(label("brandKicker"))}</span>
         </span>
       </a>
@@ -235,8 +251,8 @@ function renderHome() {
             <img src="${esc(profile.avatar)}" alt="QQ Avatar">
           </div>
           <p class="eyebrow">${esc(label("heroMeta"))}</p>
-          <h1>${esc(label("heroTitle"))}</h1>
-          <p class="hero__subtitle">${esc(label("heroSubtitle"))}</p>
+          <h1>${esc(settingText("title", label("heroTitle")))}</h1>
+          <p class="hero__subtitle">${esc(settingText("subtitle", label("heroSubtitle")))}</p>
           ${terminal(profile.githubUrl, `${label("terminalPrompt")} open github.com/${profile.githubUser}`)}
           <div class="hero__actions">
             <a class="btn btn--primary" href="${esc(rootUrl("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a>
@@ -268,12 +284,9 @@ function renderHome() {
 }
 
 function renderCommentsSection() {
-  return `
-    <section class="comments-section" id="comments" data-comments>
-      <div class="section-heading">
-        <p class="eyebrow">${esc(commentLabel("title"))}</p>
-        <h2>${esc(commentLabel("intro"))}</h2>
-      </div>
+  const notice = settingText("notice", "");
+  const form = commentsEnabled()
+    ? `
       <form class="comment-form" id="commentForm" autocomplete="off">
         <label>
           <span>${esc(commentLabel("name"))}</span>
@@ -287,6 +300,17 @@ function renderCommentsSection() {
         <button class="btn btn--primary" type="submit">${esc(commentLabel("submit"))}</button>
         <p class="comment-form__status" id="commentStatus" role="status"></p>
       </form>
+    `
+    : `<p class="comment-notice">${esc(commentLabel("disabled"))}</p>`;
+
+  return `
+    <section class="comments-section" id="comments" data-comments>
+      <div class="section-heading">
+        <p class="eyebrow">${esc(commentLabel("title"))}</p>
+        <h2>${esc(commentLabel("intro"))}</h2>
+      </div>
+      ${notice ? `<p class="comment-notice">${esc(notice)}</p>` : ""}
+      ${form}
       <div class="comment-list" id="commentList" aria-live="polite">
         <p class="comment-list__empty">${esc(commentLabel("loading"))}</p>
       </div>
@@ -431,7 +455,7 @@ function renderCity() {
   const next = stops[index + 1];
   const storyItems = cityStoryItems(city);
   const cityTitle = text(city.name);
-  document.title = `${cityTitle} | ${label("travelTitle")}`;
+  document.title = `${cityTitle} | ${settingText("title", label("heroTitle"))}`;
 
   return `
     <main id="main-content" tabindex="-1">
@@ -662,9 +686,11 @@ function bindComments() {
   const form = document.getElementById("commentForm");
   const list = document.getElementById("commentList");
   const status = document.getElementById("commentStatus");
-  if (!form || !list) return;
+  if (!list) return;
 
   loadComments(list);
+  if (!form) return;
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const submit = form.querySelector("button[type='submit']");
@@ -710,6 +736,17 @@ async function loadComments(list) {
   }
 }
 
+async function loadSiteSettings() {
+  try {
+    const response = await fetch("/api/site", { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error("site settings unavailable");
+    const data = await response.json();
+    if (data.settings && typeof data.settings === "object") siteSettings = data.settings;
+  } catch {
+    siteSettings = null;
+  }
+}
+
 function renderComments(list, comments) {
   if (!comments.length) {
     list.innerHTML = `<p class="comment-list__empty">${esc(commentLabel("empty"))}</p>`;
@@ -733,7 +770,9 @@ function commentItem(comment) {
 }
 
 function commentLocation(comment) {
-  return comment.ipLocation || comment.location || commentLabel("unknownLocation");
+  const value = String(comment.ipLocation || comment.location || "").trim();
+  if (!value || value.toLowerCase() === "unknown location") return commentLabel("unknownLocation");
+  return value;
 }
 
 function commentTime(value) {
@@ -860,4 +899,4 @@ function setupInkCanvas() {
   });
 }
 
-render();
+loadSiteSettings().finally(render);
