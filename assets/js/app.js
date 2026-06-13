@@ -67,6 +67,58 @@ function provinceGlyph(city) {
   return provinceGlyphs.get(region) || city.visual?.glyph || text(city.name).slice(0, 1);
 }
 
+const commentUi = {
+  zh: {
+    title: "留言区",
+    intro: "不用注册，也不用邮箱；写下名字和留言就可以。",
+    name: "名称",
+    message: "留言",
+    namePlaceholder: "怎么称呼你",
+    messagePlaceholder: "写点想说的话",
+    submit: "发布留言",
+    loading: "正在读取留言...",
+    empty: "还没有留言。",
+    success: "留言已发布。",
+    error: "留言暂时不可用。",
+    ip: "IP",
+    time: "时间",
+  },
+  ja: {
+    title: "コメント",
+    intro: "登録やメールは不要です。名前とコメントだけで送れます。",
+    name: "名前",
+    message: "コメント",
+    namePlaceholder: "表示する名前",
+    messagePlaceholder: "書きたいこと",
+    submit: "送信",
+    loading: "コメントを読み込み中...",
+    empty: "まだコメントはありません。",
+    success: "コメントを投稿しました。",
+    error: "コメント機能は一時的に利用できません。",
+    ip: "IP",
+    time: "時間",
+  },
+  en: {
+    title: "Comments",
+    intro: "No signup or email required. Just leave a name and a note.",
+    name: "Name",
+    message: "Comment",
+    namePlaceholder: "How should I call you",
+    messagePlaceholder: "Write a note",
+    submit: "Post Comment",
+    loading: "Loading comments...",
+    empty: "No comments yet.",
+    success: "Comment posted.",
+    error: "Comments are temporarily unavailable.",
+    ip: "IP",
+    time: "Time",
+  },
+};
+
+function commentLabel(key) {
+  return commentUi[lang]?.[key] || commentUi.zh[key] || key;
+}
+
 function fmtDate(date) {
   const [year, month, day] = date.split("-");
   if (lang === "en") return `${year}.${month}.${day}`;
@@ -194,6 +246,8 @@ function renderHome() {
         </div>
       </section>
 
+      ${renderCommentsSection()}
+
       <section class="contact-section" id="contact">
         <div class="section-heading">
           <p class="eyebrow">${esc(label("contactTitle"))}</p>
@@ -204,6 +258,33 @@ function renderHome() {
         </div>
       </section>
     </main>
+  `;
+}
+
+function renderCommentsSection() {
+  return `
+    <section class="comments-section" id="comments" data-comments>
+      <div class="section-heading">
+        <p class="eyebrow">${esc(commentLabel("title"))}</p>
+        <h2>${esc(commentLabel("intro"))}</h2>
+      </div>
+      <form class="comment-form" id="commentForm" autocomplete="off">
+        <label>
+          <span>${esc(commentLabel("name"))}</span>
+          <input name="name" maxlength="32" required placeholder="${esc(commentLabel("namePlaceholder"))}">
+        </label>
+        <label class="comment-form__message">
+          <span>${esc(commentLabel("message"))}</span>
+          <textarea name="message" maxlength="500" rows="5" required placeholder="${esc(commentLabel("messagePlaceholder"))}"></textarea>
+        </label>
+        <input class="comment-form__trap" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <button class="btn btn--primary" type="submit">${esc(commentLabel("submit"))}</button>
+        <p class="comment-form__status" id="commentStatus" role="status"></p>
+      </form>
+      <div class="comment-list" id="commentList" aria-live="polite">
+        <p class="comment-list__empty">${esc(commentLabel("loading"))}</p>
+      </div>
+    </section>
   `;
 }
 
@@ -502,6 +583,7 @@ function bindCommon() {
   });
   bindCopyButtons();
   bindAvatarFallback();
+  bindComments();
 }
 
 function bindAvatarFallback() {
@@ -568,6 +650,92 @@ function bindTravelSearch() {
     const empty = document.querySelector(".no-results");
     if (empty) empty.hidden = shown > 0;
   });
+}
+
+function bindComments() {
+  const form = document.getElementById("commentForm");
+  const list = document.getElementById("commentList");
+  const status = document.getElementById("commentStatus");
+  if (!form || !list) return;
+
+  loadComments(list);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const submit = form.querySelector("button[type='submit']");
+    const formData = new FormData(form);
+    const payload = {
+      name: String(formData.get("name") || "").trim(),
+      message: String(formData.get("message") || "").trim(),
+      website: String(formData.get("website") || ""),
+    };
+
+    if (!payload.name || !payload.message) return;
+    submit.disabled = true;
+    if (status) status.textContent = "";
+
+    try {
+      const response = await fetch("/api/comments", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error("comment failed");
+      form.reset();
+      if (status) status.textContent = commentLabel("success");
+      await loadComments(list);
+    } catch {
+      if (status) status.textContent = commentLabel("error");
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
+async function loadComments(list) {
+  list.innerHTML = `<p class="comment-list__empty">${esc(commentLabel("loading"))}</p>`;
+  try {
+    const response = await fetch("/api/comments?limit=30", { headers: { accept: "application/json" } });
+    if (!response.ok) throw new Error("comments unavailable");
+    const data = await response.json();
+    const comments = Array.isArray(data.comments) ? data.comments : [];
+    renderComments(list, comments);
+  } catch {
+    list.innerHTML = `<p class="comment-list__empty">${esc(commentLabel("error"))}</p>`;
+  }
+}
+
+function renderComments(list, comments) {
+  if (!comments.length) {
+    list.innerHTML = `<p class="comment-list__empty">${esc(commentLabel("empty"))}</p>`;
+    return;
+  }
+
+  list.innerHTML = comments.map(commentItem).join("");
+}
+
+function commentItem(comment) {
+  return `
+    <article class="comment-item">
+      <div class="comment-item__head">
+        <strong>${esc(comment.name || "")}</strong>
+        <span>${esc(commentTime(comment.createdAt))}</span>
+      </div>
+      <p>${esc(comment.message || "")}</p>
+      <small>${esc(commentLabel("ip"))}: ${esc(comment.ip || "unknown")}</small>
+    </article>
+  `;
+}
+
+function commentTime(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat(languages.find((item) => item.code === lang)?.html || "zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 function setupInkCanvas() {

@@ -11,6 +11,15 @@
       "zone_name": "shuangyue.space"
     }
   ],
+  "kv_namespaces": [
+    {
+      "binding": "COMMENTS_KV",
+      "id": "316829b9926e4f09b5faff727b875af7"
+    }
+  ],
+  "vars": {
+    "COMMENTS_STORAGE": "kv"
+  },
   "assets": {
     "directory": "public",
     "binding": "ASSETS",
