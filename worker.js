@@ -65,6 +65,7 @@ export async function handleComments(request, env) {
         name,
         message,
         ip: clientIp(request),
+        ipLocation: clientLocation(request),
         createdAt: new Date().toISOString(),
       };
 
@@ -171,6 +172,7 @@ function publicComment(comment) {
     name: cleanOneLine(comment.name, 32) || "Anonymous",
     message: cleanMessage(comment.message, 500),
     ip: cleanOneLine(comment.ip, 64) || "unknown",
+    ipLocation: cleanOneLine(comment.ipLocation || comment.location, 120) || "Unknown location",
     createdAt: cleanOneLine(comment.createdAt, 40),
   };
 }
@@ -195,6 +197,88 @@ function clientIp(request) {
     request.headers.get("X-Forwarded-For")?.split(",")[0]?.trim() ||
     "unknown"
   );
+}
+
+function clientLocation(request) {
+  const cf = request.cf || {};
+  const parts = [
+    countryName(cf.country),
+    locationName(cf.region),
+    locationName(cf.city),
+  ].filter(Boolean).filter((part, index, list) => list.indexOf(part) === index);
+
+  return parts.length ? parts.join(" / ") : "Unknown location";
+}
+
+function locationName(value) {
+  const text = cleanOneLine(value, 80);
+  if (!text) return "";
+
+  const names = {
+    Anhui: "安徽",
+    Beijing: "北京",
+    Chongqing: "重庆",
+    Fujian: "福建",
+    Gansu: "甘肃",
+    Guangdong: "广东",
+    Guangxi: "广西",
+    Guizhou: "贵州",
+    Hainan: "海南",
+    Hebei: "河北",
+    Heilongjiang: "黑龙江",
+    Henan: "河南",
+    Hubei: "湖北",
+    Hunan: "湖南",
+    "Inner Mongolia": "内蒙古",
+    Jiangsu: "江苏",
+    Jiangxi: "江西",
+    Jilin: "吉林",
+    Liaoning: "辽宁",
+    Ningxia: "宁夏",
+    Qinghai: "青海",
+    Shaanxi: "陕西",
+    Shandong: "山东",
+    Shanghai: "上海",
+    Shanxi: "山西",
+    Sichuan: "四川",
+    Tianjin: "天津",
+    Tibet: "西藏",
+    Xinjiang: "新疆",
+    Yunnan: "云南",
+    Zhejiang: "浙江",
+    Hohhot: "呼和浩特",
+    Baotou: "包头",
+    Chifeng: "赤峰",
+    Ulanqab: "乌兰察布",
+    Wuhan: "武汉",
+    Xiamen: "厦门",
+    Nanjing: "南京",
+    Qingdao: "青岛",
+    Jinan: "济南",
+    Changsha: "长沙",
+    "Zhangjiajie": "张家界",
+    "Xi'an": "西安",
+    Dunhuang: "敦煌",
+    Tokyo: "东京",
+    Osaka: "大阪",
+    Kyoto: "京都",
+  };
+
+  return names[text] || text;
+}
+
+function countryName(code) {
+  const countries = {
+    CN: "中国",
+    HK: "中国香港",
+    MO: "中国澳门",
+    TW: "中国台湾",
+    JP: "日本",
+    KR: "韩国",
+    US: "美国",
+    SG: "新加坡",
+  };
+  return countries[String(code || "").toUpperCase()] || code || "";
 }
 
 function json(data, status = 200) {

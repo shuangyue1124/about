@@ -587,12 +587,6 @@ input {
   transform: skewY(-3deg);
 }
 
-.ink-art--moon {
-  background:
-    radial-gradient(circle at 64% 28%, rgba(209, 181, 111, 0.38) 0 42px, transparent 43px),
-    linear-gradient(180deg, #fbf5eb, #e9efe7);
-}
-
 .ink-art--river,
 .ink-art--sea,
 .ink-art--lake,

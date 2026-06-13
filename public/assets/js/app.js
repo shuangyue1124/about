@@ -81,6 +81,8 @@ const commentUi = {
     success: "留言已发布。",
     error: "留言暂时不可用。",
     ip: "IP",
+    location: "归属地",
+    unknownLocation: "未知归属地",
     time: "时间",
   },
   ja: {
@@ -96,6 +98,8 @@ const commentUi = {
     success: "コメントを投稿しました。",
     error: "コメント機能は一時的に利用できません。",
     ip: "IP",
+    location: "所在地",
+    unknownLocation: "所在地不明",
     time: "時間",
   },
   en: {
@@ -111,6 +115,8 @@ const commentUi = {
     success: "Comment posted.",
     error: "Comments are temporarily unavailable.",
     ip: "IP",
+    location: "Location",
+    unknownLocation: "Unknown location",
     time: "Time",
   },
 };
@@ -721,9 +727,13 @@ function commentItem(comment) {
         <span>${esc(commentTime(comment.createdAt))}</span>
       </div>
       <p>${esc(comment.message || "")}</p>
-      <small>${esc(commentLabel("ip"))}: ${esc(comment.ip || "unknown")}</small>
+      <small>${esc(commentLabel("ip"))}: ${esc(comment.ip || "unknown")} · ${esc(commentLabel("location"))}: ${esc(commentLocation(comment))}</small>
     </article>
   `;
+}
+
+function commentLocation(comment) {
+  return comment.ipLocation || comment.location || commentLabel("unknownLocation");
 }
 
 function commentTime(value) {

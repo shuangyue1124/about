@@ -59,8 +59,11 @@ Pages 部署会使用 `functions/api/comments.js` 提供 `/api/comments`。如�
 - 留言内容
 - 留言时间
 - 留言者 IP
+- 留言者 IP 归属地
 
-注意：当前需求要求公开显示留言者 IP。上线前请确认这符合你的隐私预期。
+IP 归属地来自 Cloudflare 请求信息，优先显示国家 / 地区 / 城市；常见英文地名会在服务端转为中文显示。如果 Cloudflare 没有提供对应字段，会显示未知归属地。
+
+注意：当前需求要求公开显示留言者 IP 和归属地。上线前请确认这符合你的隐私预期。
 
 ### Cloudflare KV
 
@@ -114,7 +117,7 @@ npx wrangler secret put COMMENTS_DB_TOKEN
 - `GET COMMENTS_DB_URL?limit=30`
 - 返回 `[{...}]` 或 `{ "comments": [{...}] }`
 - `POST COMMENTS_DB_URL`
-- 请求体为单条留言 JSON
+- 请求体为单条留言 JSON，包含 `id`、`name`、`message`、`ip`、`ipLocation`、`createdAt`
 - 如果配置了 `COMMENTS_DB_TOKEN`，请求头会带 `Authorization: Bearer <token>`
 
 也可以设置双写：
