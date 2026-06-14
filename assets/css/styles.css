@@ -425,6 +425,15 @@ input {
   line-height: 1.62;
 }
 
+.hero__motto {
+  margin: -10px 0 0;
+  max-width: 760px;
+  color: rgba(38, 37, 30, 0.74);
+  font-family: var(--font-serif);
+  font-size: clamp(15px, 1.7vw, 18px);
+  line-height: 1.72;
+}
+
 .terminal {
   display: flex;
   align-items: center;

@@ -6,7 +6,7 @@ import { cities, japanPlan } from "../assets/js/data.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 const outDir = resolve(root, "cities");
-const assetVersion = "20260613-full-images";
+const assetVersion = "20260614-varied-images";
 
 function pageFor(stop) {
   const zhName = stop.name.zh;

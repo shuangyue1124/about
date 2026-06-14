@@ -31,6 +31,7 @@ export const ui = {
     skipToContent: "跳到主要内容",
     heroTitle: "朔风霜月",
     heroSubtitle: "在像素世界、旅途与代码里收集灵感。",
+    homeMotto: "我们是自己生活的导演，而不是只负责出演的演员。所以，放心大胆地去做吧，不必在意他人的目光，人生只为自己而活。",
     heroMeta: "16 岁 · 学生 · 呼和浩特",
     terminalPrompt: ">_",
     terminalLabel: "复制 GitHub",
@@ -82,6 +83,7 @@ export const ui = {
     skipToContent: "本文へ移動",
     heroTitle: "朔風霜月",
     heroSubtitle: "ピクセルの世界、旅、コードの中でひらめきを集めています。",
+    homeMotto: "私たちは自分の人生の監督であり、ただ演じるだけの役者ではありません。だから、周りの目を気にせず、安心して大胆に進んでください。人生は自分自身のためにあります。",
     heroMeta: "16歳 · 学生 · フフホト",
     terminalPrompt: ">_",
     terminalLabel: "GitHubをコピー",
@@ -134,6 +136,8 @@ export const ui = {
     heroTitle: "Shuofeng Shuanyue",
     heroSubtitle:
       "Collecting sparks from pixel worlds, open roads, and code.",
+    homeMotto:
+      "We are the directors of our own lives, not actors who only play a part. So go ahead boldly, without worrying about how others see you. Our lives are for ourselves.",
     heroMeta: "16 · Student · Hohhot",
     terminalPrompt: ">_",
     terminalLabel: "Copy GitHub",
@@ -180,7 +184,7 @@ export const homeCards = [
   {
     key: "about",
     art: "mountain",
-    image: "assets/images/region-inner-mongolia.png",
+    image: "assets/images/home/about.png",
     title: {
       zh: "高中生一枚，网名「朔风霜月」",
       ja: "高校生の「朔風霜月」です",
@@ -200,7 +204,7 @@ export const homeCards = [
   {
     key: "anime",
     art: "japan",
-    image: "assets/images/region-japan.png",
+    image: "assets/images/home/anime.png",
     title: {
       zh: "喜欢新海诚式的天空，也喜欢战争题材的锋利感",
       ja: "新海誠の空と、戦争ものの鋭さが好きです",
@@ -220,7 +224,7 @@ export const homeCards = [
   {
     key: "games",
     art: "river",
-    image: "assets/images/region-hunan-hubei.png",
+    image: "assets/images/home/games.png",
     title: {
       zh: "游戏里也在到处旅行",
       ja: "ゲームの世界でも旅を続けています",
@@ -240,7 +244,7 @@ export const homeCards = [
   {
     key: "travel",
     art: "pagoda",
-    image: "assets/images/region-henan.png",
+    image: "assets/images/home/travel.png",
     title: {
       zh: "已经点亮 32 座城市",
       ja: "これまで32都市を訪問",
@@ -260,7 +264,7 @@ export const homeCards = [
   {
     key: "github",
     art: "seal",
-    image: "assets/images/region-northwest.png",
+    image: "assets/images/home/github.png",
     title: {
       zh: "把想法整理成能打开的网页和小工具",
       ja: "アイデアを開けるページや小さなツールにします",
@@ -868,6 +872,54 @@ const regionalImages = {
   "日本": "assets/images/region-japan.png",
 };
 
+const cityImages = {
+  "japan-2026": "assets/images/cities/japan-train-fuji-torii.png",
+  luoyang: "assets/images/cities/henan-longmen-peony.png",
+  zhengzhou: "assets/images/cities/henan-yellow-river-songdu.png",
+  kaifeng: "assets/images/cities/henan-yellow-river-songdu.png",
+  xinxiang: "assets/images/cities/henan-taihang-buddha.png",
+  jiaozuo: "assets/images/cities/henan-taihang-buddha.png",
+  pingdingshan: "assets/images/cities/henan-taihang-buddha.png",
+  zhumadian: "assets/images/cities/henan-wolong-lake.png",
+  nanyang: "assets/images/cities/henan-wolong-lake.png",
+  shuozhou: "assets/images/cities/shanxi-pagoda-caves.png",
+  taiyuan: "assets/images/cities/shanxi-pagoda-caves.png",
+  datong: "assets/images/cities/shanxi-pagoda-caves.png",
+  changzhi: "assets/images/cities/changzhi-taihang-canyon.png",
+  baoding: "assets/images/cities/shanxi-courtyard-wall.png",
+  jincheng: "assets/images/cities/shanxi-courtyard-wall.png",
+  jinzhong: "assets/images/cities/shanxi-courtyard-wall.png",
+  beijing: "assets/images/cities/north-palace-resort.png",
+  chengde: "assets/images/cities/north-palace-resort.png",
+  langfang: "assets/images/cities/hebei-plain-oldtown.png",
+  shijiazhuang: "assets/images/cities/hebei-plain-oldtown.png",
+  zhangjiakou: "assets/images/cities/hebei-corridor-coast-pass.png",
+  qinhuangdao: "assets/images/cities/hebei-corridor-coast-pass.png",
+  tianjin: "assets/images/cities/tianjin-eye-river.png",
+  yingkou: "assets/images/cities/liaoning-harbor-estuary.png",
+  jinzhou: "assets/images/cities/liaoning-harbor-estuary.png",
+  panjin: "assets/images/cities/panjin-red-beach.png",
+  chaoyang: "assets/images/cities/chaoyang-phoenix-fossil.png",
+  hohhot: "assets/images/cities/hohhot-qingcheng-temple.png",
+  chifeng: "assets/images/cities/chifeng-red-hills-grassland.png",
+  ulanchab: "assets/images/cities/ulanchab-volcano-grassland.png",
+  suizhou: "assets/images/cities/hubei-bells-citywall.png",
+  jingmen: "assets/images/cities/hubei-bells-citywall.png",
+  jingzhou: "assets/images/cities/hubei-bells-citywall.png",
+  xianning: "assets/images/cities/xianning-hot-spring.png",
+  wuhan: "assets/images/cities/wuhan-yangtze-tower.png",
+  changsha: "assets/images/cities/changsha-yuelu-xiangjiang.png",
+  zhangjiajie: "assets/images/cities/zhangjiajie-pillars.png",
+  taian: "assets/images/cities/taian-mount-tai.png",
+  jinan: "assets/images/cities/jinan-springs.png",
+  qingdao: "assets/images/cities/shandong-coast-pavilion.png",
+  yantai: "assets/images/cities/shandong-coast-pavilion.png",
+  nanjing: "assets/images/cities/nanjing-mausoleum-wall.png",
+  xiamen: "assets/images/cities/xiamen-gulangyu-island.png",
+  xian: "assets/images/cities/xian-terracotta-wall.png",
+  dunhuang: "assets/images/cities/dunhuang-mogao-crescent.png",
+};
+
 function enrichStop(stop, index = 0) {
   const detail = cityDetails[stop.slug] || {};
   if (detail.summary) stop.summary = detail.summary;
@@ -881,7 +933,7 @@ function enrichStop(stop, index = 0) {
     glyph: detail.glyph || textFirst(stop.name).replace(/[市区县]$/u, "").slice(0, 1),
     accent: detail.accent || accentCycle[index % accentCycle.length],
   };
-  stop.visual.image ||= regionalImages[textFirst(stop.region)] || regionalImages.default;
+  stop.visual.image ||= cityImages[stop.slug] || regionalImages[textFirst(stop.region)] || regionalImages.default;
   stop.notes ||= {
     scenery: c(
       `${textFirst(stop.landmark)} 是这座城市的水墨主景，负责撑起第一眼的轮廓。`,
@@ -915,7 +967,7 @@ Object.assign(japanPlan, {
     shape: cityDetails.japan.shape,
     glyph: cityDetails.japan.glyph,
     accent: cityDetails.japan.accent,
-    image: regionalImages["日本"],
+    image: cityImages["japan-2026"] || regionalImages["日本"],
   },
   notes: {
     scenery: c("用电车、鸟居和富士山远影做占位，不提前写死具体城市。", "電車、鳥居、富士山の遠影で、具体的な都市を決めずに置いておきます。", "Trains, torii, and a distant Mount Fuji hold the page without fixing the route."),

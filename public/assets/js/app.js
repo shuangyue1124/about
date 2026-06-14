@@ -250,6 +250,7 @@ function renderHome() {
           <p class="eyebrow">${esc(label("heroMeta"))}</p>
           <h1>${esc(settingText("title", label("heroTitle")))}</h1>
           <p class="hero__subtitle">${esc(settingText("subtitle", label("heroSubtitle")))}</p>
+          <p class="hero__motto">${esc(label("homeMotto"))}</p>
           ${terminal(profile.githubUrl, `${label("terminalPrompt")} open github.com/${profile.githubUser}`)}
           <div class="hero__actions">
             <a class="btn btn--primary" href="${esc(rootUrl("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a>
