@@ -6,6 +6,7 @@ import { cities, homeCards, japanPlan, ui } from "../assets/js/data.js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const assetVersion = "20260614-varied-images";
 const origin = readArg("--origin");
+const remoteTimeoutMs = 30000;
 
 const failures = [];
 const checkedFiles = new Set();
@@ -46,7 +47,8 @@ async function assertContains(path, expected) {
 }
 
 async function assertRemoteAsset(url, contentTypePrefix) {
-  const response = await fetch(`${url}${url.includes("?") ? "&" : "?"}verify=${Date.now()}`);
+  const response = await fetchWithRetry(`${url}${url.includes("?") ? "&" : "?"}verify=${Date.now()}`);
+  if (!response) return;
   if (!response.ok) {
     fail(`${url} returned ${response.status}`);
     return;
@@ -56,6 +58,20 @@ async function assertRemoteAsset(url, contentTypePrefix) {
   if (!contentType.startsWith(contentTypePrefix)) {
     fail(`${url} returned content-type ${contentType}`);
   }
+}
+
+async function fetchWithRetry(url, attempts = 2) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fetch(url, { signal: AbortSignal.timeout(remoteTimeoutMs) });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  fail(`${url} could not be fetched: ${lastError?.message || "unknown error"}`);
+  return null;
 }
 
 async function main() {
@@ -112,8 +128,10 @@ async function main() {
 
   if (origin) {
     const normalizedOrigin = origin.replace(/\/$/, "");
-    const homeResponse = await fetch(`${normalizedOrigin}/?verify=${Date.now()}`);
-    if (!homeResponse.ok) {
+    const homeResponse = await fetchWithRetry(`${normalizedOrigin}/?verify=${Date.now()}`);
+    if (!homeResponse) {
+      // fetchWithRetry records the failure.
+    } else if (!homeResponse.ok) {
       fail(`${normalizedOrigin}/ returned ${homeResponse.status}`);
     } else {
       const html = await homeResponse.text();
