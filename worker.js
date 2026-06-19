@@ -572,11 +572,16 @@ async function moderateComment(env, config, comment) {
     return { safe: false, model, raw: {}, categories: [], reason: "Workers AI binding is not configured.", error: "missing AI binding" };
   }
 
-  const content = `Name: ${comment.name}\nComment: ${comment.message}`;
+  const content = [
+    "Classify this user-submitted guestbook comment.",
+    "Return safe or unsafe and any unsafe categories.",
+    "",
+    `Name: ${comment.name}`,
+    `Comment: ${comment.message}`,
+  ].join("\n");
   try {
     const result = await env.AI.run(model, {
       messages: [
-        { role: "system", content: "Classify this user-submitted guestbook comment. Return safe or unsafe and any unsafe categories." },
         { role: "user", content },
       ],
     });
