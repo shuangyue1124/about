@@ -568,6 +568,9 @@ async function verifyTurnstile(request, env, token) {
 
 async function moderateComment(env, config, comment) {
   const model = cleanOneLine(config.aiModel, 120) || DEFAULT_MODERATION_MODEL;
+  const local = localModerationCheck(comment);
+  if (!local.safe) return local;
+
   if (!env.AI?.run) {
     return { safe: false, model, raw: {}, categories: [], reason: "Workers AI binding is not configured.", error: "missing AI binding" };
   }
@@ -575,6 +578,7 @@ async function moderateComment(env, config, comment) {
   const content = [
     "Classify this user-submitted guestbook comment.",
     "Return safe or unsafe and any unsafe categories.",
+    "Treat direct insults, profanity, personal attacks, harassment, threats, sexual content, hate, spam, and abuse as unsafe.",
     "",
     `Name: ${comment.name}`,
     `Comment: ${comment.message}`,
@@ -597,6 +601,47 @@ async function moderateComment(env, config, comment) {
       error: error?.message || "AI moderation failed",
     };
   }
+}
+
+function localModerationCheck(comment) {
+  const text = `${comment.name || ""}\n${comment.message || ""}`.toLowerCase();
+  const abusivePatterns = [
+    /f[\W_]*u[\W_]*c[\W_]*k/i,
+    /\bshit\b/i,
+    /\bbitch\b/i,
+    /\basshole\b/i,
+    /\bcunt\b/i,
+    /\bdick\b/i,
+    /\bidiot\b/i,
+    /\bmoron\b/i,
+    /\bretard\b/i,
+    /\bnmsl\b/i,
+    /\bcnm\b/i,
+    /傻[逼比屄]/,
+    /煞笔/,
+    /操你/,
+    /草你/,
+    /艹你/,
+    /妈的/,
+    /你妈/,
+    /几把/,
+    /鸡巴/,
+    /滚/,
+    /废物/,
+    /垃圾/,
+  ];
+
+  const matched = abusivePatterns.find((pattern) => pattern.test(text));
+  if (!matched) return { safe: true };
+
+  return {
+    safe: false,
+    model: "local-abuse-filter",
+    raw: { matched: String(matched) },
+    categories: ["harassment", "profanity"],
+    reason: "Local moderation matched abusive or profane language.",
+    error: "",
+  };
 }
 
 function parseModerationResult(result) {
