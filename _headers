@@ -13,6 +13,12 @@
 /assets/js/*
   Cache-Control: public, max-age=600
 
+/assets/js/admin.js
+  Cache-Control: no-cache
+
+/assets/js/admin-d1.js
+  Cache-Control: no-cache
+
 /assets/img/*
   Cache-Control: public, max-age=600
 
@@ -29,4 +35,10 @@
   Cache-Control: no-cache
 
 /*.html
+  Cache-Control: no-cache
+
+/admin.html
+  Cache-Control: no-cache
+
+/manage.html
   Cache-Control: no-cache

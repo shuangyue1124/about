@@ -9,6 +9,7 @@ await mkdir(out, { recursive: true });
 const entries = [
   "index.html",
   "admin.html",
+  "manage.html",
   "travel",
   "cities",
   "en",

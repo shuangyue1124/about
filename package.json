@@ -6,7 +6,7 @@
     "optimize:images": "node scripts/optimize-images.mjs",
     "build:pages": "node scripts/build-pages.mjs",
     "build:worker": "npm run optimize:images && npm run build:pages && node scripts/prepare-worker-assets.mjs",
-    "deploy": "npm run build:worker && npx wrangler deploy",
+    "deploy": "npm run build:worker && npx wrangler pages deploy public --project-name about --branch main",
     "verify:images": "node scripts/verify-image-assets.mjs",
     "serve": "npx serve ."
   },

@@ -273,7 +273,7 @@ async function adminLogin(request, env) {
 
 async function ensureSchema(env) {
   if (!env.COMMENTS_DB || memory.schemaReady) return;
-  await env.COMMENTS_DB.exec(`
+  await env.COMMENTS_DB.prepare(`
     CREATE TABLE IF NOT EXISTS comments (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -289,14 +289,16 @@ async function ensureSchema(env) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       reviewed_at TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_comments_status_created ON comments (status, created_at DESC);
+    )
+  `).run();
+  await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_status_created ON comments (status, created_at DESC)").run();
+  await env.COMMENTS_DB.prepare(`
     CREATE TABLE IF NOT EXISTS site_config (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    );
-  `);
+    )
+  `).run();
   memory.schemaReady = true;
 }
 
