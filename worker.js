@@ -46,16 +46,37 @@ function assetCandidates(pathname) {
   return [...new Set(paths)];
 }
 
-const COMMENT_INDEX_KEY = "comments:index";
+const LEGACY_COMMENT_INDEX_KEY = "comments:index";
+const APPROVED_COMMENTS_CACHE_KEY = "comments:approved:v1";
 const SITE_SETTINGS_KEY = "site:settings";
+const SITE_CONFIG_KEY = "site";
 const ADMIN_COOKIE_NAME = "sfsy_admin";
 const ADMIN_PASSWORD_KEYS = ["ADMIN_PASSWORD", "ADMIN_SECRET", "SFSY_ADMIN_PASSWORD", "SITE_ADMIN_PASSWORD"];
 const ADMIN_SECRET_STORE_KEYS = ["SECRETS", "SECRET_STORE", "ADMIN_SECRETS"];
+const DEFAULT_MODERATION_MODEL = "@cf/meta/llama-guard-3-8b";
 const MAX_STORED_COMMENTS = 100;
 const DEFAULT_LIST_LIMIT = 30;
 const ADMIN_SESSION_SECONDS = 60 * 60 * 24;
-const DEFAULT_SITE_SETTINGS = {
+const DEFAULT_CACHE_TTL_SECONDS = 60;
+const DEFAULT_MEMORY_TTL_SECONDS = 15;
+const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+
+const memory = {
+  comments: null,
+  commentsExpiresAt: 0,
+  config: null,
+  configExpiresAt: 0,
+  schemaReady: false,
+};
+
+const DEFAULT_SITE_CONFIG = {
   commentsEnabled: true,
+  moderationEnabled: true,
+  migrationEnabled: true,
+  aiModel: DEFAULT_MODERATION_MODEL,
+  approvedCacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
+  memoryCacheTtlSeconds: DEFAULT_MEMORY_TTL_SECONDS,
+  turnstileSiteKey: "",
   title: {
     zh: "朔风霜月",
     ja: "朔風霜月",
@@ -84,32 +105,50 @@ export async function handleComments(request, env) {
   try {
     if (request.method === "GET") {
       const limit = commentLimit(new URL(request.url).searchParams.get("limit"));
-      const comments = await listComments(env, limit);
+      const comments = await listApprovedComments(env, limit);
       return json({ comments });
     }
 
     if (request.method === "POST") {
-      const settings = await loadSiteSettings(env);
-      if (!settings.commentsEnabled) return json({ error: "comments are closed" }, 403);
+      const config = await loadSiteConfig(env);
+      if (!config.commentsEnabled) return json({ error: "comments are closed" }, 403);
 
       const payload = await request.json().catch(() => ({}));
-      if (payload.website) return json({ ok: true }, 202);
+      if (payload.website) return json({ ok: true, status: "pending" }, 202);
 
       const name = cleanOneLine(payload.name, 32);
       const message = cleanMessage(payload.message, 500);
       if (!name || !message) return json({ error: "name and message are required" }, 400);
 
+      const turnstile = await verifyTurnstile(request, env, payload.turnstileToken || payload["cf-turnstile-response"]);
+      if (!turnstile.ok) return json({ error: "turnstile verification failed", codes: turnstile.errorCodes }, turnstile.status);
+
+      const moderation = config.moderationEnabled
+        ? await moderateComment(env, config, { name, message })
+        : { safe: true, model: "", raw: { skipped: true }, categories: [], reason: "" };
+
+      const now = new Date().toISOString();
       const comment = {
         id: crypto.randomUUID(),
         name,
         message,
         ip: clientIp(request),
         ipLocation: clientLocation(request),
-        createdAt: new Date().toISOString(),
+        status: moderation.safe ? "approved" : "pending",
+        moderationModel: moderation.model || config.aiModel,
+        moderationResult: JSON.stringify(moderation.raw || {}),
+        moderationCategories: moderation.categories?.join(", ") || "",
+        moderationReason: moderation.reason || "",
+        moderationError: moderation.error || "",
+        createdAt: now,
+        updatedAt: now,
+        reviewedAt: moderation.safe ? now : "",
       };
 
       await saveComment(env, comment);
-      return json({ comment }, 201);
+      if (comment.status === "approved") await refreshApprovedCommentsCache(env);
+
+      return json({ comment: publicComment(comment), status: comment.status }, comment.status === "approved" ? 201 : 202);
     }
 
     return json({ error: "method not allowed" }, 405);
@@ -121,7 +160,7 @@ export async function handleComments(request, env) {
 export async function handleSite(request, env) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
   if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
-  const settings = await loadSiteSettings(env);
+  const settings = await loadSiteConfig(env);
   return json({ settings: publicSiteSettings(settings) });
 }
 
@@ -153,31 +192,58 @@ export async function handleAdmin(request, env) {
       return json({ ok: true, expiresAt: session.exp * 1000 });
     }
 
-    if (path === "/api/admin/settings" && request.method === "GET") {
-      const settings = await loadSiteSettings(env);
-      return json({ settings });
+    if (path === "/api/admin/health" && request.method === "GET") {
+      return json({ health: await adminHealth(env) });
     }
 
-    if (path === "/api/admin/settings" && request.method === "PUT") {
+    if ((path === "/api/admin/config" || path === "/api/admin/settings") && request.method === "GET") {
+      const config = await loadSiteConfig(env);
+      return json({ config, settings: config });
+    }
+
+    if ((path === "/api/admin/config" || path === "/api/admin/settings") && request.method === "PUT") {
       const payload = await request.json().catch(() => ({}));
-      const current = await loadSiteSettings(env);
-      const settings = sanitizeSiteSettings(payload, current);
-      settings.updatedAt = new Date().toISOString();
-      await saveSiteSettings(env, settings);
-      return json({ settings });
+      const current = await loadSiteConfig(env);
+      const config = sanitizeSiteConfig(payload.config || payload, current);
+      config.updatedAt = new Date().toISOString();
+      await saveSiteConfig(env, config);
+      await refreshApprovedCommentsCache(env);
+      return json({ config, settings: config });
     }
 
     if (path === "/api/admin/comments" && request.method === "GET") {
       const limit = commentLimit(url.searchParams.get("limit") || String(MAX_STORED_COMMENTS));
-      const comments = await listComments(env, limit);
+      const status = cleanOneLine(url.searchParams.get("status"), 20) || "all";
+      const comments = await listAdminComments(env, limit, status);
       return json({ comments });
     }
 
-    if (path.startsWith("/api/admin/comments/") && request.method === "DELETE") {
+    if (path === "/api/admin/migrate-comments" && request.method === "POST") {
+      const config = await loadSiteConfig(env);
+      if (!config.migrationEnabled) return json({ error: "migration is disabled" }, 403);
+      return json({ result: await migrateLegacyComments(env) });
+    }
+
+    if (path.startsWith("/api/admin/comments/")) {
       const id = decodeURIComponent(path.slice("/api/admin/comments/".length));
       if (!id) return json({ error: "comment id is required" }, 400);
-      await deleteComment(env, id);
-      return json({ ok: true });
+
+      if (request.method === "PATCH") {
+        const payload = await request.json().catch(() => ({}));
+        const status = cleanOneLine(payload.status, 20);
+        if (!["approved", "pending", "rejected"].includes(status)) {
+          return json({ error: "invalid comment status" }, 400);
+        }
+        const comment = await updateCommentStatus(env, id, status);
+        if (status !== "pending") await refreshApprovedCommentsCache(env);
+        return json({ comment });
+      }
+
+      if (request.method === "DELETE") {
+        await deleteComment(env, id);
+        await refreshApprovedCommentsCache(env);
+        return json({ ok: true });
+      }
     }
 
     return json({ error: "method not allowed" }, 405);
@@ -205,144 +271,246 @@ async function adminLogin(request, env) {
   });
 }
 
-async function listComments(env, limit) {
-  const store = commentStore(env);
-  if (!store) return [];
-  return (await store.list(limit)).map(publicComment).slice(0, limit);
+async function ensureSchema(env) {
+  if (!env.COMMENTS_DB || memory.schemaReady) return;
+  await env.COMMENTS_DB.exec(`
+    CREATE TABLE IF NOT EXISTS comments (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      message TEXT NOT NULL,
+      ip TEXT NOT NULL DEFAULT 'unknown',
+      ip_location TEXT NOT NULL DEFAULT 'Unknown location',
+      status TEXT NOT NULL DEFAULT 'pending',
+      moderation_model TEXT,
+      moderation_result TEXT,
+      moderation_categories TEXT,
+      moderation_reason TEXT,
+      moderation_error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      reviewed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_comments_status_created ON comments (status, created_at DESC);
+    CREATE TABLE IF NOT EXISTS site_config (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  memory.schemaReady = true;
+}
+
+async function listApprovedComments(env, limit) {
+  const now = Date.now();
+  if (memory.comments && memory.commentsExpiresAt > now) {
+    return memory.comments.slice(0, limit).map(publicComment);
+  }
+
+  const config = await loadSiteConfig(env);
+  if (env.COMMENTS_KV) {
+    const cached = await env.COMMENTS_KV.get(APPROVED_COMMENTS_CACHE_KEY, "json").catch(() => null);
+    if (Array.isArray(cached)) {
+      setMemoryComments(cached, config);
+      return cached.slice(0, limit).map(publicComment);
+    }
+  }
+
+  const comments = env.COMMENTS_DB
+    ? await listD1Comments(env, MAX_STORED_COMMENTS, "approved")
+    : await listLegacyKvComments(env, MAX_STORED_COMMENTS);
+  await writeApprovedCommentsCache(env, comments, config);
+  return comments.slice(0, limit).map(publicComment);
+}
+
+async function listAdminComments(env, limit, status) {
+  if (env.COMMENTS_DB) {
+    return (await listD1Comments(env, limit, status)).map(adminComment);
+  }
+  return (await listLegacyKvComments(env, limit)).map((comment) => adminComment({ ...comment, status: "approved" }));
+}
+
+async function listD1Comments(env, limit, status = "approved") {
+  await ensureSchema(env);
+  const capped = commentLimit(limit);
+  const columns = `
+    id, name, message, ip, ip_location, status, moderation_model, moderation_result,
+    moderation_categories, moderation_reason, moderation_error, created_at, updated_at, reviewed_at
+  `;
+  const query = status && status !== "all"
+    ? env.COMMENTS_DB.prepare(`SELECT ${columns} FROM comments WHERE status = ? ORDER BY created_at DESC LIMIT ?`).bind(status, capped)
+    : env.COMMENTS_DB.prepare(`SELECT ${columns} FROM comments ORDER BY created_at DESC LIMIT ?`).bind(capped);
+  const result = await query.all();
+  return (result.results || []).map(commentFromRow);
 }
 
 async function saveComment(env, comment) {
-  const store = commentStore(env);
-  if (!store) throw new Error("comment storage is not configured");
-  await store.save(comment);
+  if (env.COMMENTS_DB) {
+    await ensureSchema(env);
+    await env.COMMENTS_DB.prepare(`
+      INSERT INTO comments (
+        id, name, message, ip, ip_location, status, moderation_model, moderation_result,
+        moderation_categories, moderation_reason, moderation_error, created_at, updated_at, reviewed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      comment.id,
+      comment.name,
+      comment.message,
+      comment.ip,
+      comment.ipLocation,
+      comment.status,
+      comment.moderationModel || "",
+      comment.moderationResult || "",
+      comment.moderationCategories || "",
+      comment.moderationReason || "",
+      comment.moderationError || "",
+      comment.createdAt,
+      comment.updatedAt,
+      comment.reviewedAt || ""
+    ).run();
+    return;
+  }
+
+  if (!env.COMMENTS_KV) throw new Error("comment storage is not configured");
+  if (comment.status !== "approved") return;
+  const comments = await listLegacyKvComments(env, MAX_STORED_COMMENTS);
+  const next = [comment, ...comments.filter((item) => item.id !== comment.id)].slice(0, MAX_STORED_COMMENTS);
+  await env.COMMENTS_KV.put(LEGACY_COMMENT_INDEX_KEY, JSON.stringify(next));
+}
+
+async function updateCommentStatus(env, id, status) {
+  if (!env.COMMENTS_DB) throw new Error("D1 comment storage is not configured");
+  await ensureSchema(env);
+  const now = new Date().toISOString();
+  const reviewedAt = status === "approved" || status === "rejected" ? now : "";
+  await env.COMMENTS_DB.prepare("UPDATE comments SET status = ?, updated_at = ?, reviewed_at = ? WHERE id = ?")
+    .bind(status, now, reviewedAt, id)
+    .run();
+  const comment = await env.COMMENTS_DB.prepare(`
+    SELECT id, name, message, ip, ip_location, status, moderation_model, moderation_result,
+      moderation_categories, moderation_reason, moderation_error, created_at, updated_at, reviewed_at
+    FROM comments WHERE id = ?
+  `).bind(id).first();
+  if (!comment) throw new Error("comment not found");
+  return adminComment(commentFromRow(comment));
 }
 
 async function deleteComment(env, id) {
-  const store = commentStore(env);
-  if (!store?.delete) throw new Error("comment deletion is not configured");
-  await store.delete(id);
+  if (env.COMMENTS_DB) {
+    await ensureSchema(env);
+    await env.COMMENTS_DB.prepare("DELETE FROM comments WHERE id = ?").bind(id).run();
+    return;
+  }
+
+  if (!env.COMMENTS_KV) throw new Error("comment deletion is not configured");
+  const comments = await listLegacyKvComments(env, MAX_STORED_COMMENTS);
+  const next = comments.filter((item) => String(item.id || "") !== String(id));
+  await env.COMMENTS_KV.put(LEGACY_COMMENT_INDEX_KEY, JSON.stringify(next));
 }
 
-function commentStore(env) {
-  const mode = String(env.COMMENTS_STORAGE || "kv").toLowerCase();
-  const kvStore = env.COMMENTS_KV ? kvCommentStore(env.COMMENTS_KV) : null;
-  const remoteStore = env.COMMENTS_DB_URL ? remoteCommentStore(env) : null;
+async function migrateLegacyComments(env) {
+  if (!env.COMMENTS_DB) throw new Error("D1 comment storage is not configured");
+  if (!env.COMMENTS_KV) throw new Error("legacy KV storage is not configured");
+  await ensureSchema(env);
+  const legacy = await listLegacyKvComments(env, MAX_STORED_COMMENTS);
+  let imported = 0;
+  let skipped = 0;
+  const now = new Date().toISOString();
 
-  if (mode === "remote") return remoteStore || kvStore;
-  if (mode === "dual") return dualCommentStore(remoteStore, kvStore);
-  return kvStore || remoteStore;
+  for (const source of legacy) {
+    const id = cleanOneLine(source.id, 80) || crypto.randomUUID();
+    const result = await env.COMMENTS_DB.prepare(`
+      INSERT OR IGNORE INTO comments (
+        id, name, message, ip, ip_location, status, moderation_model, moderation_result,
+        moderation_categories, moderation_reason, moderation_error, created_at, updated_at, reviewed_at
+      ) VALUES (?, ?, ?, ?, ?, 'approved', 'legacy-kv', ?, '', 'Imported from legacy KV comments:index', '', ?, ?, ?)
+    `).bind(
+      id,
+      cleanOneLine(source.name, 32) || "Anonymous",
+      cleanMessage(source.message, 500),
+      cleanOneLine(source.ip, 64) || "unknown",
+      cleanOneLine(source.ipLocation || source.location, 120) || "Unknown location",
+      JSON.stringify({ source: LEGACY_COMMENT_INDEX_KEY }),
+      cleanOneLine(source.createdAt, 40) || now,
+      now,
+      now
+    ).run();
+    if (result.meta?.changes) imported += 1;
+    else skipped += 1;
+  }
+
+  await refreshApprovedCommentsCache(env);
+  return { imported, skipped, total: legacy.length };
 }
 
-function kvCommentStore(kv) {
-  return {
-    async list(limit) {
-      const comments = await kv.get(COMMENT_INDEX_KEY, "json");
-      return Array.isArray(comments) ? comments.slice(0, limit) : [];
-    },
-    async save(comment) {
-      const comments = await this.list(MAX_STORED_COMMENTS);
-      const next = [comment, ...comments.filter((item) => item.id !== comment.id)].slice(0, MAX_STORED_COMMENTS);
-      await kv.put(COMMENT_INDEX_KEY, JSON.stringify(next));
-    },
-    async delete(id) {
-      const comments = await this.list(MAX_STORED_COMMENTS);
-      const next = comments.filter((item) => String(item.id || "") !== String(id));
-      await kv.put(COMMENT_INDEX_KEY, JSON.stringify(next));
-    },
-  };
+async function listLegacyKvComments(env, limit) {
+  const comments = env.COMMENTS_KV ? await env.COMMENTS_KV.get(LEGACY_COMMENT_INDEX_KEY, "json") : null;
+  return Array.isArray(comments) ? comments.slice(0, commentLimit(limit)) : [];
 }
 
-function remoteCommentStore(env) {
-  return {
-    async list(limit) {
-      const url = new URL(env.COMMENTS_DB_URL);
-      url.searchParams.set("limit", String(limit));
-      const response = await fetch(url, { headers: remoteHeaders(env) });
-      if (!response.ok) throw new Error("remote comment list failed");
-      const data = await response.json();
-      const comments = Array.isArray(data) ? data : data.comments;
-      return Array.isArray(comments) ? comments.slice(0, limit) : [];
-    },
-    async save(comment) {
-      const response = await fetch(env.COMMENTS_DB_URL, {
-        method: "POST",
-        headers: remoteHeaders(env),
-        body: JSON.stringify(comment),
-      });
-      if (!response.ok) throw new Error("remote comment save failed");
-    },
-    async delete(id) {
-      const url = new URL(env.COMMENTS_DB_URL);
-      url.pathname = `${url.pathname.replace(/\/$/, "")}/${encodeURIComponent(id)}`;
-      const response = await fetch(url, {
-        method: "DELETE",
-        headers: remoteHeaders(env),
-      });
-      if (!response.ok) throw new Error("remote comment delete failed");
-    },
-  };
+async function refreshApprovedCommentsCache(env) {
+  memory.comments = null;
+  memory.commentsExpiresAt = 0;
+  const config = await loadSiteConfig(env, { force: true });
+  const comments = env.COMMENTS_DB ? await listD1Comments(env, MAX_STORED_COMMENTS, "approved") : await listLegacyKvComments(env, MAX_STORED_COMMENTS);
+  await writeApprovedCommentsCache(env, comments, config);
 }
 
-function dualCommentStore(remoteStore, kvStore) {
-  if (!remoteStore && !kvStore) return null;
-  return {
-    async list(limit) {
-      if (remoteStore) {
-        try {
-          return await remoteStore.list(limit);
-        } catch {
-          // Fall back to KV if the remote database is temporarily unavailable.
-        }
-      }
-      return kvStore ? kvStore.list(limit) : [];
-    },
-    async save(comment) {
-      const writes = [remoteStore, kvStore].filter(Boolean).map((store) => store.save(comment));
-      const results = await Promise.allSettled(writes);
-      if (results.every((result) => result.status === "rejected")) {
-        throw new Error("all comment stores failed");
-      }
-    },
-    async delete(id) {
-      const writes = [remoteStore, kvStore].filter(Boolean).filter((store) => store.delete).map((store) => store.delete(id));
-      const results = await Promise.allSettled(writes);
-      if (!results.length || results.every((result) => result.status === "rejected")) {
-        throw new Error("all comment stores failed");
-      }
-    },
-  };
+async function writeApprovedCommentsCache(env, comments, config) {
+  const publicList = comments.map(publicComment);
+  setMemoryComments(publicList, config);
+  if (!env.COMMENTS_KV) return;
+  const ttl = Math.max(60, Number.parseInt(config.approvedCacheTtlSeconds || DEFAULT_CACHE_TTL_SECONDS, 10) || DEFAULT_CACHE_TTL_SECONDS);
+  await env.COMMENTS_KV.put(APPROVED_COMMENTS_CACHE_KEY, JSON.stringify(publicList), { expirationTtl: ttl });
 }
 
-function remoteHeaders(env) {
-  const headers = { accept: "application/json", "content-type": "application/json" };
-  if (env.COMMENTS_DB_TOKEN) headers.authorization = `Bearer ${env.COMMENTS_DB_TOKEN}`;
-  return headers;
+function setMemoryComments(comments, config) {
+  const ttl = Number.parseInt(config.memoryCacheTtlSeconds || DEFAULT_MEMORY_TTL_SECONDS, 10) || DEFAULT_MEMORY_TTL_SECONDS;
+  memory.comments = comments;
+  memory.commentsExpiresAt = Date.now() + Math.max(1, Math.min(ttl, 300)) * 1000;
 }
 
-function publicComment(comment) {
-  return {
-    id: String(comment.id || ""),
-    name: cleanOneLine(comment.name, 32) || "Anonymous",
-    message: cleanMessage(comment.message, 500),
-    ip: cleanOneLine(comment.ip, 64) || "unknown",
-    ipLocation: cleanOneLine(comment.ipLocation || comment.location, 120) || "Unknown location",
-    createdAt: cleanOneLine(comment.createdAt, 40),
-  };
+async function loadSiteConfig(env, options = {}) {
+  const now = Date.now();
+  if (!options.force && memory.config && memory.configExpiresAt > now) return memory.config;
+
+  let stored = null;
+  if (env.COMMENTS_DB) {
+    await ensureSchema(env);
+    const row = await env.COMMENTS_DB.prepare("SELECT value FROM site_config WHERE key = ?").bind(SITE_CONFIG_KEY).first();
+    if (row?.value) stored = JSON.parse(row.value);
+  } else if (env.COMMENTS_KV) {
+    stored = await env.COMMENTS_KV.get(SITE_SETTINGS_KEY, "json");
+  }
+
+  const config = sanitizeSiteConfig(stored || {}, DEFAULT_SITE_CONFIG, env);
+  memory.config = config;
+  memory.configExpiresAt = now + Math.max(1, Math.min(config.memoryCacheTtlSeconds, 300)) * 1000;
+  return config;
 }
 
-async function loadSiteSettings(env) {
-  const stored = env.COMMENTS_KV ? await env.COMMENTS_KV.get(SITE_SETTINGS_KEY, "json") : null;
-  return sanitizeSiteSettings(stored || {}, DEFAULT_SITE_SETTINGS);
-}
+async function saveSiteConfig(env, config) {
+  const next = sanitizeSiteConfig(config, DEFAULT_SITE_CONFIG, env);
+  if (env.COMMENTS_DB) {
+    await ensureSchema(env);
+    await env.COMMENTS_DB.prepare(`
+      INSERT INTO site_config (key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).bind(SITE_CONFIG_KEY, JSON.stringify(next), next.updatedAt || new Date().toISOString()).run();
+  }
 
-async function saveSiteSettings(env, settings) {
-  if (!env.COMMENTS_KV) throw new Error("site settings storage is not configured");
-  await env.COMMENTS_KV.put(SITE_SETTINGS_KEY, JSON.stringify(settings));
+  if (env.COMMENTS_KV) {
+    await env.COMMENTS_KV.put(SITE_SETTINGS_KEY, JSON.stringify(next));
+  }
+
+  memory.config = next;
+  memory.configExpiresAt = Date.now() + Math.max(1, Math.min(next.memoryCacheTtlSeconds, 300)) * 1000;
 }
 
 function publicSiteSettings(settings) {
   return {
     commentsEnabled: settings.commentsEnabled !== false,
+    moderationEnabled: settings.moderationEnabled !== false,
+    turnstileSiteKey: cleanOneLine(settings.turnstileSiteKey, 256),
     title: settings.title,
     subtitle: settings.subtitle,
     documentTitle: settings.documentTitle,
@@ -351,10 +519,16 @@ function publicSiteSettings(settings) {
   };
 }
 
-function sanitizeSiteSettings(payload, base = DEFAULT_SITE_SETTINGS) {
-  const current = base || DEFAULT_SITE_SETTINGS;
+function sanitizeSiteConfig(payload, base = DEFAULT_SITE_CONFIG, env = {}) {
+  const current = base || DEFAULT_SITE_CONFIG;
   return {
     commentsEnabled: typeof payload.commentsEnabled === "boolean" ? payload.commentsEnabled : current.commentsEnabled !== false,
+    moderationEnabled: typeof payload.moderationEnabled === "boolean" ? payload.moderationEnabled : current.moderationEnabled !== false,
+    migrationEnabled: typeof payload.migrationEnabled === "boolean" ? payload.migrationEnabled : current.migrationEnabled !== false,
+    aiModel: cleanOneLine(payload.aiModel, 120) || current.aiModel || DEFAULT_MODERATION_MODEL,
+    approvedCacheTtlSeconds: boundedInt(payload.approvedCacheTtlSeconds, current.approvedCacheTtlSeconds || DEFAULT_CACHE_TTL_SECONDS, 60, 3600),
+    memoryCacheTtlSeconds: boundedInt(payload.memoryCacheTtlSeconds, current.memoryCacheTtlSeconds || DEFAULT_MEMORY_TTL_SECONDS, 1, 300),
+    turnstileSiteKey: cleanOneLine(payload.turnstileSiteKey, 256) || cleanOneLine(env.TURNSTILE_SITE_KEY, 256) || current.turnstileSiteKey || "",
     title: localizedText(payload.title, current.title, 48),
     subtitle: localizedText(payload.subtitle, current.subtitle, 160),
     documentTitle: localizedText(payload.documentTitle, current.documentTitle, 72),
@@ -369,6 +543,79 @@ function localizedText(value, fallback, maxLength) {
     zh: cleanOneLine(source.zh, maxLength) || fallback?.zh || "",
     ja: cleanOneLine(source.ja, maxLength) || fallback?.ja || fallback?.zh || "",
     en: cleanOneLine(source.en, maxLength) || fallback?.en || fallback?.zh || "",
+  };
+}
+
+async function verifyTurnstile(request, env, token) {
+  const secret = await loadSecret(env, "TURNSTILE_SECRET_KEY");
+  if (!secret) return { ok: false, status: 503, errorCodes: ["missing-input-secret"] };
+  const value = cleanOneLine(token, 2048);
+  if (!value) return { ok: false, status: 400, errorCodes: ["missing-input-response"] };
+
+  const form = new FormData();
+  form.set("secret", secret);
+  form.set("response", value);
+  const ip = clientIp(request);
+  if (ip && ip !== "unknown") form.set("remoteip", ip);
+
+  const response = await fetch(TURNSTILE_VERIFY_URL, { method: "POST", body: form });
+  const data = await response.json().catch(() => ({}));
+  if (response.ok && data.success) return { ok: true, data };
+  return { ok: false, status: response.ok ? 400 : 503, errorCodes: data["error-codes"] || [`HTTP ${response.status}`] };
+}
+
+async function moderateComment(env, config, comment) {
+  const model = cleanOneLine(config.aiModel, 120) || DEFAULT_MODERATION_MODEL;
+  if (!env.AI?.run) {
+    return { safe: false, model, raw: {}, categories: [], reason: "Workers AI binding is not configured.", error: "missing AI binding" };
+  }
+
+  const content = `Name: ${comment.name}\nComment: ${comment.message}`;
+  try {
+    const result = await env.AI.run(model, {
+      messages: [
+        { role: "system", content: "Classify this user-submitted guestbook comment. Return safe or unsafe and any unsafe categories." },
+        { role: "user", content },
+      ],
+    });
+    const parsed = parseModerationResult(result);
+    return { ...parsed, model, raw: result };
+  } catch (error) {
+    return {
+      safe: false,
+      model,
+      raw: {},
+      categories: [],
+      reason: "AI moderation failed; queued for manual review.",
+      error: error?.message || "AI moderation failed",
+    };
+  }
+}
+
+function parseModerationResult(result) {
+  const text = JSON.stringify(result || {}).toLowerCase();
+  const direct = String(result?.response || result?.result || result?.text || "").toLowerCase();
+  const source = direct || text;
+  const unsafe = /\bunsafe\b/.test(source) || /violence|hate|sexual|self-harm|criminal|harassment/.test(source);
+  const safe = !unsafe && (/\bsafe\b/.test(source) || !source);
+  const categories = [];
+  for (const category of ["violence", "hate", "sexual", "self-harm", "criminal", "harassment", "illicit", "weapons"]) {
+    if (source.includes(category)) categories.push(category);
+  }
+  return {
+    safe,
+    categories,
+    reason: unsafe ? "Workers AI classified this comment as unsafe." : "",
+  };
+}
+
+async function adminHealth(env) {
+  return {
+    d1: Boolean(env.COMMENTS_DB),
+    kv: Boolean(env.COMMENTS_KV),
+    ai: Boolean(env.AI?.run),
+    turnstileSecret: Boolean(await loadSecret(env, "TURNSTILE_SECRET_KEY")),
+    adminPassword: Boolean(await loadAdminPassword(env)),
   };
 }
 
@@ -409,17 +656,21 @@ async function verifyAdminToken(adminPassword, token) {
 
 async function loadAdminPassword(env) {
   for (const key of ADMIN_PASSWORD_KEYS) {
-    const value = await readSecretBinding(env?.[key], key);
+    const value = await loadSecret(env, key);
     if (value) return value;
   }
+  return "";
+}
+
+async function loadSecret(env, key) {
+  const direct = await readSecretBinding(env?.[key], key);
+  if (direct) return direct;
 
   for (const storeKey of ADMIN_SECRET_STORE_KEYS) {
     const store = env?.[storeKey];
     if (!store || typeof store.get !== "function") continue;
-    for (const key of ADMIN_PASSWORD_KEYS) {
-      const value = await readSecretBinding(store, key);
-      if (value) return value;
-    }
+    const value = await readSecretBinding(store, key);
+    if (value) return value;
   }
 
   return "";
@@ -427,15 +678,15 @@ async function loadAdminPassword(env) {
 
 async function readSecretBinding(binding, key) {
   if (!binding) return "";
-  if (typeof binding === "string") return cleanOneLine(binding, 512);
+  if (typeof binding === "string") return cleanOneLine(binding, 2048);
   if (typeof binding.get !== "function") return "";
 
   for (const args of [[key], []]) {
     try {
       const value = await binding.get(...args);
-      if (typeof value === "string") return cleanOneLine(value, 512);
+      if (typeof value === "string") return cleanOneLine(value, 2048);
       if (value && typeof value === "object" && typeof value.value === "string") {
-        return cleanOneLine(value.value, 512);
+        return cleanOneLine(value.value, 2048);
       }
     } catch {
       // Try the next binding shape.
@@ -502,6 +753,50 @@ function bytesToBase64Url(bytes) {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
+function publicComment(comment) {
+  return {
+    id: String(comment.id || ""),
+    name: cleanOneLine(comment.name, 32) || "Anonymous",
+    message: cleanMessage(comment.message, 500),
+    ip: cleanOneLine(comment.ip, 64) || "unknown",
+    ipLocation: cleanOneLine(comment.ipLocation || comment.location, 120) || "Unknown location",
+    createdAt: cleanOneLine(comment.createdAt, 40),
+  };
+}
+
+function adminComment(comment) {
+  return {
+    ...publicComment(comment),
+    status: cleanOneLine(comment.status, 20) || "approved",
+    updatedAt: cleanOneLine(comment.updatedAt, 40),
+    reviewedAt: cleanOneLine(comment.reviewedAt, 40),
+    moderationModel: cleanOneLine(comment.moderationModel, 120),
+    moderationCategories: cleanOneLine(comment.moderationCategories, 240),
+    moderationReason: cleanOneLine(comment.moderationReason, 400),
+    moderationError: cleanOneLine(comment.moderationError, 400),
+    moderationResult: cleanOneLine(comment.moderationResult, 1200),
+  };
+}
+
+function commentFromRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    message: row.message,
+    ip: row.ip,
+    ipLocation: row.ip_location,
+    status: row.status,
+    moderationModel: row.moderation_model,
+    moderationResult: row.moderation_result,
+    moderationCategories: row.moderation_categories,
+    moderationReason: row.moderation_reason,
+    moderationError: row.moderation_error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    reviewedAt: row.reviewed_at,
+  };
+}
+
 function cleanOneLine(value, maxLength) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
@@ -514,6 +809,12 @@ function commentLimit(value) {
   const limit = Number.parseInt(value || "", 10);
   if (!Number.isFinite(limit)) return DEFAULT_LIST_LIMIT;
   return Math.min(Math.max(limit, 1), MAX_STORED_COMMENTS);
+}
+
+function boundedInt(value, fallback, min, max) {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(Math.max(number, min), max);
 }
 
 function clientIp(request) {
@@ -581,7 +882,7 @@ function locationName(value) {
     Qingdao: "青岛",
     Jinan: "济南",
     Changsha: "长沙",
-    "Zhangjiajie": "张家界",
+    Zhangjiajie: "张家界",
     "Xi'an": "西安",
     Dunhuang: "敦煌",
     Tokyo: "东京",
@@ -615,7 +916,7 @@ function apiHeaders() {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
     "access-control-allow-headers": "content-type, authorization, x-admin-action",
   };
 }

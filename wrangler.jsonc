@@ -17,8 +17,19 @@
       "id": "316829b9926e4f09b5faff727b875af7"
     }
   ],
+  "d1_databases": [
+    {
+      "binding": "COMMENTS_DB",
+      "database_name": "about-comments",
+      "database_id": "08bd311d-0959-43d6-aa00-00582300beb1"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
-    "COMMENTS_STORAGE": "kv"
+    "COMMENT_MODERATION_MODEL": "@cf/meta/llama-guard-3-8b",
+    "TURNSTILE_SITE_KEY": "0x4AAAAAADnuEH7YMTYy_Dgd"
   },
   "assets": {
     "directory": "public",

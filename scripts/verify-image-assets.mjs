@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { cities, homeCards, japanPlan, ui } from "../assets/js/data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const assetVersion = "20260614-varied-images";
+const assetVersion = "20260619-d1-static";
 const origin = readArg("--origin");
 const remoteTimeoutMs = 30000;
 

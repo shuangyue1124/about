@@ -6,7 +6,7 @@ const root = document.body.dataset.root || ".";
 const currentCitySlug = document.body.dataset.city || citySlugFromPath();
 const langKey = "sfsy-lang";
 
-let lang = normalizeLang(localStorage.getItem(langKey)) || detectLang();
+let lang = normalizeLang(document.body.dataset.lang) || langFromPath() || normalizeLang(localStorage.getItem(langKey)) || detectLang();
 let siteSettings = null;
 
 function normalizeLang(value) {
@@ -18,6 +18,12 @@ function normalizeLang(value) {
 
 function detectLang() {
   return normalizeLang(navigator.language || navigator.userLanguage || "zh");
+}
+
+function langFromPath() {
+  const first = window.location.pathname.split("/").filter(Boolean)[0] || "";
+  if (first === "en" || first === "ja") return first;
+  return "";
 }
 
 function text(value) {
@@ -52,6 +58,38 @@ function siteUrl(path) {
 function rootUrl(path) {
   if (!path) return root === "." ? "./" : `${root}/`;
   return root === "." ? path : `${root}/${path}`;
+}
+
+function pageLink(path = "", code = lang) {
+  const prefix = code === "zh" ? "/" : `/${code}/`;
+  return `${prefix}${path}`.replace(/\/{2,}/g, "/");
+}
+
+function pagePathFor(code) {
+  if (page === "travel") return pageLink("travel/", code);
+  if (page === "city") return pageLink(`cities/${currentCitySlug}.html`, code);
+  return pageLink("", code);
+}
+
+function contactDescription(item) {
+  const descriptions = {
+    qq: { zh: "点击复制 QQ 号", ja: "QQ番号をコピー", en: "Click to copy QQ number" },
+    telegram: { zh: "点击打开 Telegram 会话", ja: "Telegramを開く", en: "Open a Telegram chat" },
+    email: { zh: "点击发送电子邮件", ja: "メールを送る", en: "Send an email" },
+    github: { zh: "查看代码与项目", ja: "コードとプロジェクトを見る", en: "View code and projects" },
+    steam: { zh: "打开 Steam 个人资料", ja: "Steamプロフィールを開く", en: "Open Steam profile" },
+  };
+  return descriptions[item.key]?.[lang] || descriptions[item.key]?.zh || "";
+}
+
+function imageSrcset(image) {
+  if (!image || !image.endsWith(".png")) return "";
+  const base = image.replace(/^assets\/images\//, "assets/images/generated/").replace(/\.png$/, "");
+  return `${rootUrl(`${base}-480.webp`)} 480w, ${rootUrl(`${base}-960.webp`)} 960w`;
+}
+
+function imageAlt(value) {
+  return text(value).replace(/[。.!！?？].*$/, "").slice(0, 80);
 }
 
 const provinceGlyphs = new Map([
@@ -90,8 +128,10 @@ const commentUi = {
     loading: "正在读取留言...",
     empty: "还没有留言。",
     success: "留言已发布。",
+    pending: "留言已提交，正在等待管理员审核。",
     error: "留言暂时不可用。",
     disabled: "留言发布暂时关闭，已有留言仍可查看。",
+    turnstileMissing: "留言防刷组件尚未配置，请稍后再试。",
     ip: "IP",
     location: "归属地",
     unknownLocation: "未知归属地",
@@ -108,8 +148,10 @@ const commentUi = {
     loading: "コメントを読み込み中...",
     empty: "まだコメントはありません。",
     success: "コメントを投稿しました。",
+    pending: "コメントを送信しました。管理者の確認を待っています。",
     error: "コメント機能は一時的に利用できません。",
     disabled: "コメント投稿は一時停止中です。既存のコメントは表示できます。",
+    turnstileMissing: "スパム防止コンポーネントが未設定です。後でもう一度お試しください。",
     ip: "IP",
     location: "所在地",
     unknownLocation: "所在地不明",
@@ -126,8 +168,10 @@ const commentUi = {
     loading: "Loading comments...",
     empty: "No comments yet.",
     success: "Comment posted.",
+    pending: "Comment submitted and waiting for admin review.",
     error: "Comments are temporarily unavailable.",
     disabled: "Posting is temporarily closed. Existing comments remain visible.",
+    turnstileMissing: "The anti-spam challenge is not configured yet. Please try again later.",
     ip: "IP",
     location: "Location",
     unknownLocation: "Unknown location",
@@ -202,7 +246,7 @@ function layout(main) {
     <header class="topbar">
       <a class="brand" href="${esc(rootUrl(""))}" aria-label="${esc(label("navHome"))}">
         <span class="brand__mark brand__mark--avatar">
-          <img src="${esc(profile.avatar)}" alt="" loading="lazy">
+          <img src="${esc(profile.avatar)}" alt="${esc(label("heroTitle"))}" loading="lazy">
         </span>
         <span>
           <span class="brand__name">${esc(settingText("title", label("heroTitle")))}</span>
@@ -210,21 +254,22 @@ function layout(main) {
         </span>
       </a>
       <nav class="topnav" aria-label="Primary">
-        <a href="${esc(rootUrl(""))}" ${page === "home" ? 'aria-current="page"' : ""}>${esc(label("navHome"))}</a>
-        <a href="${esc(rootUrl("travel/"))}" ${page === "travel" ? 'aria-current="page"' : ""}>${esc(label("navTravel"))}</a>
-        <a href="${esc(rootUrl("travel/#cities"))}">${esc(label("navCities"))}</a>
+        <a href="${esc(pageLink(""))}" ${page === "home" ? 'aria-current="page"' : ""}>${esc(label("navHome"))}</a>
+        <a href="${esc(pageLink("travel/"))}" ${page === "travel" ? 'aria-current="page"' : ""}>${esc(label("navTravel"))}</a>
+        <a href="${esc(pageLink("travel/#cities"))}">${esc(label("navCities"))}</a>
         <a href="${esc(page === "home" ? "#contact" : rootUrl("#contact"))}">${esc(label("navContact"))}</a>
       </nav>
       <div class="lang-menu" aria-label="${esc(label("language"))}">
         ${languages
           .map(
             (item) => `
-              <button class="lang-menu__item ${item.code === lang ? "is-active" : ""}" type="button" data-lang="${item.code}" aria-pressed="${item.code === lang ? "true" : "false"}">
+              <a class="lang-menu__item ${item.code === lang ? "is-active" : ""}" href="${esc(pagePathFor(item.code))}" hreflang="${esc(item.html)}" ${item.code === lang ? 'aria-current="true"' : ""}>
                 ${esc(item.label)}
-              </button>
+              </a>
             `
           )
           .join("")}
+        <button class="lang-menu__item js-theme" type="button" aria-label="${esc(label("toggleTheme") || "Toggle theme")}">◐</button>
       </div>
     </header>
     ${main}
@@ -245,7 +290,7 @@ function renderHome() {
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring">
-            <img src="${esc(profile.avatar)}" alt="QQ Avatar">
+            <img src="${esc(profile.avatar)}" alt="${esc(label("heroTitle"))}">
           </div>
           <p class="eyebrow">${esc(label("heroMeta"))}</p>
           <h1>${esc(settingText("title", label("heroTitle")))}</h1>
@@ -253,7 +298,7 @@ function renderHome() {
           <p class="hero__motto">${esc(label("homeMotto"))}</p>
           ${terminal(profile.githubUrl, `${label("terminalPrompt")} open github.com/${profile.githubUser}`)}
           <div class="hero__actions">
-            <a class="btn btn--primary" href="${esc(rootUrl("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a>
+            <a class="btn btn--primary" href="${esc(pageLink("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a>
             <a class="btn" href="${esc(profile.githubUrl)}" target="_blank" rel="noopener noreferrer">${esc(label("secondaryCta"))}<span aria-hidden="true">→</span></a>
           </div>
         </div>
@@ -275,6 +320,11 @@ function renderHome() {
         </div>
         <div class="contact-grid">
           ${contacts.map(contactItem).join("")}
+          <a class="contact-link" href="${esc(rootUrl("assets/shuofeng-shuanyue.vcf"))}" download>
+            <span>vCard</span>
+            <strong>${esc(label("saveContact") || "Save Contact")}</strong>
+            <small>${esc(label("saveContactHint") || "Save to contacts")}</small>
+          </a>
         </div>
       </section>
     </main>
@@ -295,7 +345,8 @@ function renderCommentsSection() {
           <textarea name="message" maxlength="500" rows="5" required placeholder="${esc(commentLabel("messagePlaceholder"))}"></textarea>
         </label>
         <input class="comment-form__trap" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
-        <button class="btn btn--primary" type="submit">${esc(commentLabel("submit"))}</button>
+        ${siteSettings?.turnstileSiteKey ? `<div class="comment-form__turnstile cf-turnstile" data-sitekey="${esc(siteSettings.turnstileSiteKey)}"></div>` : `<p class="comment-notice">${esc(commentLabel("turnstileMissing"))}</p>`}
+        <button class="btn btn--primary" type="submit" ${siteSettings?.turnstileSiteKey ? "" : "disabled"}>${esc(commentLabel("submit"))}</button>
         <p class="comment-form__status" id="commentStatus" role="status"></p>
       </form>
     `
@@ -336,8 +387,8 @@ function homeCard(card, index) {
   return `
     <article class="feature-card feature-card--${index % 2 === 0 ? "image-left" : "image-right"} ${hasArt ? "" : "feature-card--no-art"}">
       ${hasArt ? `
-        <div class="ink-art ink-art--${card.art}"${imageStyle} aria-hidden="true">
-          ${image ? `<img src="${esc(image)}" alt="" loading="lazy">` : ""}
+        <div class="ink-art ink-art--${card.art}"${imageStyle}>
+          ${image ? `<picture><source type="image/webp" srcset="${esc(imageSrcset(card.image))}" sizes="(max-width: 920px) 100vw, 50vw"><img src="${esc(image)}" alt="${esc(imageAlt(card.title))}" loading="lazy" width="960" height="530"></picture>` : ""}
         </div>
       ` : ""}
       <div class="feature-card__text">
@@ -354,7 +405,7 @@ function homeCard(card, index) {
 
 function contactItem(item) {
   const attrs = item.type === "copy"
-    ? `button type="button" data-copy="${esc(item.value)}"`
+    ? `button type="button" data-copy="${esc(item.value)}" aria-label="${esc(contactDescription(item))}: ${esc(item.value)}"`
     : `a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer"`;
   const close = item.type === "copy" ? "button" : "a";
   const copyClass = item.type === "copy" ? " js-copy" : "";
@@ -362,6 +413,7 @@ function contactItem(item) {
     <${attrs} class="contact-link${copyClass}">
       <span>${esc(item.label)}</span>
       <strong>${esc(item.value)}</strong>
+      <small>${esc(contactDescription(item))}</small>
     </${close}>
   `;
 }
@@ -378,12 +430,12 @@ function renderTravel() {
           <p>${esc(label("travelIntro"))}</p>
         </div>
         <div class="travel-stats">
-          <a class="stat-card" href="${esc(rootUrl(`cities/${latestCity.slug}.html`))}">
+          <a class="stat-card" href="${esc(pageLink(`cities/${latestCity.slug}.html`))}">
             <span>${esc(label("latest"))}</span>
             <strong>${esc(text(latestCity.name))}</strong>
             <small>${esc(stopDate(latestCity))}</small>
           </a>
-          <a class="stat-card stat-card--seal" href="${esc(rootUrl("cities/japan-2026.html"))}">
+          <a class="stat-card stat-card--seal" href="${esc(pageLink("cities/japan-2026.html"))}">
             <span>${esc(label("upcoming"))}</span>
             <strong>${esc(text(japanPlan.name))}</strong>
             <small>${esc(label("plan"))}</small>
@@ -438,7 +490,7 @@ function cityPreview(city) {
     ...city.tags.map(text),
   ].join(" ");
   return `
-    <a class="city-preview" href="${esc(rootUrl(`cities/${city.slug}.html`))}" data-search="${esc(searchable.toLowerCase())}" aria-label="${esc(`${text(city.name)} · ${stopDate(city)} · ${text(city.landmark)}`)}">
+    <a class="city-preview" href="${esc(pageLink(`cities/${city.slug}.html`))}" data-search="${esc(searchable.toLowerCase())}" aria-label="${esc(`${text(city.name)} · ${stopDate(city)} · ${text(city.landmark)}`)}">
       ${renderCityVisual(city, "thumb")}
       <span class="city-preview__body">
         <strong>${esc(text(city.name))}</strong>
@@ -464,7 +516,7 @@ function renderCity() {
       <section class="city-hero city-hero--${esc(city.theme)}">
         ${renderCityVisual(city, "large")}
         <div class="city-hero__text">
-          <a class="back-link" href="${esc(rootUrl("travel/"))}">← ${esc(label("backTravel"))}</a>
+          <a class="back-link" href="${esc(pageLink("travel/"))}">← ${esc(label("backTravel"))}</a>
           <p class="eyebrow">${esc(text(city.region))} · ${esc(city.planned ? label("plan") : city.dateStatus === "pending" ? label("datePending") : label("visitedOn"))}</p>
           <h1>${esc(cityTitle)}</h1>
           <p>${esc(text(city.summary))}</p>
@@ -527,8 +579,8 @@ function renderCityVisual(city, size) {
   const food = text(city.food || city.tags?.[2] || "");
   const region = text(city.region);
   return `
-    <span class="city-visual city-visual--${esc(size)} city-visual--${esc(shape)} ${image ? "city-visual--with-image" : ""}" style="--city-accent: ${esc(accent)};${imageStyle}" aria-hidden="true">
-      ${image ? `<img class="city-visual__image" src="${esc(image)}" alt="" loading="lazy">` : ""}
+    <span class="city-visual city-visual--${esc(size)} city-visual--${esc(shape)} ${image ? "city-visual--with-image" : ""}" style="--city-accent: ${esc(accent)};${imageStyle}">
+      ${image ? `<picture><source type="image/webp" srcset="${esc(imageSrcset(visual.image))}" sizes="${size === "large" ? "(max-width: 920px) 100vw, 45vw" : "178px"}"><img class="city-visual__image" src="${esc(image)}" alt="${esc(title)}" loading="lazy" width="960" height="530"></picture>` : ""}
       <span class="city-visual__wash"></span>
       <span class="city-visual__caption">${esc(title)}</span>
       <span class="city-visual__food">${esc(food)}</span>
@@ -594,7 +646,7 @@ function storyLine(city, tag, index) {
 
 function pagerLink(city, labelText) {
   return `
-    <a href="${esc(rootUrl(`cities/${city.slug}.html`))}">
+    <a href="${esc(pageLink(`cities/${city.slug}.html`))}">
       <span>${esc(labelText)}</span>
       <strong>${esc(text(city.name))}</strong>
     </a>
@@ -602,16 +654,14 @@ function pagerLink(city, labelText) {
 }
 
 function bindCommon() {
-  document.querySelectorAll(".lang-menu__item").forEach((button) => {
-    button.addEventListener("click", () => {
-      lang = button.dataset.lang;
-      localStorage.setItem(langKey, lang);
-      render();
-    });
+  document.querySelectorAll(".lang-menu__item").forEach((link) => {
+    link.addEventListener("click", () => localStorage.setItem(langKey, link.getAttribute("hreflang")?.slice(0, 2) || "zh"));
   });
   bindCopyButtons();
   bindAvatarFallback();
   bindComments();
+  bindThemeToggle();
+  registerServiceWorker();
 }
 
 function bindAvatarFallback() {
@@ -688,6 +738,7 @@ function bindComments() {
 
   loadComments(list);
   if (!form) return;
+  loadTurnstile();
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -697,9 +748,10 @@ function bindComments() {
       name: String(formData.get("name") || "").trim(),
       message: String(formData.get("message") || "").trim(),
       website: String(formData.get("website") || ""),
+      turnstileToken: String(formData.get("cf-turnstile-response") || ""),
     };
 
-    if (!payload.name || !payload.message) return;
+    if (!payload.name || !payload.message || !payload.turnstileToken) return;
     submit.disabled = true;
     if (status) status.textContent = "";
 
@@ -710,8 +762,10 @@ function bindComments() {
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error("comment failed");
+      const data = await response.json().catch(() => ({}));
       form.reset();
-      if (status) status.textContent = commentLabel("success");
+      if (window.turnstile) window.turnstile.reset();
+      if (status) status.textContent = data.status === "pending" ? commentLabel("pending") : commentLabel("success");
       await loadComments(list);
     } catch {
       if (status) status.textContent = commentLabel("error");
@@ -719,6 +773,33 @@ function bindComments() {
       submit.disabled = false;
     }
   });
+}
+
+function loadTurnstile() {
+  if (!siteSettings?.turnstileSiteKey || document.querySelector("script[data-turnstile]")) return;
+  const script = document.createElement("script");
+  script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+  script.async = true;
+  script.defer = true;
+  script.dataset.turnstile = "true";
+  document.head.appendChild(script);
+}
+
+function bindThemeToggle() {
+  document.querySelectorAll(".js-theme").forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem("sfsy-theme", next);
+    });
+  });
+  const stored = localStorage.getItem("sfsy-theme");
+  if (stored) document.documentElement.dataset.theme = stored;
+}
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator) || window.location.protocol === "file:") return;
+  navigator.serviceWorker.register(rootUrl("sw.js")).catch(() => {});
 }
 
 async function loadComments(list) {

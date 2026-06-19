@@ -11,7 +11,11 @@ const entries = [
   "admin.html",
   "travel",
   "cities",
+  "en",
+  "ja",
   "assets",
+  "manifest.webmanifest",
+  "sw.js",
   "_headers",
   "_redirects",
 ];

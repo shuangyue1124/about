@@ -58,9 +58,11 @@ Cloudflare Pages 也可以部署，构建设置为：
 
 Pages 部署会使用 `functions/api/` 下的 Pages Functions 复用 `worker.js` 里的 API 逻辑。如果要在 `*.pages.dev` 或绑定到 Pages 的自定义域名上启用留言写入和后台设置，需要在 Cloudflare Pages 项目的 Settings -> Functions 中添加：
 
-- Variable name: `COMMENTS_KV`
-- KV namespace: `COMMENTS_KV`
+- D1 binding: `COMMENTS_DB`
+- KV namespace binding: `COMMENTS_KV`
+- AI binding: `AI`
 - Secret / Environment variable: `ADMIN_PASSWORD`
+- Secret / Environment variable: `TURNSTILE_SECRET_KEY`
 
 Workers 部署时，管理员密码通过 Worker secret 设置：
 
@@ -87,9 +89,23 @@ IP 归属地来自 Cloudflare 请求信息，优先显示国家 / 地区 / 城�
 
 注意：当前需求要求公开显示留言者 IP 和归属地。上线前请确认这符合你的隐私预期。
 
-### Cloudflare KV
+### D1 主库 + KV 缓存
 
-创建 KV namespace：
+评论完整数据和站点配置保存在 D1，KV 只缓存已审核公开评论；Worker 实例内还有短期内存缓存。读取路径是内存缓存 -> KV -> D1。KV 是最终一致存储，公开评论刷新后全球边缘传播可能需要 60 秒以上，后台配置里的 KV TTL 默认 60 秒。
+
+创建 D1 数据库：
+
+```powershell
+npx wrangler d1 create about-comments
+```
+
+把输出的 `database_id` 填入 `wrangler.jsonc` 的 `d1_databases[0].database_id`，然后初始化 schema：
+
+```powershell
+npx wrangler d1 execute about-comments --file migrations/0001_comments_d1.sql
+```
+
+创建 KV namespace 作为公开评论缓存和旧数据迁移来源：
 
 ```powershell
 npx wrangler kv namespace create COMMENTS_KV
@@ -98,28 +114,45 @@ npx wrangler kv namespace create COMMENTS_KV
 把命令输出的 `id` 添加到 `wrangler.jsonc`：
 
 ```jsonc
+"d1_databases": [
+  {
+    "binding": "COMMENTS_DB",
+    "database_name": "about-comments",
+    "database_id": "你的 D1 database id"
+  }
+],
 "kv_namespaces": [
   {
     "binding": "COMMENTS_KV",
     "id": "你的 KV namespace id"
   }
 ],
+"ai": {
+  "binding": "AI"
+},
 "vars": {
-  "COMMENTS_STORAGE": "kv"
+  "COMMENT_MODERATION_MODEL": "@cf/meta/llama-guard-3-8b",
+  "TURNSTILE_SITE_KEY": "你的 Turnstile site key"
 }
 ```
 
-默认读取和写入 `COMMENTS_KV`。留言列表保存在 `comments:index`，最多保留最近 100 条；站点设置保存在 `site:settings`。
+Turnstile secret 必须作为 Cloudflare secret 配置，服务端会调用 siteverify 校验一次性、5 分钟有效的 token：
+
+```powershell
+npx wrangler secret put TURNSTILE_SECRET_KEY
+```
+
+Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全或模型调用失败时，留言会进入后台待审，管理员批准后才会写入公开评论缓存。
 
 ## 管理员后台
 
 访问 `/admin.html` 或 `/admin` 进入后台。后台功能：
 
 - 使用 `ADMIN_PASSWORD` 登录
-- 删除留言
-- 开启或关闭新留言发布
-- 修改首页标题、首页副标题、浏览器标题
-- 设置评论区公告
+- 审核、批准、驳回或删除留言
+- 管理运行时配置：评论开关、AI 模型、缓存 TTL、Turnstile site key、站点标题 / 副标题 / 公告
+- 查看 D1、KV、AI、Turnstile secret、管理员密码的只读健康状态
+- 幂等迁移旧 KV `comments:index` 到 D1
 
 登录态使用 HttpOnly Cookie 保存 24 小时，Cookie 签名由 `ADMIN_PASSWORD` 派生。没有配置 `ADMIN_PASSWORD` 时，后台登录会返回 `ADMIN_PASSWORD is not configured`。
 
@@ -139,44 +172,6 @@ CSS 会优先使用这些本地 woff2 文件，然后回退到 `Styrene B` / `Ti
 ```text
 316829b9926e4f09b5faff727b875af7
 ```
-
-### 远程数据库
-
-如果要用远程数据库，配置 Worker 环境变量：
-
-```jsonc
-"vars": {
-  "COMMENTS_STORAGE": "remote",
-  "COMMENTS_DB_URL": "https://example.com/comments"
-}
-```
-
-如果远程接口需要鉴权，添加 secret：
-
-```powershell
-npx wrangler secret put COMMENTS_DB_TOKEN
-```
-
-远程接口协议：
-
-- `GET COMMENTS_DB_URL?limit=30`
-- 返回 `[{...}]` 或 `{ "comments": [{...}] }`
-- `POST COMMENTS_DB_URL`
-- 请求体为单条留言 JSON，包含 `id`、`name`、`message`、`ip`、`ipLocation`、`createdAt`
-- `DELETE COMMENTS_DB_URL/<id>`
-- 删除指定留言
-- 如果配置了 `COMMENTS_DB_TOKEN`，请求头会带 `Authorization: Bearer <token>`
-
-也可以设置双写：
-
-```jsonc
-"vars": {
-  "COMMENTS_STORAGE": "dual",
-  "COMMENTS_DB_URL": "https://example.com/comments"
-}
-```
-
-`dual` 模式会同时写远程数据库和 KV；读取优先远程数据库，远程不可用时回退 KV。
 
 ## 更新城市
 
