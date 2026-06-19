@@ -64,13 +64,13 @@ Pages 部署会使用 `functions/api/` 下的 Pages Functions 复用 `worker.js`
 - Secret / Environment variable: `ADMIN_PASSWORD`
 - Secret / Environment variable: `TURNSTILE_SECRET_KEY`
 
-Workers 部署时，管理员密码通过 Worker secret 设置：
+如果单独部署 Worker，管理员密码通过 Worker secret 设置：
 
 ```powershell
 npx wrangler secret put ADMIN_PASSWORD
 ```
 
-如果自定义域名被 `wrangler.jsonc` 的 Worker route 接管，例如当前配置里的 `about.shuangyue.space/*`，后台读取的是 Worker 项目的 secret，而不是 Pages 项目的变量。Pages 自定义域名则读取 Pages 项目的 Functions 变量。两边都要可用时，请在 Workers 和 Pages 两个项目里都配置同名 `ADMIN_PASSWORD`，配置后重新部署对应项目。
+当前仓库推荐只用 Cloudflare Pages 托管自定义域名。不要在 `wrangler.jsonc` 为 `about.shuangyue.space/*` 配置 Worker route；否则后台会读取 Worker 项目的 secret，而不是 Pages 项目的 Functions 变量。Pages 自定义域名会读取 Pages 项目的 Production Functions 变量，修改变量后需要重新部署 Pages 项目。
 
 后台密码读取兼容这些绑定名：`ADMIN_PASSWORD`、`ADMIN_SECRET`、`SFSY_ADMIN_PASSWORD`、`SITE_ADMIN_PASSWORD`。也兼容 Cloudflare Secrets Store 绑定名 `SECRETS`、`SECRET_STORE`、`ADMIN_SECRETS`，其中保存同名密钥即可。
 

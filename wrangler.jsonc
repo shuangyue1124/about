@@ -5,12 +5,6 @@
   "compatibility_date": "2026-06-13",
   "workers_dev": true,
   "preview_urls": true,
-  "routes": [
-    {
-      "pattern": "about.shuangyue.space/*",
-      "zone_name": "shuangyue.space"
-    }
-  ],
   "kv_namespaces": [
     {
       "binding": "COMMENTS_KV",
