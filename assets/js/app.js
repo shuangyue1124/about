@@ -8,6 +8,7 @@ const langKey = "sfsy-lang";
 
 let lang = normalizeLang(document.body.dataset.lang) || langFromPath() || normalizeLang(localStorage.getItem(langKey)) || detectLang();
 let siteSettings = null;
+let pageViewTracked = false;
 
 function normalizeLang(value) {
   if (!value) return "";
@@ -662,6 +663,7 @@ function bindCommon() {
   bindComments();
   bindThemeToggle();
   registerServiceWorker();
+  trackPageView();
 }
 
 function bindAvatarFallback() {
@@ -800,6 +802,30 @@ function bindThemeToggle() {
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator) || window.location.protocol === "file:") return;
   navigator.serviceWorker.register(rootUrl("sw.js")).catch(() => {});
+}
+
+function trackPageView() {
+  if (pageViewTracked || window.location.protocol === "file:") return;
+  pageViewTracked = true;
+  const payload = JSON.stringify({
+    type: "page_view",
+    path: window.location.pathname,
+    page,
+    lang,
+    title: document.title,
+    referrer: document.referrer,
+  });
+  if (navigator.sendBeacon) {
+    const blob = new Blob([payload], { type: "application/json" });
+    navigator.sendBeacon("/api/events", blob);
+    return;
+  }
+  fetch("/api/events", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: payload,
+    keepalive: true,
+  }).catch(() => {});
 }
 
 async function loadComments(list) {

@@ -5,6 +5,10 @@ export default {
       return handleSite(request, env);
     }
 
+    if (url.pathname === "/api/events" || url.pathname === "/api/events/") {
+      return handleEvents(request, env);
+    }
+
     if (url.pathname.startsWith("/api/admin")) {
       return handleAdmin(request, env);
     }
@@ -53,7 +57,8 @@ const SITE_CONFIG_KEY = "site";
 const ADMIN_COOKIE_NAME = "sfsy_admin";
 const ADMIN_PASSWORD_KEYS = ["ADMIN_PASSWORD", "ADMIN_SECRET", "SFSY_ADMIN_PASSWORD", "SITE_ADMIN_PASSWORD"];
 const ADMIN_SECRET_STORE_KEYS = ["SECRETS", "SECRET_STORE", "ADMIN_SECRETS"];
-const DEFAULT_MODERATION_MODEL = "@cf/meta/llama-guard-3-8b";
+const DEFAULT_MODERATION_MODEL = "@cf/meta/llama-3.2-3b-instruct";
+const DEFAULT_CHAT_MODEL = "@cf/meta/llama-3.2-3b-instruct";
 const MAX_STORED_COMMENTS = 100;
 const DEFAULT_LIST_LIMIT = 30;
 const ADMIN_SESSION_SECONDS = 60 * 60 * 24;
@@ -74,6 +79,7 @@ const DEFAULT_SITE_CONFIG = {
   moderationEnabled: true,
   migrationEnabled: true,
   aiModel: DEFAULT_MODERATION_MODEL,
+  aiChatModel: DEFAULT_CHAT_MODEL,
   approvedCacheTtlSeconds: DEFAULT_CACHE_TTL_SECONDS,
   memoryCacheTtlSeconds: DEFAULT_MEMORY_TTL_SECONDS,
   turnstileSiteKey: "",
@@ -164,6 +170,26 @@ export async function handleSite(request, env) {
   return json({ settings: publicSiteSettings(settings) });
 }
 
+export async function handleEvents(request, env) {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+  if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+  if (!env.COMMENTS_DB) return json({ ok: true }, 202);
+
+  const payload = await request.json().catch(() => ({}));
+  await saveEvent(env, {
+    type: cleanOneLine(payload.type, 40) || "page_view",
+    path: cleanPath(payload.path),
+    page: cleanOneLine(payload.page, 40),
+    lang: cleanOneLine(payload.lang, 12),
+    title: cleanOneLine(payload.title, 120),
+    referrer: cleanOneLine(payload.referrer, 300),
+    userAgent: cleanOneLine(request.headers.get("user-agent"), 300),
+    ip: clientIp(request),
+    ipLocation: clientLocation(request),
+  });
+  return json({ ok: true }, 202);
+}
+
 export async function handleAdmin(request, env) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
 
@@ -222,6 +248,13 @@ export async function handleAdmin(request, env) {
       const config = await loadSiteConfig(env);
       if (!config.migrationEnabled) return json({ error: "migration is disabled" }, 403);
       return json({ result: await migrateLegacyComments(env) });
+    }
+
+    if (path === "/api/admin/ai-chat" && request.method === "POST") {
+      const payload = await request.json().catch(() => ({}));
+      const message = cleanMessage(payload.message, 1000);
+      if (!message) return json({ error: "message is required" }, 400);
+      return json({ reply: await adminAiChat(env, message) });
     }
 
     if (path.startsWith("/api/admin/comments/")) {
@@ -299,6 +332,23 @@ async function ensureSchema(env) {
       updated_at TEXT NOT NULL
     )
   `).run();
+  await env.COMMENTS_DB.prepare(`
+    CREATE TABLE IF NOT EXISTS site_events (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      path TEXT NOT NULL,
+      page TEXT,
+      lang TEXT,
+      title TEXT,
+      referrer TEXT,
+      ip TEXT NOT NULL DEFAULT 'unknown',
+      ip_location TEXT NOT NULL DEFAULT 'Unknown location',
+      user_agent TEXT,
+      created_at TEXT NOT NULL
+    )
+  `).run();
+  await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_site_events_type_created ON site_events (type, created_at DESC)").run();
+  await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_site_events_path_created ON site_events (path, created_at DESC)").run();
   memory.schemaReady = true;
 }
 
@@ -449,6 +499,152 @@ async function listLegacyKvComments(env, limit) {
   return Array.isArray(comments) ? comments.slice(0, commentLimit(limit)) : [];
 }
 
+async function saveEvent(env, event) {
+  await ensureSchema(env);
+  await env.COMMENTS_DB.prepare(`
+    INSERT INTO site_events (
+      id, type, path, page, lang, title, referrer, ip, ip_location, user_agent, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    crypto.randomUUID(),
+    event.type || "page_view",
+    event.path || "/",
+    event.page || "",
+    event.lang || "",
+    event.title || "",
+    event.referrer || "",
+    event.ip || "unknown",
+    event.ipLocation || "Unknown location",
+    event.userAgent || "",
+    new Date().toISOString()
+  ).run();
+}
+
+async function adminAiChat(env, message) {
+  if (!env.AI?.run) throw new Error("Workers AI binding is not configured");
+  const config = await loadSiteConfig(env);
+  const model = cleanOneLine(config.aiChatModel, 120) || DEFAULT_CHAT_MODEL;
+  const context = await adminAiContext(env, config);
+  const prompt = [
+    "You are the private admin assistant for this personal site.",
+    "Answer in Chinese unless the admin asks for another language.",
+    "Use only the provided D1 site data. If the data is missing, say so directly.",
+    "You can summarize visits, top pages, recent events, comment moderation status, and site configuration.",
+    "Do not claim you changed data. This chat is read-only.",
+    "",
+    "D1 context JSON:",
+    JSON.stringify(context),
+    "",
+    `Admin question: ${message}`,
+  ].join("\n");
+  const result = await runTextModel(env, model, prompt);
+  return extractModelText(result) || "没有得到可读的 AI 回复。";
+}
+
+async function adminAiContext(env, config) {
+  await ensureSchema(env);
+  const [commentCounts, eventTotals, topPaths, recentEvents, recentComments] = await Promise.all([
+    queryCommentCounts(env),
+    queryEventTotals(env),
+    queryTopPaths(env),
+    queryRecentEvents(env),
+    queryRecentComments(env),
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    runtimeConfig: summarizeRuntimeConfig(config),
+    commentCounts,
+    eventTotals,
+    topPaths,
+    recentEvents,
+    recentComments,
+  };
+}
+
+function summarizeRuntimeConfig(config) {
+  return {
+    commentsEnabled: config.commentsEnabled !== false,
+    moderationEnabled: config.moderationEnabled !== false,
+    migrationEnabled: config.migrationEnabled !== false,
+    aiModel: config.aiModel || DEFAULT_MODERATION_MODEL,
+    aiChatModel: config.aiChatModel || DEFAULT_CHAT_MODEL,
+    approvedCacheTtlSeconds: config.approvedCacheTtlSeconds,
+    memoryCacheTtlSeconds: config.memoryCacheTtlSeconds,
+    turnstileSiteKeyConfigured: Boolean(config.turnstileSiteKey),
+    updatedAt: config.updatedAt || "",
+  };
+}
+
+async function queryCommentCounts(env) {
+  const rows = await env.COMMENTS_DB.prepare(`
+    SELECT status, COUNT(*) AS count FROM comments GROUP BY status
+  `).all();
+  return Object.fromEntries((rows.results || []).map((row) => [row.status || "unknown", row.count || 0]));
+}
+
+async function queryEventTotals(env) {
+  const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const last7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const row = await env.COMMENTS_DB.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last24h,
+      SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) AS last7d,
+      COUNT(DISTINCT ip) AS uniqueIps
+    FROM site_events
+    WHERE type = 'page_view'
+  `).bind(last24h, last7d).first();
+  return {
+    total: row?.total || 0,
+    last24h: row?.last24h || 0,
+    last7d: row?.last7d || 0,
+    uniqueIps: row?.uniqueIps || 0,
+  };
+}
+
+async function queryTopPaths(env) {
+  const last30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const rows = await env.COMMENTS_DB.prepare(`
+    SELECT path, COUNT(*) AS count
+    FROM site_events
+    WHERE type = 'page_view' AND created_at >= ?
+    GROUP BY path
+    ORDER BY count DESC
+    LIMIT 10
+  `).bind(last30d).all();
+  return rows.results || [];
+}
+
+async function queryRecentEvents(env) {
+  const rows = await env.COMMENTS_DB.prepare(`
+    SELECT type, path, page, lang, ip_location, created_at
+    FROM site_events
+    ORDER BY created_at DESC
+    LIMIT 20
+  `).all();
+  return rows.results || [];
+}
+
+async function queryRecentComments(env) {
+  const rows = await env.COMMENTS_DB.prepare(`
+    SELECT id, name, message, status, moderation_model, moderation_categories, moderation_reason, created_at
+    FROM comments
+    ORDER BY created_at DESC
+    LIMIT 20
+  `).all();
+  return (rows.results || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    message: cleanMessage(row.message, 120),
+    status: row.status,
+    moderationModel: row.moderation_model,
+    moderationCategories: row.moderation_categories,
+    moderationReason: row.moderation_reason,
+    createdAt: row.created_at,
+  }));
+}
+
 async function refreshApprovedCommentsCache(env) {
   memory.comments = null;
   memory.commentsExpiresAt = 0;
@@ -523,11 +719,14 @@ function publicSiteSettings(settings) {
 
 function sanitizeSiteConfig(payload, base = DEFAULT_SITE_CONFIG, env = {}) {
   const current = base || DEFAULT_SITE_CONFIG;
+  const envModerationModel = cleanOneLine(env.COMMENT_MODERATION_MODEL, 120);
+  const envChatModel = cleanOneLine(env.AI_CHAT_MODEL || env.ADMIN_AI_CHAT_MODEL, 120);
   return {
     commentsEnabled: typeof payload.commentsEnabled === "boolean" ? payload.commentsEnabled : current.commentsEnabled !== false,
     moderationEnabled: typeof payload.moderationEnabled === "boolean" ? payload.moderationEnabled : current.moderationEnabled !== false,
     migrationEnabled: typeof payload.migrationEnabled === "boolean" ? payload.migrationEnabled : current.migrationEnabled !== false,
-    aiModel: cleanOneLine(payload.aiModel, 120) || current.aiModel || DEFAULT_MODERATION_MODEL,
+    aiModel: cleanOneLine(payload.aiModel, 120) || envModerationModel || current.aiModel || DEFAULT_MODERATION_MODEL,
+    aiChatModel: cleanOneLine(payload.aiChatModel, 120) || envChatModel || current.aiChatModel || DEFAULT_CHAT_MODEL,
     approvedCacheTtlSeconds: boundedInt(payload.approvedCacheTtlSeconds, current.approvedCacheTtlSeconds || DEFAULT_CACHE_TTL_SECONDS, 60, 3600),
     memoryCacheTtlSeconds: boundedInt(payload.memoryCacheTtlSeconds, current.memoryCacheTtlSeconds || DEFAULT_MEMORY_TTL_SECONDS, 1, 300),
     turnstileSiteKey: cleanOneLine(payload.turnstileSiteKey, 256) || cleanOneLine(env.TURNSTILE_SITE_KEY, 256) || current.turnstileSiteKey || "",
@@ -576,19 +775,15 @@ async function moderateComment(env, config, comment) {
   }
 
   const content = [
-    "Classify this user-submitted guestbook comment.",
-    "Return safe or unsafe and any unsafe categories.",
+    "Classify this user-submitted guestbook comment for a public personal website.",
+    "Return compact JSON only: {\"safe\":true|false,\"categories\":[...],\"reason\":\"...\"}.",
     "Treat direct insults, profanity, personal attacks, harassment, threats, sexual content, hate, spam, and abuse as unsafe.",
     "",
     `Name: ${comment.name}`,
     `Comment: ${comment.message}`,
   ].join("\n");
   try {
-    const result = await env.AI.run(model, {
-      messages: [
-        { role: "user", content },
-      ],
-    });
+    const result = await runTextModel(env, model, content);
     const parsed = parseModerationResult(result);
     return { ...parsed, model, raw: result };
   } catch (error) {
@@ -644,21 +839,65 @@ function localModerationCheck(comment) {
   };
 }
 
+async function runTextModel(env, model, content) {
+  return env.AI.run(model, {
+    messages: [
+      { role: "user", content },
+    ],
+  });
+}
+
+function extractModelText(result) {
+  if (!result) return "";
+  if (typeof result === "string") return result;
+  if (typeof result.response === "string") return result.response;
+  if (typeof result.result === "string") return result.result;
+  if (typeof result.text === "string") return result.text;
+  if (Array.isArray(result.choices)) {
+    const choice = result.choices[0];
+    return choice?.message?.content || choice?.text || "";
+  }
+  return "";
+}
+
 function parseModerationResult(result) {
+  const direct = extractModelText(result);
+  const parsed = parseFirstJsonObject(direct);
+  if (parsed && typeof parsed.safe === "boolean") {
+    const categories = Array.isArray(parsed.categories) ? parsed.categories.map((item) => cleanOneLine(item, 40)).filter(Boolean) : [];
+    return {
+      safe: parsed.safe,
+      categories,
+      reason: cleanOneLine(parsed.reason, 400) || (parsed.safe ? "" : "AI classified this comment as unsafe."),
+    };
+  }
+
   const text = JSON.stringify(result || {}).toLowerCase();
-  const direct = String(result?.response || result?.result || result?.text || "").toLowerCase();
-  const source = direct || text;
-  const unsafe = /\bunsafe\b/.test(source) || /violence|hate|sexual|self-harm|criminal|harassment/.test(source);
-  const safe = !unsafe && (/\bsafe\b/.test(source) || !source);
+  const source = String(direct || text).toLowerCase();
+  const unsafe = /\bunsafe\b/.test(source) || /violence|hate|sexual|self-harm|criminal|harassment|profanity|abuse|spam/.test(source);
+  const safe = !unsafe && /\bsafe\b/.test(source);
   const categories = [];
-  for (const category of ["violence", "hate", "sexual", "self-harm", "criminal", "harassment", "illicit", "weapons"]) {
+  for (const category of ["violence", "hate", "sexual", "self-harm", "criminal", "harassment", "illicit", "weapons", "profanity", "abuse", "spam"]) {
     if (source.includes(category)) categories.push(category);
   }
   return {
     safe,
     categories,
-    reason: unsafe ? "Workers AI classified this comment as unsafe." : "",
+    reason: unsafe ? "Workers AI classified this comment as unsafe." : safe ? "" : "AI moderation was inconclusive; queued for manual review.",
   };
+}
+
+function parseFirstJsonObject(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
 }
 
 async function adminHealth(env) {
@@ -855,6 +1094,12 @@ function cleanOneLine(value, maxLength) {
 
 function cleanMessage(value, maxLength) {
   return String(value || "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim().slice(0, maxLength);
+}
+
+function cleanPath(value) {
+  const path = cleanOneLine(value, 220) || "/";
+  if (!path.startsWith("/")) return "/";
+  return path.split("#")[0].split("?")[0] || "/";
 }
 
 function commentLimit(value) {

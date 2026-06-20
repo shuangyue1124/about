@@ -1906,7 +1906,8 @@ button.contact-link {
 .admin-form input,
 .admin-form textarea,
 .admin-form select,
-.admin-comment-toolbar select {
+.admin-comment-toolbar select,
+.admin-chat-form input {
   width: 100%;
   color: var(--ink);
   background: var(--white);
@@ -1916,6 +1917,11 @@ button.contact-link {
 }
 
 .admin-form input {
+  height: 46px;
+  padding: 0 14px;
+}
+
+.admin-chat-form input {
   height: 46px;
   padding: 0 14px;
 }
@@ -1935,7 +1941,8 @@ button.contact-link {
 .admin-form input:focus,
 .admin-form textarea:focus,
 .admin-form select:focus,
-.admin-comment-toolbar select:focus {
+.admin-comment-toolbar select:focus,
+.admin-chat-form input:focus {
   border-color: rgba(53, 88, 74, 0.55);
   box-shadow: 0 0 0 3px rgba(53, 88, 74, 0.12);
 }
@@ -2016,6 +2023,60 @@ button.contact-link {
 
 .admin-comment-toolbar p {
   margin: 0;
+}
+
+.admin-chat-log {
+  display: grid;
+  max-height: 380px;
+  gap: 10px;
+  overflow: auto;
+  padding: 14px;
+  background: var(--paper-deep);
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  border-radius: 8px;
+}
+
+.admin-chat-message {
+  display: grid;
+  max-width: min(760px, 100%);
+  gap: 6px;
+  padding: 12px 14px;
+  background: rgba(255, 253, 248, 0.68);
+  border: 1px solid rgba(38, 37, 30, 0.08);
+  border-radius: 8px;
+}
+
+.admin-chat-message--user {
+  justify-self: end;
+  background: rgba(231, 238, 231, 0.86);
+  border-color: rgba(53, 88, 74, 0.18);
+}
+
+.admin-chat-message strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.admin-chat-message span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+
+.admin-chat-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.admin-chat-form label {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .admin-comment {
@@ -2182,6 +2243,15 @@ button.contact-link {
 
   .comment-form .btn {
     justify-content: center;
+  }
+
+  .admin-chat-form {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-chat-form .btn {
+    justify-content: center;
+    width: 100%;
   }
 
   .travel-hero,

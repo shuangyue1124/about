@@ -1,10 +1,12 @@
 const app = document.getElementById("adminApp");
+const defaultAiModel = "@cf/meta/llama-3.2-3b-instruct";
 
 const emptyConfig = {
   commentsEnabled: true,
   moderationEnabled: true,
   migrationEnabled: true,
-  aiModel: "@cf/meta/llama-guard-3-8b",
+  aiModel: defaultAiModel,
+  aiChatModel: defaultAiModel,
   approvedCacheTtlSeconds: 60,
   memoryCacheTtlSeconds: 15,
   turnstileSiteKey: "",
@@ -22,6 +24,10 @@ const state = {
   health: null,
   statusFilter: "pending",
   status: "",
+  chatMessages: [
+    { role: "assistant", content: "可以问我访问量、热门页面、最近事件、评论审核状态等。数据来自 D1，只读查询。" },
+  ],
+  chatLoading: false,
 };
 
 function esc(value) {
@@ -151,7 +157,11 @@ function dashboard() {
           </label>
           <label>
             <span>AI 审核模型</span>
-            <input name="aiModel" value="${esc(config.aiModel || "@cf/meta/llama-guard-3-8b")}" autocomplete="off">
+            <input name="aiModel" value="${esc(config.aiModel || defaultAiModel)}" autocomplete="off">
+          </label>
+          <label>
+            <span>AI 对话模型</span>
+            <input name="aiChatModel" value="${esc(config.aiChatModel || defaultAiModel)}" autocomplete="off">
           </label>
           <label>
             <span>公开 Turnstile site key</span>
@@ -173,6 +183,26 @@ function dashboard() {
             <button class="btn btn--primary" type="submit">保存配置</button>
           </div>
           <p class="admin-status" id="configStatus" role="status">${esc(state.status)}</p>
+        </form>
+      </section>
+
+      <section class="admin-panel admin-panel--wide" aria-labelledby="ai-chat-title">
+        <div class="admin-comment-toolbar">
+          <div>
+            <h2 id="ai-chat-title">AI 数据对话</h2>
+            <p>基于 D1 的评论与访问事件，只读回答访问量、热门页面、最近事件和审核状态。</p>
+          </div>
+        </div>
+        <div class="admin-chat-log" id="adminChatLog" aria-live="polite">
+          ${state.chatMessages.map(chatMessage).join("")}
+          ${state.chatLoading ? '<p class="admin-chat-message admin-chat-message--assistant">正在查询 D1 并生成回复...</p>' : ""}
+        </div>
+        <form class="admin-chat-form" id="aiChatForm">
+          <label>
+            <span>向 AI 提问</span>
+            <input name="message" maxlength="1000" autocomplete="off" placeholder="例如：今天访问量多少？最近有哪些待审留言？热门页面是什么？">
+          </label>
+          <button class="btn btn--primary" type="submit" aria-label="发送 AI 对话问题">发送</button>
         </form>
       </section>
 
@@ -282,6 +312,16 @@ function commentItem(comment) {
   `;
 }
 
+function chatMessage(item) {
+  const role = item.role === "user" ? "user" : "assistant";
+  return `
+    <p class="admin-chat-message admin-chat-message--${role}">
+      <strong>${role === "user" ? "你" : "AI"}</strong>
+      <span>${esc(item.content || "")}</span>
+    </p>
+  `;
+}
+
 function statusLabel(status) {
   return {
     pending: "待审核",
@@ -314,6 +354,7 @@ function bind() {
   document.getElementById("refreshButton")?.addEventListener("click", loadDashboard);
   document.getElementById("migrateButton")?.addEventListener("click", migrateComments);
   document.getElementById("logoutButton")?.addEventListener("click", logout);
+  document.getElementById("aiChatForm")?.addEventListener("submit", sendAiChat);
   document.getElementById("statusFilter")?.addEventListener("change", (event) => {
     state.statusFilter = event.currentTarget.value;
     loadDashboard();
@@ -388,6 +429,7 @@ function configFromForm(form) {
     moderationEnabled: form.get("moderationEnabled") === "on",
     migrationEnabled: form.get("migrationEnabled") === "on",
     aiModel: String(form.get("aiModel") || "").trim(),
+    aiChatModel: String(form.get("aiChatModel") || "").trim(),
     turnstileSiteKey: String(form.get("turnstileSiteKey") || "").trim(),
     approvedCacheTtlSeconds: Number.parseInt(form.get("approvedCacheTtlSeconds") || "60", 10),
     memoryCacheTtlSeconds: Number.parseInt(form.get("memoryCacheTtlSeconds") || "15", 10),
@@ -446,6 +488,35 @@ async function migrateComments() {
   } catch (error) {
     state.status = error.message || "迁移失败。";
     render();
+  }
+}
+
+async function sendAiChat(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const input = form.elements.message;
+  const message = String(input?.value || "").trim();
+  if (!message || state.chatLoading) return;
+
+  state.chatMessages.push({ role: "user", content: message });
+  state.chatLoading = true;
+  input.value = "";
+  render();
+
+  try {
+    const response = await api("/api/admin/ai-chat", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
+    if (!response.ok) throw new Error(await responseText(response));
+    const data = await response.json();
+    state.chatMessages.push({ role: "assistant", content: data.reply || "没有得到回复。" });
+  } catch (error) {
+    state.chatMessages.push({ role: "assistant", content: error.message || "AI 对话暂时不可用。" });
+  } finally {
+    state.chatLoading = false;
+    render();
+    document.getElementById("adminChatLog")?.lastElementChild?.scrollIntoView({ block: "nearest" });
   }
 }
 

@@ -22,7 +22,7 @@
     "binding": "AI"
   },
   "vars": {
-    "COMMENT_MODERATION_MODEL": "@cf/meta/llama-guard-3-8b",
+    "COMMENT_MODERATION_MODEL": "@cf/meta/llama-3.2-3b-instruct",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADnuEH7YMTYy_Dgd"
   },
   "assets": {
