@@ -1822,13 +1822,13 @@ button.contact-link {
 
 .admin-shell {
   width: min(1120px, calc(100% - 48px));
-  margin: 58px auto 84px;
+  margin: 34px auto 64px;
 }
 
 .admin-hero {
   display: grid;
-  gap: 14px;
-  padding: 46px;
+  gap: 10px;
+  padding: 30px;
   background: rgba(255, 253, 248, 0.76);
   border: 1px solid rgba(38, 37, 30, 0.08);
   border-radius: 8px;
@@ -1838,7 +1838,7 @@ button.contact-link {
 .admin-hero h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(38px, 6vw, 68px);
+  font-size: clamp(30px, 4vw, 46px);
   font-weight: 500;
   letter-spacing: 0;
 }
@@ -1852,19 +1852,39 @@ button.contact-link {
 
 .admin-layout {
   display: grid;
-  grid-template-columns: minmax(0, 0.72fr) minmax(340px, 1fr);
+  grid-template-columns: minmax(280px, 0.72fr) minmax(360px, 1fr);
+  align-items: start;
   gap: 18px;
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
 .admin-panel--wide {
   grid-column: 1 / -1;
 }
 
+.admin-panel--chat {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.admin-panel--comments {
+  grid-column: 1 / -1;
+}
+
+.admin-layout > [aria-labelledby="health-title"] {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.admin-layout > [aria-labelledby="config-title"] {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
 .admin-panel {
   display: grid;
-  gap: 18px;
-  padding: 24px;
+  gap: 16px;
+  padding: 20px;
   background: rgba(255, 253, 248, 0.72);
   border: 1px solid rgba(38, 37, 30, 0.08);
   border-radius: 8px;
@@ -1873,7 +1893,7 @@ button.contact-link {
 .admin-panel h2 {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 500;
 }
 
@@ -2213,6 +2233,13 @@ button.contact-link {
   .admin-layout {
     grid-template-columns: 1fr;
   }
+  .admin-panel--chat,
+  .admin-panel--comments,
+  .admin-layout > [aria-labelledby="health-title"],
+  .admin-layout > [aria-labelledby="config-title"] {
+    grid-column: auto;
+    grid-row: auto;
+  }
 
   .feature-card--image-right .ink-art {
     order: 0;
@@ -2325,8 +2352,8 @@ button.contact-link {
   .city-details,
   .city-pager,
   .admin-shell {
-    width: min(100% - 28px, 1120px);
-  }
+  width: min(100% - 28px, 1120px);
+}
 
   .feature-section,
   .comments-section,
@@ -2347,9 +2374,9 @@ button.contact-link {
   .travel-hero,
   .city-hero,
   .admin-hero {
-    margin-top: 28px;
+  margin-top: 28px;
     padding: 24px;
-  }
+}
 
   .city-preview {
     grid-template-columns: 120px minmax(0, 1fr);

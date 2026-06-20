@@ -186,7 +186,7 @@ function dashboard() {
         </form>
       </section>
 
-      <section class="admin-panel admin-panel--wide" aria-labelledby="ai-chat-title">
+      <section class="admin-panel admin-panel--chat" aria-labelledby="ai-chat-title">
         <div class="admin-comment-toolbar">
           <div>
             <h2 id="ai-chat-title">AI 数据对话</h2>
@@ -206,7 +206,7 @@ function dashboard() {
         </form>
       </section>
 
-      <section class="admin-panel admin-panel--wide" aria-labelledby="comments-title">
+      <section class="admin-panel admin-panel--comments admin-panel--wide" aria-labelledby="comments-title">
         <div class="admin-comment-toolbar">
           <div>
             <h2 id="comments-title">留言管理</h2>
