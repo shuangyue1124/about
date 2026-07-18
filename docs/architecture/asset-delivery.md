@@ -1,29 +1,37 @@
-# 图片资源交付架构
+# 静态站与资源交付架构
 
-## 源码资源与构建产物分离
+## 静态 HTML 是可用性基线
 
-站点图片的源文件保存在 `assets/images/`，Worker 实际发布目录是 `public/`。构建脚本会把 `assets`、页面入口、城市页和 Worker 辅助文件复制到 `public/`，所以只修改 `assets/images/` 但不运行 `npm run build:worker` 时，待发布目录不会同步。证据: `scripts/prepare-worker-assets.mjs:3-18`, `wrangler.jsonc:23-27`。
+构建阶段直接生成三种语言的完整页面正文、导航和 NFC 名片操作，并把静态内容写入 `#app`。客户端脚本只绑定交互和应用运行时设置；浏览器 API 或设置接口失败时保留原有文档，不用空壳等待接口返回。证据: `scripts/build-pages.mjs:73-123`, `scripts/build-pages.mjs:159-204`, `assets/js/app.js:998-1007`。
 
-## 首页图片由数据层声明
+## 元数据与正文同源生成
 
-首页卡片不直接在 HTML 中写死图片。图片路径由 `homeCards.image` 声明，渲染时由首页卡片组件转换为 CSS 变量和 `<img>`。证据: `assets/js/data.js:183-267`, `assets/js/app.js:331-341`。
+每个语言版本在同一次静态构建中生成 canonical、hreflang、Open Graph、Twitter Card 与 JSON-LD。首页使用 `profile` 类型和 1200×630 名片图，Person 结构化数据复用资料层的头像、邮件与社交链接，避免爬虫结果依赖客户端执行。证据: `scripts/build-pages.mjs:73-118`, `scripts/build-pages.mjs:194-204`, `scripts/build-pages.mjs:328-343`。
 
-## 城市图片按 slug 优先映射
+## 源码资源与 Pages 输出分离
 
-城市详情先读取 `cityImages[stop.slug]`，找不到才回退到地区图。这个顺序保证已有城市优先使用城市或地标组专用图片；地区图只作为兜底。证据: `assets/js/data.js:856-936`。
+源码页面与资源保存在仓库目录，`npm run build` 依次生成图片衍生资源、静态页面并重建 `public/`。`public/` 是 Cloudflare Pages 的构建输出目录；只修改源文件而不重新构建时，待发布目录不会同步。证据: `package.json:7-11`, `scripts/prepare-worker-assets.mjs:3-27`, `README.md:58-62`, `wrangler.jsonc:29-33`。
 
-## 城市视觉组件保留兜底能力
+## 图片衍生资源由构建统一生成
 
-城市视觉组件在存在 `visual.image` 时输出真实图片，并添加 `city-visual--with-image`。没有图片时 CSS 仍可用地区背景作为兜底，因此新增城市时如果忘记加入 `cityImages`，页面不会空白，但会被 `npm run verify:images` 拦截。证据: `assets/js/app.js:520-531`, `assets/css/styles.css:858-919`, `scripts/verify-image-assets.mjs`。
+原始 PNG 会产生 480/960 宽度的 WebP；首页 hero 另有 1600 宽度版本。构建还从本地头像与 hero 生成 1200×630 分享卡片，以及 32/192/512 像素站点图标。页面根据视口预加载 hero 变体，城市视觉用 `srcset` 选择响应式图片。证据: `scripts/optimize-images.mjs:14-94`, `scripts/build-pages.mjs:97-100`, `scripts/build-pages.mjs:310-315`。
 
-## 资源版本号用于浏览器和 Worker 缓存破旧
+## 首页与城市图片由资料层声明
 
-根页面和生成的城市页面通过 query string 引用 CSS/JS 资源版本。更换图片或数据映射时，需要更新 `assetVersion`，并重新构建页面入口。证据: `index.html:13-18`, `travel/index.html:13-18`, `admin.html:8-13`, `scripts/build-pages.mjs:9-31`。
+首页卡片通过 `homeCards.image` 声明图片；城市详情先读取 `cityImages[stop.slug]`，找不到才回退到地区图。这个边界让内容映射保持在资料层，页面构建和客户端增强共用同一来源。证据: `assets/js/data.js:219-303`, `assets/js/data.js:892-972`, `scripts/build-pages.mjs:207-218`。
 
-## Worker route 是线上自定义域名入口
+## VCF 使用稳定公共入口
 
-`about.shuangyue.space/*` 由 Worker route 接管，部署目标不是单纯的 Pages 静态输出。发布新图片必须执行 Worker 部署，并在部署后检查线上首页是否引用最新资源版本。证据: `wrangler.jsonc:8-15`, `package.json:7-10`, `scripts/verify-image-assets.mjs`。
+首页的两个保存入口都指向根路径 `/contact.vcf`。构建把该文件复制到 Pages 输出目录，Pages 响应头声明 UTF-8 `text/vcard` 与下载文件名；旧地址永久重定向到稳定入口。证据: `scripts/build-pages.mjs:172-186`, `scripts/prepare-worker-assets.mjs:9-26`, `_headers:28-35`, `_redirects:1-2`。
 
-## 本次故障根因
+## Service Worker 按资源类型分层缓存
 
-2026-06-15 复查时，线上首页仍引用旧版本 `20260613-full-images`，新路径 `/assets/images/home/about.png` 和 `/assets/images/cities/zhangjiajie-pillars.png` 返回 404。本地代码和 GitHub `main` 已包含新图片，但 Worker 线上版本没有完成部署。执行 `npx wrangler deploy` 后，线上首页改为引用 `20260614-varied-images`，上述图片 URL 返回 200。该结论来自部署前后的 HTTP 校验和 Wrangler 部署输出。
+首页、旅行入口、样式、脚本、头像、分享图和 VCF 构成核心预缓存。页面导航采用网络优先并回退缓存，静态资源采用 stale-while-revalidate；API 与管理员路径不进入这套公开静态缓存。证据: `sw.js:1-13`, `sw.js:27-77`。
+
+## 生产 Pages 与本地 Worker 各自负责单一边界
+
+仓库的生产发布约定是：推送 `main` 后由 Cloudflare Pages Git 集成构建 `public/`，Pages Functions 承载 `/api/`。`wrangler.jsonc` 和 `worker.js` 仅用于本地模拟 Functions 与资源绑定，不应以 `wrangler deploy` 创建第二个独立生产入口。Cloudflare 为 Pages Functions 生成的 `pages-worker--*-production` / `preview` 脚本属于同一个 Pages 项目的内部产物。证据: `README.md:31-78`, `wrangler.jsonc:1-5`, `wrangler.jsonc:29-33`。
+
+## 版本号与线上探测共同防止旧资源残留
+
+静态页面通过 query string 引用带版本号的 CSS/JS，Service Worker 缓存名随版本更新。发布前的检查验证源码与 `public/` 一致、分享图尺寸和 VCF 内容；传入 `--origin` 后还会探测生产首页的版本号及头像、分享图和 VCF 的内容类型。证据: `scripts/build-pages.mjs:8`, `scripts/build-pages.mjs:73-76`, `sw.js:1-12`, `scripts/verify-image-assets.mjs:120-158`。

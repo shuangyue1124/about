@@ -6,9 +6,26 @@ const root = document.body.dataset.root || ".";
 const currentCitySlug = document.body.dataset.city || citySlugFromPath();
 const langKey = "sfsy-lang";
 
-let lang = normalizeLang(document.body.dataset.lang) || langFromPath() || normalizeLang(localStorage.getItem(langKey)) || detectLang();
+function storageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable in private or restricted browser contexts.
+  }
+}
+
+let lang = normalizeLang(document.body.dataset.lang) || langFromPath() || normalizeLang(storageGet(langKey)) || detectLang();
 let siteSettings = null;
 let pageViewTracked = false;
+let toastTimer = 0;
 
 function normalizeLang(value) {
   if (!value) return "";
@@ -245,9 +262,9 @@ function layout(main) {
   return `
     <a class="skip-link" href="#main-content">${esc(label("skipToContent"))}</a>
     <header class="topbar">
-      <a class="brand" href="${esc(rootUrl(""))}" aria-label="${esc(label("navHome"))}">
+      <a class="brand" href="${esc(rootUrl(""))}">
         <span class="brand__mark brand__mark--avatar">
-          <img src="${esc(profile.avatar)}" alt="${esc(label("heroTitle"))}" loading="lazy">
+          <img src="${esc(profile.avatar)}" alt="${esc(label("avatarAlt"))}" width="36" height="36" decoding="async">
         </span>
         <span>
           <span class="brand__name">${esc(settingText("title", label("heroTitle")))}</span>
@@ -274,6 +291,7 @@ function layout(main) {
       </div>
     </header>
     ${main}
+    <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
       <span>${esc(label("footerLeft"))}</span>
       <span class="site-footer__sep">|</span>
@@ -291,7 +309,7 @@ function renderHome() {
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring">
-            <img src="${esc(profile.avatar)}" alt="${esc(label("heroTitle"))}">
+            <img src="${esc(profile.avatar)}" alt="${esc(label("avatarAlt"))}" width="112" height="112" fetchpriority="high" decoding="async">
           </div>
           <p class="eyebrow">${esc(label("heroMeta"))}</p>
           <h1>${esc(settingText("title", label("heroTitle")))}</h1>
@@ -299,8 +317,9 @@ function renderHome() {
           <p class="hero__motto">${esc(label("homeMotto"))}</p>
           ${terminal(profile.githubUrl, `${label("terminalPrompt")} open github.com/${profile.githubUser}`)}
           <div class="hero__actions">
-            <a class="btn btn--primary" href="${esc(pageLink("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a>
-            <a class="btn" href="${esc(profile.githubUrl)}" target="_blank" rel="noopener noreferrer">${esc(label("secondaryCta"))}<span aria-hidden="true">→</span></a>
+            <a class="btn btn--primary js-download-contact" href="/contact.vcf" download>${esc(label("saveContact"))}<span aria-hidden="true">↓</span></a>
+            <button class="btn js-share" type="button">${esc(label("shareCard"))}<span aria-hidden="true">↗</span></button>
+            <a class="btn" href="${esc(pageLink("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>
@@ -321,7 +340,7 @@ function renderHome() {
         </div>
         <div class="contact-grid">
           ${contacts.map(contactItem).join("")}
-          <a class="contact-link" href="${esc(rootUrl("assets/shuofeng-shuanyue.vcf"))}" download>
+          <a class="contact-link js-download-contact" href="/contact.vcf" download>
             <span>vCard</span>
             <strong>${esc(label("saveContact") || "Save Contact")}</strong>
             <small>${esc(label("saveContactHint") || "Save to contacts")}</small>
@@ -384,7 +403,8 @@ function homeCard(card, index) {
   const tags = card.tags[lang] || card.tags.zh;
   const hasArt = card.art && card.art !== "none";
   const image = card.image ? rootUrl(card.image) : "";
-  const imageStyle = image ? ` style="--ink-art-image: url(${esc(image)});"` : "";
+  const cssImage = card.image ? `/${card.image.replace(/^\/+/, "")}` : "";
+  const imageStyle = cssImage ? ` style="--ink-art-image: url(${esc(cssImage)});"` : "";
   return `
     <article class="feature-card feature-card--${index % 2 === 0 ? "image-left" : "image-right"} ${hasArt ? "" : "feature-card--no-art"}">
       ${hasArt ? `
@@ -406,7 +426,7 @@ function homeCard(card, index) {
 
 function contactItem(item) {
   const attrs = item.type === "copy"
-    ? `button type="button" data-copy="${esc(item.value)}" aria-label="${esc(contactDescription(item))}: ${esc(item.value)}"`
+    ? `button type="button" data-copy="${esc(item.value)}"`
     : `a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer"`;
   const close = item.type === "copy" ? "button" : "a";
   const copyClass = item.type === "copy" ? " js-copy" : "";
@@ -575,7 +595,8 @@ function renderCityVisual(city, size) {
   const shape = visual.shape || "plain";
   const accent = visual.accent || "#35584a";
   const image = visual.image ? rootUrl(visual.image) : "";
-  const imageStyle = image ? ` --city-image: url(${esc(image)});` : "";
+  const cssImage = visual.image ? `/${visual.image.replace(/^\/+/, "")}` : "";
+  const imageStyle = cssImage ? ` --city-image: url(${esc(cssImage)});` : "";
   const title = text(city.landmark || city.name);
   const food = text(city.food || city.tags?.[2] || "");
   const region = text(city.region);
@@ -656,9 +677,11 @@ function pagerLink(city, labelText) {
 
 function bindCommon() {
   document.querySelectorAll(".lang-menu__item").forEach((link) => {
-    link.addEventListener("click", () => localStorage.setItem(langKey, link.getAttribute("hreflang")?.slice(0, 2) || "zh"));
+    link.addEventListener("click", () => storageSet(langKey, link.getAttribute("hreflang")?.slice(0, 2) || "zh"));
   });
   bindCopyButtons();
+  bindShareButtons();
+  bindContactDownloads();
   bindAvatarFallback();
   bindComments();
   bindThemeToggle();
@@ -680,6 +703,7 @@ function bindCopyButtons() {
       const value = button.dataset.copy || "";
       const ok = await copyText(value);
       button.classList.add(ok ? "is-copied" : "is-failed");
+      showToast(ok ? label("copied") : label("copyFail"), ok ? "success" : "error");
       const state = button.querySelector(".copy-state");
       if (state) state.textContent = ok ? label("copied") : label("copyFail");
       window.setTimeout(() => {
@@ -707,9 +731,62 @@ async function copyText(value) {
   input.style.left = "-999px";
   document.body.appendChild(input);
   input.select();
-  const ok = document.execCommand("copy");
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
   input.remove();
   return ok;
+}
+
+function bindShareButtons() {
+  document.querySelectorAll(".js-share").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const shareData = {
+        title: document.title,
+        text: label("shareText"),
+        url: window.location.href,
+      };
+
+      if (navigator.share && window.isSecureContext) {
+        try {
+          await navigator.share(shareData);
+          showToast(label("shareSuccess"), "success");
+          return;
+        } catch (error) {
+          if (error?.name === "AbortError") {
+            showToast(label("shareCanceled"));
+            return;
+          }
+        }
+      }
+
+      const copied = await copyText(shareData.url);
+      showToast(copied ? label("shareCopied") : label("shareFail"), copied ? "success" : "error");
+    });
+  });
+}
+
+function bindContactDownloads() {
+  document.querySelectorAll(".js-download-contact").forEach((link) => {
+    link.addEventListener("click", () => showToast(label("downloadStarted"), "success"));
+  });
+}
+
+function showToast(message, state = "info") {
+  const toast = document.getElementById("pageToast");
+  if (!toast || !message) return;
+  window.clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.dataset.state = state;
+  toast.hidden = false;
+  toastTimer = window.setTimeout(() => {
+    toast.hidden = true;
+    toast.textContent = "";
+    delete toast.dataset.state;
+  }, 2600);
 }
 
 function bindTravelSearch() {
@@ -792,10 +869,10 @@ function bindThemeToggle() {
     button.addEventListener("click", () => {
       const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
       document.documentElement.dataset.theme = next;
-      localStorage.setItem("sfsy-theme", next);
+      storageSet("sfsy-theme", next);
     });
   });
-  const stored = localStorage.getItem("sfsy-theme");
+  const stored = storageGet("sfsy-theme");
   if (stored) document.documentElement.dataset.theme = stored;
 }
 
@@ -816,9 +893,12 @@ function trackPageView() {
     referrer: document.referrer,
   });
   if (navigator.sendBeacon) {
-    const blob = new Blob([payload], { type: "application/json" });
-    navigator.sendBeacon("/api/events", blob);
-    return;
+    try {
+      const blob = new Blob([payload], { type: "application/json" });
+      if (navigator.sendBeacon("/api/events", blob)) return;
+    } catch {
+      // Fall back to a keepalive request below.
+    }
   }
   fetch("/api/events", {
     method: "POST",
@@ -837,7 +917,9 @@ async function loadComments(list) {
     const comments = Array.isArray(data.comments) ? data.comments : [];
     renderComments(list, comments);
   } catch {
-    list.innerHTML = `<p class="comment-list__empty">${esc(commentLabel("error"))}</p>`;
+    list.innerHTML = `<div class="comment-list__empty"><p>${esc(commentLabel("error"))}</p><button class="btn btn--compact js-retry-comments" type="button">${esc(label("retry"))}</button></div>`;
+    const retry = list.querySelector(".js-retry-comments");
+    retry?.addEventListener("click", () => loadComments(list), { once: true });
   }
 }
 
@@ -849,6 +931,27 @@ async function loadSiteSettings() {
     if (data.settings && typeof data.settings === "object") siteSettings = data.settings;
   } catch {
     siteSettings = null;
+  }
+}
+
+function applySiteSettings() {
+  if (!siteSettings) return;
+
+  const title = settingText("title", label("heroTitle"));
+  document.querySelectorAll(".brand__name").forEach((element) => {
+    element.textContent = title;
+  });
+
+  if (page !== "home") return;
+  const heading = document.querySelector(".hero h1");
+  const subtitle = document.querySelector(".hero__subtitle");
+  if (heading) heading.textContent = title;
+  if (subtitle) subtitle.textContent = settingText("subtitle", label("heroSubtitle"));
+
+  const comments = document.querySelector("[data-comments]");
+  if (comments) {
+    comments.outerHTML = renderCommentsSection();
+    bindComments();
   }
 }
 
@@ -892,4 +995,13 @@ function commentTime(value) {
   }).format(date);
 }
 
-loadSiteSettings().finally(render);
+// Bind the complete static document immediately. Runtime settings enhance only
+// the affected nodes so a slow API cannot delay or replace the NFC card shell.
+try {
+  bindCommon();
+  if (page === "travel") bindTravelSearch();
+} catch {
+  // Keep the static document usable even if a browser API is unavailable.
+}
+
+loadSiteSettings().then(applySiteSettings).catch(() => {});

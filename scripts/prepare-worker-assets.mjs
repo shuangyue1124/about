@@ -16,6 +16,7 @@ const entries = [
   "ja",
   "assets",
   "manifest.webmanifest",
+  "contact.vcf",
   "sw.js",
   "_headers",
   "_redirects",

@@ -1,12 +1,15 @@
-const CACHE_NAME = "sfsy-static-v20260619";
+const CACHE_NAME = "sfsy-static-v20260719";
 const STATIC_ASSETS = [
   "/",
   "/travel/",
   "/manifest.webmanifest",
-  "/assets/css/styles.css?v=20260619-d1-static",
-  "/assets/js/app.js?v=20260619-d1-static",
-  "/assets/images/home-hero-ink.png",
-  "/assets/shuofeng-shuanyue.vcf",
+  "/contact.vcf",
+  "/assets/css/styles.css?v=20260719-nfc-card",
+  "/assets/js/app.js?v=20260719-nfc-card",
+  "/assets/js/data.js",
+  "/assets/images/avatar.webp",
+  "/assets/images/generated/home-hero-ink-960.webp",
+  "/assets/images/og-card.webp",
 ];
 
 self.addEventListener("install", (event) => {
@@ -26,13 +29,49 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (request.method !== "GET" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/admin")) return;
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request).then((response) => {
-        if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
-        return response;
-      }).catch(() => cached);
-      return cached || network;
-    })
-  );
+  if (request.mode === "navigate") {
+    event.respondWith(networkFirstPage(request));
+    return;
+  }
+
+  event.respondWith(staleWhileRevalidate(request, event));
 });
+
+async function networkFirstPage(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    return (await caches.match(request)) || (await caches.match("/")) || new Response("当前处于离线状态，请联网后重试。", {
+      status: 503,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+}
+
+async function staleWhileRevalidate(request, event) {
+  const cached = await caches.match(request);
+  const network = fetch(request)
+    .then(async (response) => {
+      if (response.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put(request, response.clone());
+      }
+      return response;
+    })
+    .catch(() => null);
+
+  if (cached) {
+    event.waitUntil(network);
+    return cached;
+  }
+
+  return (await network) || new Response("资源暂时不可用。", {
+    status: 503,
+    headers: { "content-type": "text/plain; charset=utf-8" },
+  });
+}

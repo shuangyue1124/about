@@ -5,7 +5,7 @@ import { cities, contacts, homeCards, japanPlan, languages, profile, ui } from "
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const assetVersion = "20260619-d1-static";
+const assetVersion = "20260719-nfc-card";
 const siteOrigin = "https://about.shuangyue.space";
 const locales = [
   { code: "zh", prefix: "", html: "zh-CN" },
@@ -70,12 +70,15 @@ function monthLabel(lang, stop) {
   return lang === "en" ? `${year}.${month}` : `${year}年${month}月`;
 }
 
-function pageFrame({ locale, depth, page, title, description, path, main, jsonLd, ogImage = "assets/images/home-hero-ink.png" }) {
+function pageFrame({ locale, depth, page, title, description, path, main, jsonLd, ogImage = "assets/images/generated/home-hero-ink-960.webp" }) {
   const lang = locale.code;
   const css = relAsset(depth, `assets/css/styles.css?v=${assetVersion}`);
   const js = relAsset(depth, `assets/js/app.js?v=${assetVersion}`);
   const manifest = relAsset(depth, "manifest.webmanifest");
+  const favicon = relAsset(depth, "assets/images/favicon-32.png");
+  const touchIcon = relAsset(depth, "assets/images/icon-192.png");
   const canonical = `${siteOrigin}${localePath(locale, path)}`;
+  const absoluteOgImage = `${siteOrigin}/${ogImage.replace(/^\//, "")}`;
   const alternates = localizedLinks(path);
   const rootAttr = depth === 0 ? "." : Array.from({ length: depth }, () => "..").join("/");
   return `<!doctype html>
@@ -86,19 +89,30 @@ function pageFrame({ locale, depth, page, title, description, path, main, jsonLd
     <meta name="description" content="${attr(description)}">
     <meta name="theme-color" content="#35584a">
     <meta name="color-scheme" content="light dark">
+    <script>try{const theme=localStorage.getItem("sfsy-theme");if(theme==="light"||theme==="dark")document.documentElement.dataset.theme=theme}catch{}</script>
     <link rel="canonical" href="${attr(canonical)}">
     ${alternates.map((item) => `<link rel="alternate" hreflang="${attr(item.hreflang)}" href="${attr(item.href)}">`).join("\n    ")}
     <link rel="alternate" hreflang="x-default" href="${attr(`${siteOrigin}${localePath(locales[0], path)}`)}">
     <link rel="manifest" href="${attr(manifest)}">
-    <meta property="og:type" content="${page === "city" ? "article" : "website"}">
+    <link rel="icon" type="image/png" sizes="32x32" href="${attr(favicon)}">
+    <link rel="apple-touch-icon" sizes="192x192" href="${attr(touchIcon)}">
+    ${page === "home" ? `<link rel="preload" as="image" href="${attr(relAsset(depth, "assets/images/generated/home-hero-ink-960.webp"))}" type="image/webp" media="(max-width: 920px)" fetchpriority="high">
+    <link rel="preload" as="image" href="${attr(relAsset(depth, "assets/images/generated/home-hero-ink-1600.webp"))}" type="image/webp" media="(min-width: 921px)" fetchpriority="high">` : ""}
+    <meta property="og:type" content="${page === "home" ? "profile" : page === "city" ? "article" : "website"}">
+    <meta property="og:site_name" content="朔风霜月">
     <meta property="og:title" content="${attr(title)}">
     <meta property="og:description" content="${attr(description)}">
     <meta property="og:url" content="${attr(canonical)}">
-    <meta property="og:image" content="${attr(`${siteOrigin}/${ogImage}`)}">
+    <meta property="og:image" content="${attr(absoluteOgImage)}">
+    <meta property="og:image:alt" content="${attr(l(lang, "shareText"))}">
+    ${page === "home" ? `<meta property="og:image:type" content="image/webp">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">` : ""}
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="${attr(title)}">
     <meta name="twitter:description" content="${attr(description)}">
-    <meta name="twitter:image" content="${attr(`${siteOrigin}/${ogImage}`)}">
+    <meta name="twitter:image" content="${attr(absoluteOgImage)}">
+    <meta name="twitter:image:alt" content="${attr(l(lang, "shareText"))}">
     <title>${esc(title)}</title>
     <link rel="stylesheet" href="${attr(css)}">
     <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
@@ -117,15 +131,15 @@ function layout(locale, depth, page, content, currentPath = "") {
   return `
     <a class="skip-link" href="#main-content">${esc(l(lang, "skipToContent"))}</a>
     <header class="topbar">
-      <a class="brand" href="${attr(localePath(locale, ""))}" aria-label="${attr(l(lang, "navHome"))}">
-        <span class="brand__mark brand__mark--avatar"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "heroTitle"))}" loading="lazy"></span>
+      <a class="brand" href="${attr(localePath(locale, ""))}">
+        <span class="brand__mark brand__mark--avatar"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="36" height="36" decoding="async"></span>
         <span><span class="brand__name">${esc(l(lang, "heroTitle"))}</span><span class="brand__kicker">${esc(l(lang, "brandKicker"))}</span></span>
       </a>
       <nav class="topnav" aria-label="Primary">
         <a href="${attr(localePath(locale, ""))}" ${page === "home" ? 'aria-current="page"' : ""}>${esc(l(lang, "navHome"))}</a>
         <a href="${attr(localePath(locale, "travel/"))}" ${page === "travel" ? 'aria-current="page"' : ""}>${esc(l(lang, "navTravel"))}</a>
         <a href="${attr(localePath(locale, "travel/#cities"))}">${esc(l(lang, "navCities"))}</a>
-        <a href="#contact">${esc(l(lang, "navContact"))}</a>
+        <a href="${attr(page === "home" ? "#contact" : localePath(locale, "#contact"))}">${esc(l(lang, "navContact"))}</a>
       </nav>
       <div class="lang-menu" aria-label="${attr(l(lang, "language"))}">
         ${locales.map((item) => `<a class="lang-menu__item ${item.code === lang ? "is-active" : ""}" href="${attr(localePath(item, currentPath))}" hreflang="${attr(item.html)}">${esc(languages.find((candidate) => candidate.code === item.code)?.label || item.code)}</a>`).join("")}
@@ -133,6 +147,7 @@ function layout(locale, depth, page, content, currentPath = "") {
       </div>
     </header>
     ${content}
+    <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
       <span>${esc(l(lang, "footerLeft"))}</span><span class="site-footer__sep">|</span>
       <span>${esc(l(lang, "footerRight"))}</span><span class="site-footer__sep">|</span>
@@ -149,14 +164,15 @@ function homePage(locale) {
       <section class="hero hero--home" id="top">
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
-          <div class="avatar-ring"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "heroTitle"))}" width="112" height="112"></div>
+          <div class="avatar-ring"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="112" height="112" fetchpriority="high" decoding="async"></div>
           <p class="eyebrow">${esc(l(lang, "heroMeta"))}</p>
           <h1>${esc(l(lang, "heroTitle"))}</h1>
           <p class="hero__subtitle">${esc(l(lang, "heroSubtitle"))}</p>
           <p class="hero__motto">${esc(l(lang, "homeMotto"))}</p>
           <div class="hero__actions">
-            <a class="btn btn--primary" href="${attr(localePath(locale, "travel/"))}">${esc(l(lang, "primaryCta"))}<span aria-hidden="true">→</span></a>
-            <a class="btn" href="${attr(profile.githubUrl)}" target="_blank" rel="noopener noreferrer">${esc(l(lang, "secondaryCta"))}<span aria-hidden="true">→</span></a>
+            <a class="btn btn--primary js-download-contact" href="/contact.vcf" download>${esc(l(lang, "saveContact"))}<span aria-hidden="true">↓</span></a>
+            <button class="btn js-share" type="button">${esc(l(lang, "shareCard"))}<span aria-hidden="true">↗</span></button>
+            <a class="btn" href="${attr(localePath(locale, "travel/"))}">${esc(l(lang, "primaryCta"))}<span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>
@@ -167,7 +183,7 @@ function homePage(locale) {
       <section class="contact-section" id="contact">
         <div class="section-heading"><p class="eyebrow">${esc(l(lang, "contactTitle"))}</p><h2>${esc(profile.githubUser)}</h2></div>
         <div class="contact-grid">${contacts.map((item) => contactItem(lang, depth, item)).join("")}
-          <a class="contact-link" href="${attr(relAsset(depth, "assets/shuofeng-shuanyue.vcf"))}" download><span>vCard</span><strong>${esc(l(lang, "saveContact"))}</strong><small>${esc(l(lang, "saveContactHint"))}</small></a>
+          <a class="contact-link js-download-contact" href="/contact.vcf" download><span>vCard</span><strong>${esc(l(lang, "saveContact"))}</strong><small>${esc(l(lang, "saveContactHint"))}</small></a>
         </div>
       </section>
       <section class="comments-section" id="comments" data-comments>
@@ -180,9 +196,10 @@ function homePage(locale) {
     depth,
     page: "home",
     title: l(lang, "siteTitle"),
-    description: lang === "en" ? "Shuofeng Shuanyue's NFC card, contacts, and travel footprints." : lang === "ja" ? "朔風霜月のNFCカード、連絡先、旅の足跡。" : "朔风霜月的 NFC 名片、联系方式和旅行足迹。",
+    description: lang === "en" ? "Shuofeng Shuanyue's profile, social accounts, contact details, and travel footprints." : lang === "ja" ? "朔風霜月のプロフィール、SNS、連絡先、旅の足跡。" : "朔风霜月的个人主页，包含个人介绍、社交账号、联系方式与旅行足迹。",
     path: "",
     main,
+    ogImage: "assets/images/og-card.webp",
     jsonLd: personJson(locale),
   });
 }
@@ -190,9 +207,10 @@ function homePage(locale) {
 function homeCard(locale, depth, card, index) {
   const lang = locale.code;
   const image = card.image ? relAsset(depth, card.image) : "";
+  const cssImage = card.image ? `/${card.image.replace(/^\/+/, "")}` : "";
   return `
     <article class="feature-card feature-card--${index % 2 === 0 ? "image-left" : "image-right"}">
-      <div class="ink-art ink-art--${attr(card.art)}" style="--ink-art-image: url(${attr(image)});">
+      <div class="ink-art ink-art--${attr(card.art)}" style="--ink-art-image: url(${attr(cssImage)});">
         <picture><source type="image/webp" srcset="${attr(imageSrcset(depth, card.image))}" sizes="(max-width: 920px) 100vw, 50vw"><img src="${attr(image)}" alt="${attr(t(lang, card.title))}" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
@@ -214,7 +232,7 @@ function contactItem(lang, depth, item) {
   };
   const desc = descriptions[item.key]?.[lang] || descriptions[item.key]?.zh || "";
   if (item.type === "copy") {
-    return `<button class="contact-link js-copy" type="button" data-copy="${attr(item.value)}" aria-label="${attr(`${desc}: ${item.value}`)}"><span>${esc(item.label)}</span><strong>${esc(item.value)}</strong><small>${esc(desc)}</small></button>`;
+    return `<button class="contact-link js-copy" type="button" data-copy="${attr(item.value)}"><span>${esc(item.label)}</span><strong>${esc(item.value)}</strong><small>${esc(desc)}</small></button>`;
   }
   return `<a class="contact-link" href="${attr(item.href)}" target="_blank" rel="noopener noreferrer"><span>${esc(item.label)}</span><strong>${esc(item.value)}</strong><small>${esc(desc)}</small></a>`;
 }
@@ -292,14 +310,19 @@ function cityVisual(locale, depth, city, size) {
   const lang = locale.code;
   const visual = city.visual || {};
   const image = visual.image ? relAsset(depth, visual.image) : "";
+  const cssImage = visual.image ? `/${visual.image.replace(/^\/+/, "")}` : "";
   const title = t(lang, city.landmark || city.name);
-  return `<span class="city-visual city-visual--${attr(size)} city-visual--${attr(visual.shape || "plain")} ${image ? "city-visual--with-image" : ""}" style="--city-accent: ${attr(visual.accent || "#35584a")}; --city-image: url(${attr(image)});">${image ? `<picture><source type="image/webp" srcset="${attr(imageSrcset(depth, visual.image))}" sizes="${size === "large" ? "(max-width: 920px) 100vw, 45vw" : "178px"}"><img class="city-visual__image" src="${attr(image)}" alt="${attr(title)}" loading="lazy" width="960" height="530"></picture>` : ""}<span class="city-visual__wash"></span><span class="city-visual__caption">${esc(title)}</span><span class="city-visual__region">${esc(t(lang, city.region))}</span></span>`;
+  return `<span class="city-visual city-visual--${attr(size)} city-visual--${attr(visual.shape || "plain")} ${image ? "city-visual--with-image" : ""}" style="--city-accent: ${attr(visual.accent || "#35584a")}; --city-image: url(${attr(cssImage)});">${image ? `<picture><source type="image/webp" srcset="${attr(imageSrcset(depth, visual.image))}" sizes="${size === "large" ? "(max-width: 920px) 100vw, 45vw" : "178px"}"><img class="city-visual__image" src="${attr(image)}" alt="${attr(title)}" loading="lazy" width="960" height="530"></picture>` : ""}<span class="city-visual__wash"></span><span class="city-visual__caption">${esc(title)}</span><span class="city-visual__region">${esc(t(lang, city.region))}</span></span>`;
 }
 
 function noscript(locale) {
   const lang = locale.code;
-  const latest = cities[0];
-  return `<section class="noscript-fallback"><h2>${esc(l(lang, "heroTitle"))}</h2><p>${esc(l(lang, "heroSubtitle"))}</p><p>Email: <a href="mailto:${attr(profile.email)}">${esc(profile.email)}</a> · Telegram: <a href="${attr(profile.telegram)}">${esc(profile.telegramHandle)}</a> · GitHub: <a href="${attr(profile.githubUrl)}">${esc(profile.githubUser)}</a></p><p>${esc(l(lang, "latest"))}: ${esc(t(lang, latest.name))} (${esc(stopDate(lang, latest))})</p><p><a href="${attr(localePath(locale, "travel/"))}">${esc(l(lang, "primaryCta"))}</a></p></section>`;
+  const message = lang === "en"
+    ? "The profile and contact links above remain available without JavaScript. Live comments and sharing enhancements are unavailable."
+    : lang === "ja"
+      ? "JavaScriptがなくても、上のプロフィールと連絡先は利用できます。コメントと共有機能のみ利用できません。"
+      : "即使 JavaScript 未加载，上方个人资料、社交链接和通讯录下载仍可使用；仅实时留言与分享增强不可用。";
+  return `<p class="noscript-fallback">${esc(message)}</p>`;
 }
 
 function personJson(locale) {
@@ -313,6 +336,7 @@ function personJson(locale) {
       name: l(lang, "heroTitle"),
       alternateName: profile.githubUser,
       email: profile.email,
+      image: `${siteOrigin}${profile.avatar}`,
       url: `${siteOrigin}${localePath(locale, "")}`,
       sameAs: [profile.githubUrl, profile.telegram, profile.steam],
     },

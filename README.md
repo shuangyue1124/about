@@ -1,21 +1,21 @@
 # 朔风霜月 NFC 名片站
 
-多文件静态站，支持 Cloudflare Pages / Workers 部署。页面包含 NFC 名片、三语切换、QQ 头像同步、旅行城市页、首页留言区和管理员后台。
+多文件静态站，生产环境部署在 Cloudflare Pages。页面包含 NFC 名片、三语切换、本地头像、旅行城市页、首页留言区和管理员后台；`worker.js` 仅用于本地模拟 Pages Functions。
 
 ## 本地预览
 
 静态页面预览：
 
 ```powershell
-cd D:\pc\shuangyue-about
-npm run build:worker
+cd D:\project\shuangyue-about
+npm run build
 npx serve public
 ```
 
 带评论 API 的 Worker 预览：
 
 ```powershell
-cd D:\pc\shuangyue-about
+cd D:\project\shuangyue-about
 npx wrangler dev
 ```
 
@@ -30,13 +30,18 @@ npx wrangler dev
 
 ## 部署
 
-Workers 部署：
+生产站使用 Cloudflare Pages 的 GitHub 集成：`main` 分支推送到 `shuangyue1124/about` 后会自动触发生产部署。发布前先运行：
 
 ```powershell
-npm run deploy
+npm ci
+npm run build
+npm run check
+git push origin main
 ```
 
-当前 Worker 使用 `public/` 作为静态资源目录，并通过 `worker.js` 兼容这些路径：
+不要对这份配置运行 `npx wrangler deploy`；`wrangler.jsonc` 和 `worker.js` 用于本地模拟 Pages Functions 运行环境，生产自定义域名由 Pages 托管。启用 Functions 后，Cloudflare 会为 Pages 项目生成 `pages-worker--*-production` / `pages-worker--*-preview` 内部脚本；控制台中看到它们不代表存在第二个同名站点，也不要单独删除。
+
+本地预览 Worker 使用 `public/` 作为静态资源目录，并通过 `worker.js` 兼容这些路径：
 
 - `/`
 - `/index.html`
@@ -50,9 +55,9 @@ npm run deploy
 - `/api/comments`
 - `/api/admin/*`
 
-Cloudflare Pages 也可以部署，构建设置为：
+Cloudflare Pages 生产项目的构建设置为：
 
-- Build command: `npm run build:worker`
+- Build command: `npm run build`
 - Build output directory: `public`
 - Root directory: 仓库根目录
 
@@ -64,7 +69,7 @@ Pages 部署会使用 `functions/api/` 下的 Pages Functions 复用 `worker.js`
 - Secret / Environment variable: `ADMIN_PASSWORD`
 - Secret / Environment variable: `TURNSTILE_SECRET_KEY`
 
-如果单独部署 Worker，管理员密码通过 Worker secret 设置：
+只有另建独立 Worker 时，管理员密码才通过 Worker secret 设置；当前 Pages 生产站不采用此部署方式：
 
 ```powershell
 npx wrangler secret put ADMIN_PASSWORD
@@ -188,5 +193,5 @@ node --check assets/js/app.js
 node --check assets/js/admin.js
 node --check assets/js/data.js
 node --check worker.js
-npm run build:worker
+npm run build
 ```

@@ -27,6 +27,12 @@
 
 /assets/*.vcf
   Cache-Control: public, max-age=600
+  Content-Type: text/vcard; charset=utf-8
+
+/contact.vcf
+  Cache-Control: public, max-age=600
+  Content-Type: text/vcard; charset=utf-8
+  Content-Disposition: inline; filename="shuofeng-shuanyue.vcf"
 
 /manifest.webmanifest
   Cache-Control: public, max-age=600
@@ -42,3 +48,9 @@
 
 /manage.html
   Cache-Control: no-cache
+
+https://about-aqa.pages.dev/*
+  X-Robots-Tag: noindex
+
+https://:version.about-aqa.pages.dev/*
+  X-Robots-Tag: noindex

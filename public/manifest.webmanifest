@@ -1,7 +1,8 @@
 {
   "name": "朔风霜月 NFC 名片",
   "short_name": "朔风霜月",
-  "description": "朔风霜月的 NFC 名片、联系方式和旅行足迹。",
+  "description": "朔风霜月的个人主页，包含个人介绍、社交账号、联系方式与旅行足迹。",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -9,10 +10,16 @@
   "theme_color": "#35584a",
   "icons": [
     {
-      "src": "/assets/images/home-hero-ink.png",
+      "src": "/assets/images/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/images/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
   ]
 }

@@ -1,4 +1,5 @@
 {
+  // Local Pages Functions preview only. Production deploys through the Pages Git integration.
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "about",
   "main": "worker.js",

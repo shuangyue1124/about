@@ -5,8 +5,9 @@
   "scripts": {
     "optimize:images": "node scripts/optimize-images.mjs",
     "build:pages": "node scripts/build-pages.mjs",
-    "build:worker": "npm run optimize:images && npm run build:pages && node scripts/prepare-worker-assets.mjs",
-    "deploy": "npm run build:worker && npx wrangler pages deploy public --project-name about --branch main",
+    "build": "npm run optimize:images && npm run build:pages && node scripts/prepare-worker-assets.mjs",
+    "build:worker": "npm run build",
+    "check": "node --check assets/js/app.js && node --check assets/js/admin.js && node --check assets/js/admin-d1.js && node --check assets/js/data.js && node --check worker.js && npm run verify:images",
     "verify:images": "node scripts/verify-image-assets.mjs",
     "serve": "npx serve ."
   },

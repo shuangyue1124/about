@@ -1,10 +1,11 @@
 import { access, readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import sharp from "sharp";
 import { cities, homeCards, japanPlan, ui } from "../assets/js/data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const assetVersion = "20260619-d1-static";
+const assetVersion = "20260719-nfc-card";
 const origin = readArg("--origin");
 const remoteTimeoutMs = 30000;
 
@@ -123,6 +124,16 @@ async function main() {
   await assertContains(resolve(root, "public/travel/index.html"), assetVersion);
   await assertContains(resolve(root, "public/admin.html"), assetVersion);
   await assertContains(resolve(root, "scripts/build-pages.mjs"), assetVersion);
+  await assertContains(resolve(root, "index.html"), "朔风霜月");
+  await assertContains(resolve(root, "index.html"), "https://about.shuangyue.space/assets/images/og-card.webp");
+  await assertContains(resolve(root, "index.html"), "/contact.vcf");
+  await assertContains(resolve(root, "contact.vcf"), "URL:https://about.shuangyue.space/");
+  await assertContains(resolve(root, "public/contact.vcf"), "FN:朔风霜月");
+
+  const ogCard = await sharp(resolve(root, "assets/images/og-card.webp")).metadata();
+  if (ogCard.width !== 1200 || ogCard.height !== 630 || ogCard.format !== "webp") {
+    fail(`og-card.webp must be a 1200x630 WebP, got ${ogCard.width}x${ogCard.height} ${ogCard.format}`);
+  }
 
   await access(resolve(root, "wrangler.jsonc"));
 
@@ -142,6 +153,9 @@ async function main() {
 
     await assertRemoteAsset(`${normalizedOrigin}/assets/images/home/about.png`, "image/");
     await assertRemoteAsset(`${normalizedOrigin}/assets/images/cities/zhangjiajie-pillars.png`, "image/");
+    await assertRemoteAsset(`${normalizedOrigin}/assets/images/avatar.webp`, "image/webp");
+    await assertRemoteAsset(`${normalizedOrigin}/assets/images/og-card.webp`, "image/webp");
+    await assertRemoteAsset(`${normalizedOrigin}/contact.vcf`, "text/vcard");
   }
 
   if (failures.length) {

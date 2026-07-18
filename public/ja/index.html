@@ -3,34 +3,45 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="朔風霜月のNFCカード、連絡先、旅の足跡。">
+    <meta name="description" content="朔風霜月のプロフィール、SNS、連絡先、旅の足跡。">
     <meta name="theme-color" content="#35584a">
     <meta name="color-scheme" content="light dark">
+    <script>try{const theme=localStorage.getItem("sfsy-theme");if(theme==="light"||theme==="dark")document.documentElement.dataset.theme=theme}catch{}</script>
     <link rel="canonical" href="https://about.shuangyue.space/ja/">
     <link rel="alternate" hreflang="zh-CN" href="https://about.shuangyue.space/">
     <link rel="alternate" hreflang="en-US" href="https://about.shuangyue.space/en/">
     <link rel="alternate" hreflang="ja-JP" href="https://about.shuangyue.space/ja/">
     <link rel="alternate" hreflang="x-default" href="https://about.shuangyue.space/">
     <link rel="manifest" href="../manifest.webmanifest">
-    <meta property="og:type" content="website">
-    <meta property="og:title" content="朔風霜月 | NFCカード">
-    <meta property="og:description" content="朔風霜月のNFCカード、連絡先、旅の足跡。">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="../assets/images/icon-192.png">
+    <link rel="preload" as="image" href="../assets/images/generated/home-hero-ink-960.webp" type="image/webp" media="(max-width: 920px)" fetchpriority="high">
+    <link rel="preload" as="image" href="../assets/images/generated/home-hero-ink-1600.webp" type="image/webp" media="(min-width: 921px)" fetchpriority="high">
+    <meta property="og:type" content="profile">
+    <meta property="og:site_name" content="朔风霜月">
+    <meta property="og:title" content="朔風霜月｜プロフィールカード">
+    <meta property="og:description" content="朔風霜月のプロフィール、SNS、連絡先、旅の足跡。">
     <meta property="og:url" content="https://about.shuangyue.space/ja/">
-    <meta property="og:image" content="https://about.shuangyue.space/assets/images/home-hero-ink.png">
+    <meta property="og:image" content="https://about.shuangyue.space/assets/images/og-card.webp">
+    <meta property="og:image:alt" content="朔風霜月のプロフィールカード">
+    <meta property="og:image:type" content="image/webp">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="朔風霜月 | NFCカード">
-    <meta name="twitter:description" content="朔風霜月のNFCカード、連絡先、旅の足跡。">
-    <meta name="twitter:image" content="https://about.shuangyue.space/assets/images/home-hero-ink.png">
-    <title>朔風霜月 | NFCカード</title>
-    <link rel="stylesheet" href="../assets/css/styles.css?v=20260619-d1-static">
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔風霜月 | NFCカード","mainEntity":{"@type":"Person","name":"朔風霜月","alternateName":"shuangyue1124","email":"hzq101116@163.com","url":"https://about.shuangyue.space/ja/","sameAs":["https://github.com/shuangyue1124","https://t.me/sfsy1124","https://steamcommunity.com/profiles/76561199258450245/"]}}</script>
+    <meta name="twitter:title" content="朔風霜月｜プロフィールカード">
+    <meta name="twitter:description" content="朔風霜月のプロフィール、SNS、連絡先、旅の足跡。">
+    <meta name="twitter:image" content="https://about.shuangyue.space/assets/images/og-card.webp">
+    <meta name="twitter:image:alt" content="朔風霜月のプロフィールカード">
+    <title>朔風霜月｜プロフィールカード</title>
+    <link rel="stylesheet" href="../assets/css/styles.css?v=20260719-nfc-card">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔風霜月｜プロフィールカード","mainEntity":{"@type":"Person","name":"朔風霜月","alternateName":"shuangyue1124","email":"hzq101116@163.com","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/ja/","sameAs":["https://github.com/shuangyue1124","https://t.me/sfsy1124","https://steamcommunity.com/profiles/76561199258450245/"]}}</script>
   </head>
   <body data-page="home" data-root=".." data-lang="ja">
     <div id="app">
     <a class="skip-link" href="#main-content">本文へ移動</a>
     <header class="topbar">
-      <a class="brand" href="/ja/" aria-label="ホーム">
-        <span class="brand__mark brand__mark--avatar"><img src="https://q1.qlogo.cn/g?b=qq&amp;nk=1970259391&amp;s=640" alt="朔風霜月" loading="lazy"></span>
+      <a class="brand" href="/ja/">
+        <span class="brand__mark brand__mark--avatar"><img src="/assets/images/avatar.webp" alt="朔風霜月のアバター" width="36" height="36" decoding="async"></span>
         <span><span class="brand__name">朔風霜月</span><span class="brand__kicker">NFCカード</span></span>
       </a>
       <nav class="topnav" aria-label="Primary">
@@ -49,14 +60,15 @@
       <section class="hero hero--home" id="top">
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
-          <div class="avatar-ring"><img src="https://q1.qlogo.cn/g?b=qq&amp;nk=1970259391&amp;s=640" alt="朔風霜月" width="112" height="112"></div>
+          <div class="avatar-ring"><img src="/assets/images/avatar.webp" alt="朔風霜月のアバター" width="112" height="112" fetchpriority="high" decoding="async"></div>
           <p class="eyebrow">16歳 · 学生 · フフホト</p>
           <h1>朔風霜月</h1>
           <p class="hero__subtitle">ピクセルの世界、旅、コードの中でひらめきを集めています。</p>
           <p class="hero__motto">私たちは自分の人生の監督であり、ただ演じるだけの役者ではありません。だから、周りの目を気にせず、安心して大胆に進んでください。人生は自分自身のためにあります。</p>
           <div class="hero__actions">
-            <a class="btn btn--primary" href="/ja/travel/">旅の足跡を見る<span aria-hidden="true">→</span></a>
-            <a class="btn" href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer">GitHubを開く<span aria-hidden="true">→</span></a>
+            <a class="btn btn--primary js-download-contact" href="/contact.vcf" download>連絡先に保存<span aria-hidden="true">↓</span></a>
+            <button class="btn js-share" type="button">カードを共有<span aria-hidden="true">↗</span></button>
+            <a class="btn" href="/ja/travel/">旅の足跡を見る<span aria-hidden="true">→</span></a>
           </div>
         </div>
       </section>
@@ -64,7 +76,7 @@
         <h2 id="home-sections">カード内容</h2>
         <div class="feature-list">
     <article class="feature-card feature-card--image-left">
-      <div class="ink-art ink-art--mountain" style="--ink-art-image: url(../assets/images/home/about.png);">
+      <div class="ink-art ink-art--mountain" style="--ink-art-image: url(/assets/images/home/about.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/about-480.webp 480w, ../assets/images/generated/home/about-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/about.png" alt="高校生の「朔風霜月」です" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
@@ -75,7 +87,7 @@
       </div>
     </article>
     <article class="feature-card feature-card--image-right">
-      <div class="ink-art ink-art--japan" style="--ink-art-image: url(../assets/images/home/anime.png);">
+      <div class="ink-art ink-art--japan" style="--ink-art-image: url(/assets/images/home/anime.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/anime-480.webp 480w, ../assets/images/generated/home/anime-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/anime.png" alt="新海誠の空と、戦争ものの鋭さが好きです" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
@@ -86,7 +98,7 @@
       </div>
     </article>
     <article class="feature-card feature-card--image-left">
-      <div class="ink-art ink-art--river" style="--ink-art-image: url(../assets/images/home/games.png);">
+      <div class="ink-art ink-art--river" style="--ink-art-image: url(/assets/images/home/games.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/games-480.webp 480w, ../assets/images/generated/home/games-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/games.png" alt="ゲームの世界でも旅を続けています" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
@@ -97,7 +109,7 @@
       </div>
     </article>
     <article class="feature-card feature-card--image-right">
-      <div class="ink-art ink-art--pagoda" style="--ink-art-image: url(../assets/images/home/travel.png);">
+      <div class="ink-art ink-art--pagoda" style="--ink-art-image: url(/assets/images/home/travel.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/travel-480.webp 480w, ../assets/images/generated/home/travel-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/travel.png" alt="これまで32都市を訪問" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
@@ -108,7 +120,7 @@
       </div>
     </article>
     <article class="feature-card feature-card--image-left">
-      <div class="ink-art ink-art--seal" style="--ink-art-image: url(../assets/images/home/github.png);">
+      <div class="ink-art ink-art--seal" style="--ink-art-image: url(/assets/images/home/github.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/github-480.webp 480w, ../assets/images/generated/home/github-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/github.png" alt="アイデアを開けるページや小さなツールにします" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
@@ -121,8 +133,8 @@
       </section>
       <section class="contact-section" id="contact">
         <div class="section-heading"><p class="eyebrow">連絡先</p><h2>shuangyue1124</h2></div>
-        <div class="contact-grid"><button class="contact-link js-copy" type="button" data-copy="1970259391" aria-label="QQ番号をコピー: 1970259391"><span>QQ</span><strong>1970259391</strong><small>QQ番号をコピー</small></button><a class="contact-link" href="https://t.me/sfsy1124" target="_blank" rel="noopener noreferrer"><span>Telegram</span><strong>@sfsy1124</strong><small>Telegramを開く</small></a><a class="contact-link" href="mailto:hzq101116@163.com" target="_blank" rel="noopener noreferrer"><span>Email</span><strong>hzq101116@163.com</strong><small>メールを送る</small></a><a class="contact-link" href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer"><span>GitHub</span><strong>shuangyue1124</strong><small>コードとプロジェクトを見る</small></a><a class="contact-link" href="https://steamcommunity.com/profiles/76561199258450245/" target="_blank" rel="noopener noreferrer"><span>Steam</span><strong>CS2 Profile</strong><small>Steamプロフィールを開く</small></a>
-          <a class="contact-link" href="../assets/shuofeng-shuanyue.vcf" download><span>vCard</span><strong>連絡先に保存</strong><small>.vcfカードをダウンロード</small></a>
+        <div class="contact-grid"><button class="contact-link js-copy" type="button" data-copy="1970259391"><span>QQ</span><strong>1970259391</strong><small>QQ番号をコピー</small></button><a class="contact-link" href="https://t.me/sfsy1124" target="_blank" rel="noopener noreferrer"><span>Telegram</span><strong>@sfsy1124</strong><small>Telegramを開く</small></a><a class="contact-link" href="mailto:hzq101116@163.com" target="_blank" rel="noopener noreferrer"><span>Email</span><strong>hzq101116@163.com</strong><small>メールを送る</small></a><a class="contact-link" href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer"><span>GitHub</span><strong>shuangyue1124</strong><small>コードとプロジェクトを見る</small></a><a class="contact-link" href="https://steamcommunity.com/profiles/76561199258450245/" target="_blank" rel="noopener noreferrer"><span>Steam</span><strong>CS2 Profile</strong><small>Steamプロフィールを開く</small></a>
+          <a class="contact-link js-download-contact" href="/contact.vcf" download><span>vCard</span><strong>連絡先に保存</strong><small>.vcfカードをダウンロード</small></a>
         </div>
       </section>
       <section class="comments-section" id="comments" data-comments>
@@ -130,13 +142,14 @@
         <div class="comment-list" id="commentList" aria-live="polite"><p class="comment-list__empty">评论会在防刷组件准备后加载。</p></div>
       </section>
     </main>
+    <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
       <span>NFCカードをかざすと、このページをもう一度開けます</span><span class="site-footer__sep">|</span>
       <span>Last updated · Auto avatar &amp; language</span><span class="site-footer__sep">|</span>
       <a href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer">GitHub shuangyue1124</a>
     </footer>
   </div>
-    <noscript><section class="noscript-fallback"><h2>朔風霜月</h2><p>ピクセルの世界、旅、コードの中でひらめきを集めています。</p><p>Email: <a href="mailto:hzq101116@163.com">hzq101116@163.com</a> · Telegram: <a href="https://t.me/sfsy1124">@sfsy1124</a> · GitHub: <a href="https://github.com/shuangyue1124">shuangyue1124</a></p><p>最新の解放: 洛陽市 (2026.02.19)</p><p><a href="/ja/travel/">旅の足跡を見る</a></p></section></noscript>
-    <script type="module" src="../assets/js/app.js?v=20260619-d1-static"></script>
+    <noscript><p class="noscript-fallback">JavaScriptがなくても、上のプロフィールと連絡先は利用できます。コメントと共有機能のみ利用できません。</p></noscript>
+    <script type="module" src="../assets/js/app.js?v=20260719-nfc-card"></script>
   </body>
 </html>

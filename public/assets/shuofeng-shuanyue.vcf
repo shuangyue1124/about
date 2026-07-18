@@ -3,8 +3,9 @@ VERSION:3.0
 FN:朔风霜月
 N:;朔风霜月;;;
 NICKNAME:Shuofeng Shuanyue
-EMAIL:hzq101116@163.com
-URL:https://github.com/shuangyue1124
+EMAIL;TYPE=INTERNET:hzq101116@163.com
+URL:https://about.shuangyue.space/
+X-SOCIALPROFILE;TYPE=github:https://github.com/shuangyue1124
 X-SOCIALPROFILE;TYPE=telegram:https://t.me/sfsy1124
-NOTE:QQ 1970259391; Minecraft CN_YangYang; Genshin UID 847045298
+NOTE:朔风霜月的个人主页
 END:VCARD
