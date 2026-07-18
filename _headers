@@ -37,6 +37,14 @@
 /manifest.webmanifest
   Cache-Control: public, max-age=600
 
+/robots.txt
+  Cache-Control: public, max-age=600
+  Content-Type: text/plain; charset=utf-8
+
+/sitemap.xml
+  Cache-Control: public, max-age=600
+  Content-Type: application/xml; charset=utf-8
+
 /sw.js
   Cache-Control: no-cache
 

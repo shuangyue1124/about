@@ -129,6 +129,10 @@ async function main() {
   await assertContains(resolve(root, "index.html"), "/contact.vcf");
   await assertContains(resolve(root, "contact.vcf"), "URL:https://about.shuangyue.space/");
   await assertContains(resolve(root, "public/contact.vcf"), "FN:朔风霜月");
+  await assertFile(resolve(root, "public/robots.txt"));
+  await assertFile(resolve(root, "public/sitemap.xml"));
+  await assertContains(resolve(root, "public/robots.txt"), "Sitemap: https://about.shuangyue.space/sitemap.xml");
+  await assertContains(resolve(root, "public/sitemap.xml"), "<loc>https://about.shuangyue.space/</loc>");
 
   const ogCard = await sharp(resolve(root, "assets/images/og-card.webp")).metadata();
   if (ogCard.width !== 1200 || ogCard.height !== 630 || ogCard.format !== "webp") {
@@ -156,6 +160,18 @@ async function main() {
     await assertRemoteAsset(`${normalizedOrigin}/assets/images/avatar.webp`, "image/webp");
     await assertRemoteAsset(`${normalizedOrigin}/assets/images/og-card.webp`, "image/webp");
     await assertRemoteAsset(`${normalizedOrigin}/contact.vcf`, "text/vcard");
+
+    const robotsResponse = await fetchWithRetry(`${normalizedOrigin}/robots.txt`);
+    if (!robotsResponse) {
+      // fetchWithRetry records the failure.
+    } else if (!robotsResponse.ok) {
+      fail(`${normalizedOrigin}/robots.txt returned ${robotsResponse.status}`);
+    } else {
+      const robots = await robotsResponse.text();
+      if (!robots.includes("Sitemap: https://about.shuangyue.space/sitemap.xml")) {
+        fail(`${normalizedOrigin}/robots.txt does not reference the sitemap`);
+      }
+    }
   }
 
   if (failures.length) {

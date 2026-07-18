@@ -17,6 +17,8 @@ const entries = [
   "assets",
   "manifest.webmanifest",
   "contact.vcf",
+  "robots.txt",
+  "sitemap.xml",
   "sw.js",
   "_headers",
   "_redirects",
