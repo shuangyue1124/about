@@ -18,7 +18,7 @@
 
 ## 源码资源与 Pages 输出分离
 
-源码页面与资源保存在仓库目录，`npm run build` 依次生成图片衍生资源、三语静态页面，然后删除并重建 `public/`。日本 4:5 PNG 只作为构建源图保留，复制资源时从 Pages 输出中排除；专题页只引用体积更小的 WebP。`public/` 是 Cloudflare Pages 的构建输出目录，任何源图、文案或样式变化都必须经过完整构建。证据: `package.json:6-11`, `scripts/prepare-worker-assets.mjs:3-43`, `scripts/build-pages.mjs:355-434`, `wrangler.jsonc:29-33`。
+源码页面与资源保存在仓库目录，`npm run build` 依次生成图片衍生资源、三语静态页面，然后删除并重建 `public/`。日本 4:5 PNG 与首页 hero PNG 只作为构建源图保留，复制资源时从 Pages 输出中排除；已退出页面映射的旧日本视觉也不发布。专题页和首页只引用体积更小的 WebP。`public/` 是 Cloudflare Pages 的构建输出目录，任何源图、文案或样式变化都必须经过完整构建。证据: `package.json:6-11`, `scripts/prepare-worker-assets.mjs:3-48`, `scripts/build-pages.mjs:355-434`, `wrangler.jsonc:29-33`。
 
 ## 图片衍生资源由构建统一生成
 

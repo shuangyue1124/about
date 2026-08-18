@@ -85,6 +85,14 @@ async function fetchWithRetry(url, attempts = 2) {
 }
 
 async function main() {
+  for (const sourceOnlyImage of [
+    "assets/images/home-hero-ink.png",
+    "assets/images/cities/japan-train-fuji-torii.png",
+  ]) {
+    await assertFile(toLocalPath(sourceOnlyImage));
+    await assertMissing(toLocalPath(sourceOnlyImage, "public"));
+  }
+
   const homeImages = homeCards.map((card) => card.image);
   if (new Set(homeImages).size !== homeImages.length) {
     fail("home card images must be unique");

@@ -5,8 +5,13 @@ import { fileURLToPath } from "node:url";
 const root = new URL("../", import.meta.url);
 const out = new URL("public/", root);
 const japanPosterSourceDir = fileURLToPath(new URL("assets/images/japan-2026/", root));
+const nonPublishedImagePaths = new Set([
+  fileURLToPath(new URL("assets/images/home-hero-ink.png", root)),
+  fileURLToPath(new URL("assets/images/cities/japan-train-fuji-torii.png", root)),
+]);
 
-function excludeJapanPosterSources(source) {
+function excludeNonPublishedImages(source) {
+  if (nonPublishedImagePaths.has(source)) return false;
   const pathFromPosterSources = relative(japanPosterSourceDir, source);
   const isPosterSource = pathFromPosterSources === ""
     || (pathFromPosterSources !== ".."
@@ -38,7 +43,7 @@ const entries = [
 
 for (const entry of entries) {
   const options = entry === "assets"
-    ? { recursive: true, filter: excludeJapanPosterSources }
+    ? { recursive: true, filter: excludeNonPublishedImages }
     : { recursive: true };
   await cp(new URL(entry, root), new URL(entry, out), options);
 }

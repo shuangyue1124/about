@@ -58,11 +58,11 @@
 
 ## 只编辑源资源，衍生文件交给构建
 
-头像和原始内容图在源码目录维护；响应式 WebP、hero 变体、Open Graph 卡片和应用图标由 `npm run build` 生成，不手工修改 `public/` 或 `assets/images/generated/` 中的衍生文件。普通 PNG 生成 480/960 WebP，日本 4:5 海报另外生成 1440 WebP；海报 PNG 留在源码目录，Pages 输出只携带 WebP。
+头像和原始内容图在源码目录维护；响应式 WebP、hero 变体、Open Graph 卡片和应用图标由 `npm run build` 生成，不手工修改 `public/` 或 `assets/images/generated/` 中的衍生文件。普通 PNG 生成 480/960 WebP，日本 4:5 海报另外生成 1440 WebP；日本海报与首页 hero 的 PNG 母图留在源码目录，Pages 输出只携带它们的 WebP 衍生图。已退出资料映射的旧视觉也不复制到线上。
 
 **理由**: 构建会重建衍生资源和整个 `public/`，手工改产物会在下一次构建丢失。
 
-**示例**: `scripts/optimize-images.mjs:14-47`, `scripts/optimize-images.mjs:50-104`, `scripts/prepare-worker-assets.mjs:3-43`, `package.json:6-11`。
+**示例**: `scripts/optimize-images.mjs:14-47`, `scripts/optimize-images.mjs:50-104`, `scripts/prepare-worker-assets.mjs:3-48`, `package.json:6-11`。
 
 ## 首幅海报优先，图廊图片延迟加载
 
