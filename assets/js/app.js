@@ -217,6 +217,7 @@ function monthLabel(date) {
 
 function stopDate(stop) {
   if (stop.dateStatus === "pending") return label("datePending");
+  if (stop.endDate) return `${fmtDate(stop.date)} — ${fmtDate(stop.endDate)}`;
   if (stop.planned) return lang === "en" ? "Summer 2026" : lang === "ja" ? "2026年夏" : "2026 夏";
   return fmtDate(stop.date);
 }
@@ -271,7 +272,7 @@ function layout(main) {
           <span class="brand__kicker">${esc(label("brandKicker"))}</span>
         </span>
       </a>
-      <nav class="topnav" aria-label="Primary">
+      <nav class="topnav" aria-label="${esc(label("primaryNavigation") || "Primary navigation")}">
         <a href="${esc(pageLink(""))}" ${page === "home" ? 'aria-current="page"' : ""}>${esc(label("navHome"))}</a>
         <a href="${esc(pageLink("travel/"))}" ${page === "travel" ? 'aria-current="page"' : ""}>${esc(label("navTravel"))}</a>
         <a href="${esc(pageLink("travel/#cities"))}">${esc(label("navCities"))}</a>
@@ -281,7 +282,7 @@ function layout(main) {
         ${languages
           .map(
             (item) => `
-              <a class="lang-menu__item ${item.code === lang ? "is-active" : ""}" href="${esc(pagePathFor(item.code))}" hreflang="${esc(item.html)}" ${item.code === lang ? 'aria-current="true"' : ""}>
+              <a class="lang-menu__item ${item.code === lang ? "is-active" : ""}" href="${esc(pagePathFor(item.code))}" hreflang="${esc(item.html)}" ${item.code === lang ? 'aria-current="page"' : ""}>
                 ${esc(item.label)}
               </a>
             `
@@ -459,7 +460,7 @@ function renderTravel() {
           <a class="stat-card stat-card--seal" href="${esc(pageLink("cities/japan-2026.html"))}">
             <span>${esc(label("upcoming"))}</span>
             <strong>${esc(text(japanPlan.name))}</strong>
-            <small>${esc(label("plan"))}</small>
+            <small>${esc(stopDate(japanPlan))} · ${esc(label("posterCount"))}</small>
           </a>
         </div>
       </section>
@@ -683,6 +684,7 @@ function bindCommon() {
   bindShareButtons();
   bindContactDownloads();
   bindAvatarFallback();
+  bindTripImageFallback();
   bindComments();
   bindThemeToggle();
   registerServiceWorker();
@@ -739,6 +741,17 @@ async function copyText(value) {
   }
   input.remove();
   return ok;
+}
+
+function bindTripImageFallback() {
+  document.querySelectorAll(".trip-hero__poster img, .poster-media img").forEach((img) => {
+    const fail = () => {
+      img.classList.add("is-broken");
+      img.closest(".trip-hero__poster, .poster-media")?.setAttribute("data-image-state", "error");
+    };
+    img.addEventListener("error", fail, { once: true });
+    if (img.complete && img.naturalWidth === 0) fail();
+  });
 }
 
 function bindShareButtons() {

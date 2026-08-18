@@ -5,7 +5,7 @@ import { cities, contacts, homeCards, japanPlan, languages, profile, ui } from "
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const assetVersion = "20260719-nfc-card";
+const assetVersion = "20260818-japan-travel";
 const siteOrigin = "https://about.shuangyue.space";
 const locales = [
   { code: "zh", prefix: "", html: "zh-CN" },
@@ -51,6 +51,11 @@ function imageSrcset(depth, image) {
   return `${relAsset(depth, `${base}-480.webp`)} 480w, ${relAsset(depth, `${base}-960.webp`)} 960w`;
 }
 
+function generatedImage(depth, image, width) {
+  const base = image.replace(/^assets\/images\//, "assets/images/generated/").replace(/\.png$/, "");
+  return relAsset(depth, `${base}-${width}.webp`);
+}
+
 function localizedLinks(path) {
   return locales.map((locale) => ({
     hreflang: locale.html,
@@ -60,7 +65,8 @@ function localizedLinks(path) {
 
 function stopDate(lang, stop) {
   if (stop.dateStatus === "pending") return l(lang, "datePending");
-  if (stop.planned) return lang === "en" ? "Summer 2026 (planned from 2026-07-01)" : lang === "ja" ? "2026年夏（2026-07-01 予定）" : "2026 年暑假（计划日期 2026-07-01）";
+  if (stop.endDate) return `${stop.date.replaceAll("-", ".")} — ${stop.endDate.replaceAll("-", ".")}`;
+  if (stop.planned) return lang === "en" ? "Summer 2026" : lang === "ja" ? "2026年夏" : "2026 年夏";
   return stop.date.replaceAll("-", ".");
 }
 
@@ -70,7 +76,21 @@ function monthLabel(lang, stop) {
   return lang === "en" ? `${year}.${month}` : `${year}年${month}月`;
 }
 
-function pageFrame({ locale, depth, page, title, description, path, main, jsonLd, ogImage = "assets/images/generated/home-hero-ink-960.webp" }) {
+function pageFrame({
+  locale,
+  depth,
+  page,
+  title,
+  description,
+  path,
+  main,
+  jsonLd,
+  ogImage = "assets/images/generated/home-hero-ink-960.webp",
+  ogImageAlt = "",
+  ogImageWidth = 0,
+  ogImageHeight = 0,
+  preloadImages = [],
+}) {
   const lang = locale.code;
   const css = relAsset(depth, `assets/css/styles.css?v=${assetVersion}`);
   const js = relAsset(depth, `assets/js/app.js?v=${assetVersion}`);
@@ -81,6 +101,19 @@ function pageFrame({ locale, depth, page, title, description, path, main, jsonLd
   const absoluteOgImage = `${siteOrigin}/${ogImage.replace(/^\//, "")}`;
   const alternates = localizedLinks(path);
   const rootAttr = depth === 0 ? "." : Array.from({ length: depth }, () => "..").join("/");
+  const homePreloads = page === "home" ? [
+    { href: "assets/images/generated/home-hero-ink-960.webp", media: "(max-width: 920px)" },
+    { href: "assets/images/generated/home-hero-ink-1600.webp", media: "(min-width: 921px)" },
+  ] : [];
+  const imagePreloads = [...homePreloads, ...preloadImages]
+    .map((item) => {
+      const candidates = item.candidates
+        ?.map((candidate) => `${relAsset(depth, candidate.href)} ${candidate.width}w`)
+        .join(", ");
+      return `<link rel="preload" as="image" href="${attr(relAsset(depth, item.href))}" type="${attr(item.type || "image/webp")}"${candidates ? ` imagesrcset="${attr(candidates)}" imagesizes="${attr(item.sizes)}"` : ""}${item.media ? ` media="${attr(item.media)}"` : ""} fetchpriority="high">`;
+    })
+    .join("\n    ");
+  const ogType = ogImage.endsWith(".webp") ? "image/webp" : ogImage.endsWith(".png") ? "image/png" : "";
   return `<!doctype html>
 <html lang="${locale.html}">
   <head>
@@ -96,23 +129,22 @@ function pageFrame({ locale, depth, page, title, description, path, main, jsonLd
     <link rel="manifest" href="${attr(manifest)}">
     <link rel="icon" type="image/png" sizes="32x32" href="${attr(favicon)}">
     <link rel="apple-touch-icon" sizes="192x192" href="${attr(touchIcon)}">
-    ${page === "home" ? `<link rel="preload" as="image" href="${attr(relAsset(depth, "assets/images/generated/home-hero-ink-960.webp"))}" type="image/webp" media="(max-width: 920px)" fetchpriority="high">
-    <link rel="preload" as="image" href="${attr(relAsset(depth, "assets/images/generated/home-hero-ink-1600.webp"))}" type="image/webp" media="(min-width: 921px)" fetchpriority="high">` : ""}
-    <meta property="og:type" content="${page === "home" ? "profile" : page === "city" ? "article" : "website"}">
+    ${imagePreloads}
+    <meta property="og:type" content="${page === "home" ? "profile" : page === "city" || page === "trip" ? "article" : "website"}">
     <meta property="og:site_name" content="朔风霜月">
     <meta property="og:title" content="${attr(title)}">
     <meta property="og:description" content="${attr(description)}">
     <meta property="og:url" content="${attr(canonical)}">
     <meta property="og:image" content="${attr(absoluteOgImage)}">
-    <meta property="og:image:alt" content="${attr(l(lang, "shareText"))}">
-    ${page === "home" ? `<meta property="og:image:type" content="image/webp">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">` : ""}
+    <meta property="og:image:alt" content="${attr(ogImageAlt || l(lang, "shareText"))}">
+    ${ogType ? `<meta property="og:image:type" content="${ogType}">` : ""}
+    ${ogImageWidth ? `<meta property="og:image:width" content="${ogImageWidth}">` : ""}
+    ${ogImageHeight ? `<meta property="og:image:height" content="${ogImageHeight}">` : ""}
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="${attr(title)}">
     <meta name="twitter:description" content="${attr(description)}">
     <meta name="twitter:image" content="${attr(absoluteOgImage)}">
-    <meta name="twitter:image:alt" content="${attr(l(lang, "shareText"))}">
+    <meta name="twitter:image:alt" content="${attr(ogImageAlt || l(lang, "shareText"))}">
     <title>${esc(title)}</title>
     <link rel="stylesheet" href="${attr(css)}">
     <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
@@ -135,14 +167,14 @@ function layout(locale, depth, page, content, currentPath = "") {
         <span class="brand__mark brand__mark--avatar"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="36" height="36" decoding="async"></span>
         <span><span class="brand__name">${esc(l(lang, "heroTitle"))}</span><span class="brand__kicker">${esc(l(lang, "brandKicker"))}</span></span>
       </a>
-      <nav class="topnav" aria-label="Primary">
+      <nav class="topnav" aria-label="${attr(l(lang, "primaryNavigation"))}">
         <a href="${attr(localePath(locale, ""))}" ${page === "home" ? 'aria-current="page"' : ""}>${esc(l(lang, "navHome"))}</a>
         <a href="${attr(localePath(locale, "travel/"))}" ${page === "travel" ? 'aria-current="page"' : ""}>${esc(l(lang, "navTravel"))}</a>
         <a href="${attr(localePath(locale, "travel/#cities"))}">${esc(l(lang, "navCities"))}</a>
         <a href="${attr(page === "home" ? "#contact" : localePath(locale, "#contact"))}">${esc(l(lang, "navContact"))}</a>
       </nav>
       <div class="lang-menu" aria-label="${attr(l(lang, "language"))}">
-        ${locales.map((item) => `<a class="lang-menu__item ${item.code === lang ? "is-active" : ""}" href="${attr(localePath(item, currentPath))}" hreflang="${attr(item.html)}">${esc(languages.find((candidate) => candidate.code === item.code)?.label || item.code)}</a>`).join("")}
+        ${locales.map((item) => `<a class="lang-menu__item ${item.code === lang ? "is-active" : ""}" href="${attr(localePath(item, currentPath))}" hreflang="${attr(item.html)}"${item.code === lang ? ' aria-current="page"' : ""}>${esc(languages.find((candidate) => candidate.code === item.code)?.label || item.code)}</a>`).join("")}
         <button class="lang-menu__item js-theme" type="button" aria-label="${attr(l(lang, "toggleTheme"))}">◐</button>
       </div>
     </header>
@@ -200,6 +232,8 @@ function homePage(locale) {
     path: "",
     main,
     ogImage: "assets/images/og-card.webp",
+    ogImageWidth: 1200,
+    ogImageHeight: 630,
     jsonLd: personJson(locale),
   });
 }
@@ -253,7 +287,7 @@ function travelPage(locale) {
         <div class="travel-hero__text"><p class="eyebrow">${esc(l(lang, "travelTitle"))}</p><h1>${esc(l(lang, "totalCities"))} <span>${cities.length}</span> ${esc(l(lang, "cityUnit"))}</h1><p>${esc(l(lang, "travelIntro"))}</p></div>
         <div class="travel-stats">
           <a class="stat-card" href="${attr(localePath(locale, `cities/${latest.slug}.html`))}"><span>${esc(l(lang, "latest"))}</span><strong>${esc(t(lang, latest.name))}</strong><small>${esc(stopDate(lang, latest))}</small></a>
-          <a class="stat-card stat-card--seal" href="${attr(localePath(locale, "cities/japan-2026.html"))}"><span>${esc(l(lang, "upcoming"))}</span><strong>${esc(t(lang, japanPlan.name))}</strong><small>${esc(stopDate(lang, japanPlan))}</small></a>
+          <a class="stat-card stat-card--seal" href="${attr(localePath(locale, "cities/japan-2026.html"))}"><span>${esc(l(lang, "upcoming"))}</span><strong>${esc(t(lang, japanPlan.name))}</strong><small>${esc(stopDate(lang, japanPlan))} · ${esc(l(lang, "posterCount"))}</small></a>
         </div>
       </section>
       <section class="travel-search" id="cities"><label><span>${esc(l(lang, "allCities"))}</span><input type="search" id="citySearch" autocomplete="off" placeholder="${attr(l(lang, "searchPlaceholder"))}"></label></section>
@@ -267,7 +301,11 @@ function travelPage(locale) {
     depth,
     page: "travel",
     title: `${l(lang, "travelTitle")} | ${l(lang, "heroTitle")}`,
-    description: lang === "en" ? `A timeline of ${cities.length} visited cities and a Japan 2026 travel plan.` : `按时间轴记录 ${cities.length} 座城市与日本 2026 旅行计划。`,
+    description: lang === "en"
+      ? `A timeline of ${cities.length} cities and a fifteen-day Japan travelogue from summer 2026.`
+      : lang === "ja"
+        ? `${cities.length}都市のタイムラインと、2026年夏の15日間の日本旅行記。`
+        : `按时间轴记录 ${cities.length} 座城市，以及 2026 年夏的十五日日本旅记。`,
     path: "travel/",
     main,
     jsonLd: travelJson(locale),
@@ -281,6 +319,7 @@ function cityPreview(locale, depth, city) {
 }
 
 function cityPage(locale, stop) {
+  if (stop.slug === "japan-2026" && Array.isArray(stop.posters)) return japanTripPage(locale, stop);
   const lang = locale.code;
   const depth = locale.prefix ? 2 : 1;
   const description = t(lang, stop.summary);
@@ -304,6 +343,97 @@ function cityPage(locale, stop) {
     ogImage: stop.visual?.image || "assets/images/home-hero-ink.png",
     jsonLd: cityJson(locale, stop),
   });
+}
+
+function japanTripPage(locale, trip) {
+  const lang = locale.code;
+  const depth = locale.prefix ? 2 : 1;
+  const description = t(lang, trip.summary);
+  const tripTitle = t(lang, trip.name);
+  const tripTitleParts = tripTitle.split(" · ");
+  const tripTitleMarkup = tripTitleParts.length > 1
+    ? `<span class="trip-title__part">${esc(tripTitleParts[0])} ·</span> <span class="trip-title__part">${esc(tripTitleParts.slice(1).join(" · "))}</span>`
+    : esc(tripTitle);
+  const firstPoster = trip.posters[0];
+  const firstPosterSrc = relAsset(depth, firstPoster.image);
+  const routeIntro = lang === "en"
+    ? "Follow the journey in order: Tokyo, the lakes and coast, Kansai, then the flight home."
+    : lang === "ja"
+      ? "東京、湖と海辺、関西、そして帰路へ。日付順に4章でたどります。"
+      : "从东京出发，经过湖岸与海边，再走入关西，最后沿着返程机翼收束全篇。";
+  const footerNote = lang === "en"
+    ? "Fifteen days become fifteen quiet paper records—each scene kept in the order it happened."
+    : lang === "ja"
+      ? "15日間を15枚の静かな紙の記録に。風景は旅が起きた順に並んでいます。"
+      : "十五天被收成十五张安静的纸上记录，所有风景都按它发生的顺序留下。";
+  const main = layout(locale, depth, "trip", `
+    <main class="trip-page" id="main-content" tabindex="-1">
+      <section class="trip-hero" aria-labelledby="trip-title">
+        <div class="trip-hero__poster">
+          <picture><source type="image/webp" srcset="${attr(imageSrcset(depth, firstPoster.image))}" sizes="(max-width: 920px) min(calc(100vw - 112px), 400px), 360px"><img src="${attr(firstPosterSrc)}" alt="${attr(t(lang, firstPoster.alt))}" width="1440" height="1800" decoding="async" fetchpriority="high"></picture>
+        </div>
+        <div class="trip-hero__content">
+          <a class="trip-back-link" href="${attr(localePath(locale, "travel/"))}">← ${esc(l(lang, "backTravel"))}</a>
+          <p class="trip-kicker">${esc(t(lang, trip.region))} · ${esc(l(lang, "plan"))}</p>
+          <h1 id="trip-title">${tripTitleMarkup}</h1>
+          <p class="trip-summary">${esc(description)}</p>
+          <dl class="trip-meta">
+            <div class="trip-meta__item"><dt>${esc(l(lang, "tripPeriod"))}</dt><dd><time datetime="${attr(trip.date)}">${esc(trip.date.replaceAll("-", "."))}</time><br><time datetime="${attr(trip.endDate)}">${esc(trip.endDate.replaceAll("-", "."))}</time></dd></div>
+            <div class="trip-meta__item"><dt>${esc(l(lang, "tripChapters"))}</dt><dd>${esc(String(trip.chapters.length))}</dd></div>
+            <div class="trip-meta__item"><dt>${esc(l(lang, "posterArchive"))}</dt><dd>${esc(l(lang, "posterCount"))}</dd></div>
+          </dl>
+        </div>
+      </section>
+      <section class="trip-route" aria-labelledby="trip-route-title">
+        <div class="trip-route__header"><div><h2 id="trip-route-title">${esc(l(lang, "tripChapters"))}</h2><p>${esc(routeIntro)}</p></div>
+          <nav class="trip-route__nav" aria-label="${attr(l(lang, "tripChapters"))}">${trip.chapters.map((chapter) => `<a href="#chapter-${attr(chapter.id)}">${esc(t(lang, chapter.title))}</a>`).join("")}</nav>
+        </div>
+      </section>
+      ${trip.chapters.map((chapter) => tripChapter(locale, depth, trip, chapter)).join("")}
+      <div class="trip-footer"><p>${esc(footerNote)}</p><a class="trip-back-link" href="${attr(localePath(locale, "travel/"))}">← ${esc(l(lang, "backTravel"))}</a></div>
+    </main>`, `cities/${trip.slug}.html`);
+  return pageFrame({
+    locale,
+    depth,
+    page: "trip",
+    title: `${t(lang, trip.name)} | ${l(lang, "heroTitle")}`,
+    description,
+    path: `cities/${trip.slug}.html`,
+    main,
+    ogImage: `assets/images/generated/${firstPoster.image.replace(/^assets\/images\//, "").replace(/\.png$/, "-1440.webp")}`,
+    ogImageAlt: t(lang, firstPoster.alt),
+    ogImageWidth: 1440,
+    ogImageHeight: 1800,
+    preloadImages: [{
+      href: `assets/images/generated/${firstPoster.image.replace(/^assets\/images\//, "").replace(/\.png$/, "-480.webp")}`,
+      candidates: [
+        { href: `assets/images/generated/${firstPoster.image.replace(/^assets\/images\//, "").replace(/\.png$/, "-480.webp")}`, width: 480 },
+        { href: `assets/images/generated/${firstPoster.image.replace(/^assets\/images\//, "").replace(/\.png$/, "-960.webp")}`, width: 960 },
+      ],
+      sizes: "(max-width: 920px) min(calc(100vw - 112px), 400px), 360px",
+    }],
+    jsonLd: tripJson(locale, trip),
+  });
+}
+
+function tripChapter(locale, depth, trip, chapter) {
+  const lang = locale.code;
+  const posters = trip.posters.filter((poster) => poster.chapter === chapter.id);
+  return `<section class="trip-chapter" id="chapter-${attr(chapter.id)}" aria-labelledby="chapter-${attr(chapter.id)}-title">
+    <div class="trip-chapter__header"><h2 class="trip-chapter__heading" id="chapter-${attr(chapter.id)}-title">${esc(t(lang, chapter.title))}</h2><p class="trip-chapter__intro">${esc(t(lang, chapter.summary))}</p></div>
+    <ol class="poster-gallery" start="${trip.posters.indexOf(posters[0]) + 1}">${posters.map((poster) => posterFigure(locale, depth, trip, poster)).join("")}</ol>
+  </section>`;
+}
+
+function posterFigure(locale, depth, trip, poster) {
+  const lang = locale.code;
+  const index = trip.posters.indexOf(poster) + 1;
+  const number = String(index).padStart(2, "0");
+  const image = relAsset(depth, poster.image);
+  const fullImage = generatedImage(depth, poster.image, 1440);
+  return `<li><figure class="poster-card"><a class="poster-card__link" href="${attr(fullImage)}" aria-label="${attr(`${t(lang, poster.place)} · ${poster.date} · ${t(lang, poster.label)}`)}">
+    <span class="poster-media"><picture><source type="image/webp" srcset="${attr(imageSrcset(depth, poster.image))}" sizes="(max-width: 640px) calc(100vw - 30px), (max-width: 920px) 44vw, 340px"><img src="${attr(image)}" alt="${attr(t(lang, poster.alt))}" loading="lazy" decoding="async" width="1440" height="1800"></picture></span>
+  </a><figcaption class="poster-card__caption"><span class="poster-card__index">${esc(l(lang, "dayLabel"))} ${number} · ${esc(t(lang, poster.label))}</span><h3 class="poster-card__title">${esc(t(lang, poster.place))}</h3><span class="poster-card__meta"><time datetime="${attr(poster.date)}">${esc(poster.date.replaceAll("-", "."))}</time></span><p class="poster-card__note">${esc(t(lang, poster.summary))}</p></figcaption></figure></li>`;
 }
 
 function cityVisual(locale, depth, city, size) {
@@ -371,6 +501,35 @@ function cityJson(locale, city) {
     name: t(lang, city.name),
     description: t(lang, city.summary),
     url: `${siteOrigin}${localePath(locale, `cities/${city.slug}.html`)}`,
+  };
+}
+
+function tripJson(locale, trip) {
+  const lang = locale.code;
+  const url = `${siteOrigin}${localePath(locale, `cities/${trip.slug}.html`)}`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: t(lang, trip.name),
+    description: t(lang, trip.summary),
+    url,
+    datePublished: trip.endDate,
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: trip.posters.length,
+      itemListElement: trip.posters.map((poster, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        name: t(lang, poster.place),
+        description: t(lang, poster.summary),
+        item: {
+          "@type": "ImageObject",
+          contentUrl: `${siteOrigin}/${poster.image.replace(/^assets\/images\//, "assets/images/generated/").replace(/\.png$/, "-1440.webp")}`,
+          caption: t(lang, poster.alt),
+          dateCreated: poster.date,
+        },
+      })),
+    },
   };
 }
 

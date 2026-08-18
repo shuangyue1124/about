@@ -27,7 +27,7 @@ await mkdir(outputDir, { recursive: true });
 const files = await collectPngs(sourceDir);
 
 for (const file of files) {
-  const rel = relative(sourceDir, file).replace(/\.png$/i, "");
+  const rel = relative(sourceDir, file).replaceAll("\\", "/").replace(/\.png$/i, "");
   for (const width of widths) {
     const out = resolve(outputDir, `${rel}-${width}.webp`);
     await mkdir(dirname(out), { recursive: true });
@@ -35,6 +35,15 @@ for (const file of files) {
       .resize({ width, withoutEnlargement: true })
       .webp({ quality: 78 })
       .toFile(out);
+  }
+
+  if (rel.startsWith("japan-2026/")) {
+    const archiveOut = resolve(outputDir, `${rel}-1440.webp`);
+    await mkdir(dirname(archiveOut), { recursive: true });
+    await sharp(file)
+      .resize({ width: 1440, withoutEnlargement: true })
+      .webp({ quality: 84, effort: 5 })
+      .toFile(archiveOut);
   }
 }
 
@@ -91,4 +100,5 @@ for (const size of [32, 192, 512]) {
     .toFile(resolve(sourceDir, name));
 }
 
-console.log(`Generated ${files.length * widths.length} responsive WebP images, hero variants, icons, and og-card.webp`);
+const archiveImages = files.filter((file) => relative(sourceDir, file).replaceAll("\\", "/").startsWith("japan-2026/")).length;
+console.log(`Generated ${files.length * widths.length + archiveImages} responsive WebP images, hero variants, icons, and og-card.webp`);

@@ -14,6 +14,7 @@
 
 - 不要直接修改 `public/`；它会被 `scripts/prepare-worker-assets.mjs` 删除并从根页面、`assets/`、`cities/`、`en/`、`ja/` 等源码/生成物重建。
 - 不要手工修改 `index.html`、`travel/index.html`、`cities/*.html` 及其 `en/`、`ja/` 版本；它们由 `scripts/build-pages.mjs` 根据 `assets/js/data.js` 生成。
+- 不要将上游真实旅行照片混入日本专题；只维护 `assets/images/japan-2026/` 下的 4:5 海报源图，并由 `npm run build` 生成响应式 WebP。
 - 不要对本仓库运行 `npx wrangler deploy`，也不要给 `about.shuangyue.space/*` 添加 Worker route；生产发布走 Pages Git 集成。历史提交 `ade8f25` 已移除会绕过 Pages 的该路由。
 - 不要把管理员密码、Turnstile secret 或其他密钥写入仓库；只保留绑定名和非敏感配置。
 

@@ -1,15 +1,17 @@
-const CACHE_NAME = "sfsy-static-v20260719";
+const CACHE_NAME = "sfsy-static-v20260818-japan-travel";
 const STATIC_ASSETS = [
   "/",
   "/travel/",
   "/manifest.webmanifest",
   "/contact.vcf",
-  "/assets/css/styles.css?v=20260719-nfc-card",
-  "/assets/js/app.js?v=20260719-nfc-card",
+  "/cities/japan-2026.html",
+  "/assets/css/styles.css?v=20260818-japan-travel",
+  "/assets/js/app.js?v=20260818-japan-travel",
   "/assets/js/data.js",
   "/assets/images/avatar.webp",
   "/assets/images/generated/home-hero-ink-960.webp",
   "/assets/images/og-card.webp",
+  "/assets/images/generated/japan-2026/01-arrival-480.webp",
 ];
 
 self.addEventListener("install", (event) => {

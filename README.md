@@ -178,20 +178,23 @@ CSS 会优先使用这些本地 woff2 文件，然后回退到 `Styrene B` / `Ti
 316829b9926e4f09b5faff727b875af7
 ```
 
-## 更新城市
+## 更新旅行与城市内容
 
-城市数据在 `assets/js/data.js`。新增或修改城市后运行：
+### 日本 2026 旅记
+
+日本专题的三语文案、四个章节与十五天海报清单统一维护在 `assets/js/data.js` 的 `japanPlan`。每张源图保存在 `assets/images/japan-2026/`，并遵守以下约定：
+
+- 使用 `01-*.png` 至 `15-*.png` 的顺序文件名，源图尺寸为 1440×1800（4:5）。
+- `place`、`label`、`summary` 和 `alt` 必须同时提供中文、日文和英文；海报画面内的短标签只属于装饰性排版，不代替页面文本。
+- 图片 URL 使用长期不可变缓存；替换画面时应使用新文件名并同步更新 `image`，不要以新内容覆盖已发布的同名资产。
+
+`npm run build` 会为日本海报生成 480、960 和 1440 宽的 WebP，生成中、日、英三语专题页，然后完整重建 `public/`。
+
+### 普通城市
+
+城市数据同样位于 `assets/js/data.js`。新增或修改城市后，不要手工编辑 `cities/*.html` 或 `public/`；运行完整构建与检查：
 
 ```powershell
-npm run build:pages
-```
-
-脚本会重新生成 `cities/*.html` 入口文件。发布前建议运行：
-
-```powershell
-node --check assets/js/app.js
-node --check assets/js/admin.js
-node --check assets/js/data.js
-node --check worker.js
 npm run build
+npm run check
 ```

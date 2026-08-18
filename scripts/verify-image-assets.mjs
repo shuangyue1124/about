@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { cities, homeCards, japanPlan, ui } from "../assets/js/data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const assetVersion = "20260719-nfc-card";
+const assetVersion = "20260818-japan-travel";
 const origin = readArg("--origin");
 const remoteTimeoutMs = 30000;
 
@@ -97,10 +97,14 @@ async function main() {
   }
 
   const imageCounts = new Map();
-  for (const image of stopImages) {
+  for (const stop of stops) {
+    const image = stop.visual.image;
     imageCounts.set(image, (imageCounts.get(image) || 0) + 1);
-    if (!image.startsWith("assets/images/cities/")) {
-      fail(`${image} must use a city-specific asset, not a regional fallback`);
+    const expectedPrefix = stop.slug === japanPlan.slug
+      ? "assets/images/japan-2026/"
+      : "assets/images/cities/";
+    if (!image.startsWith(expectedPrefix)) {
+      fail(`${image} must use the dedicated ${stop.slug} image collection`);
     }
     await assertFile(toLocalPath(image));
     await assertFile(toLocalPath(image, "public"));
@@ -109,6 +113,73 @@ async function main() {
   const overused = [...imageCounts.entries()].filter(([, count]) => count > 3);
   if (overused.length) {
     fail(`city image reuse exceeds 3 stops: ${overused.map(([image, count]) => `${image}=${count}`).join(", ")}`);
+  }
+
+  const tripPosters = Array.isArray(japanPlan.posters) ? japanPlan.posters : [];
+  if (tripPosters.length !== 15) {
+    fail(`japanPlan.posters must contain 15 entries, got ${tripPosters.length}`);
+  }
+  if (!Array.isArray(japanPlan.chapters) || japanPlan.chapters.length !== 4) {
+    fail(`japanPlan.chapters must contain 4 entries, got ${japanPlan.chapters?.length || 0}`);
+  }
+
+  const posterDates = new Set();
+  const posterImages = new Set();
+  const chapterIds = new Set((japanPlan.chapters || []).map((chapter) => chapter.id));
+  for (const [index, poster] of tripPosters.entries()) {
+    const expectedNumber = String(index + 1).padStart(2, "0");
+    if (!poster.image?.startsWith(`assets/images/japan-2026/${expectedNumber}-`) || !poster.image.endsWith(".png")) {
+      fail(`japan poster ${index + 1} must use numbered assets/images/japan-2026 PNG path`);
+      continue;
+    }
+    if (posterDates.has(poster.date)) fail(`duplicate japan poster date: ${poster.date}`);
+    if (posterImages.has(poster.image)) fail(`duplicate japan poster image: ${poster.image}`);
+    posterDates.add(poster.date);
+    posterImages.add(poster.image);
+    if (!chapterIds.has(poster.chapter)) fail(`japan poster ${poster.image} references unknown chapter ${poster.chapter}`);
+    for (const field of ["place", "label", "summary", "alt"]) {
+      for (const lang of ["zh", "ja", "en"]) {
+        if (!poster[field]?.[lang]) fail(`japan poster ${poster.image} is missing ${field}.${lang}`);
+      }
+    }
+
+    const sourcePath = toLocalPath(poster.image);
+    await assertFile(sourcePath);
+    await assertFile(toLocalPath(poster.image, "public"));
+    const metadata = await sharp(sourcePath).metadata();
+    if (metadata.width !== 1440 || metadata.height !== 1800 || metadata.format !== "png") {
+      fail(`${poster.image} must be a 1440x1800 PNG, got ${metadata.width}x${metadata.height} ${metadata.format}`);
+    }
+    const generatedBase = poster.image.replace("assets/images/", "assets/images/generated/").replace(/\.png$/, "");
+    for (const width of [480, 960, 1440]) {
+      const generatedPath = toLocalPath(`${generatedBase}-${width}.webp`);
+      const publicGeneratedPath = toLocalPath(`${generatedBase}-${width}.webp`, "public");
+      await assertFile(generatedPath);
+      await assertFile(publicGeneratedPath);
+      try {
+        const generated = await sharp(generatedPath).metadata();
+        if (generated.width !== width || generated.height !== Math.round(width * 1.25) || generated.format !== "webp") {
+          fail(`${generatedBase}-${width}.webp must preserve 4:5 WebP dimensions`);
+        }
+      } catch {
+        // assertFile above records missing outputs.
+      }
+    }
+  }
+
+  for (const page of ["cities/japan-2026.html", "en/cities/japan-2026.html", "ja/cities/japan-2026.html"]) {
+    await assertContains(resolve(root, page), 'class="poster-card"');
+    await assertContains(resolve(root, page), "2026-06-30");
+    await assertContains(resolve(root, page), "2026-07-14");
+    await assertContains(resolve(root, "public", page), 'class="poster-card"');
+    try {
+      const content = await readFile(resolve(root, page), "utf8");
+      const posterCards = content.match(/class="poster-card"/g)?.length || 0;
+      if (posterCards !== 15) fail(`${page} must render 15 poster cards, got ${posterCards}`);
+      if (/E:\\env|日本旅游_照片整理/.test(content)) fail(`${page} must not expose local source paths`);
+    } catch {
+      fail(`${page} could not be read for poster count verification`);
+    }
   }
 
   for (const [lang, labels] of Object.entries(ui)) {
@@ -159,7 +230,30 @@ async function main() {
     await assertRemoteAsset(`${normalizedOrigin}/assets/images/cities/zhangjiajie-pillars.png`, "image/");
     await assertRemoteAsset(`${normalizedOrigin}/assets/images/avatar.webp`, "image/webp");
     await assertRemoteAsset(`${normalizedOrigin}/assets/images/og-card.webp`, "image/webp");
+    await assertRemoteAsset(`${normalizedOrigin}/assets/images/generated/japan-2026/01-arrival-480.webp`, "image/webp");
+    await assertRemoteAsset(`${normalizedOrigin}/assets/images/generated/japan-2026/15-last-view-1440.webp`, "image/webp");
     await assertRemoteAsset(`${normalizedOrigin}/contact.vcf`, "text/vcard");
+
+    const remoteTripPages = [
+      ["/cities/japan-2026.html", "zh-CN"],
+      ["/ja/cities/japan-2026.html", "ja-JP"],
+      ["/en/cities/japan-2026.html", "en-US"],
+    ];
+    for (const [path, htmlLang] of remoteTripPages) {
+      const tripResponse = await fetchWithRetry(`${normalizedOrigin}${path}?verify=${Date.now()}`);
+      if (!tripResponse) continue;
+      if (!tripResponse.ok) {
+        fail(`${normalizedOrigin}${path} returned ${tripResponse.status}`);
+        continue;
+      }
+
+      const tripHtml = await tripResponse.text();
+      const posterCount = (tripHtml.match(/class="poster-card"/g) || []).length;
+      if (!tripHtml.includes(assetVersion)) fail(`${normalizedOrigin}${path} does not reference ${assetVersion}`);
+      if (!tripHtml.includes(`<html lang="${htmlLang}"`)) fail(`${normalizedOrigin}${path} does not use lang=${htmlLang}`);
+      if (!tripHtml.includes('"@type":"CollectionPage"')) fail(`${normalizedOrigin}${path} does not expose CollectionPage JSON-LD`);
+      if (posterCount !== 15) fail(`${normalizedOrigin}${path} contains ${posterCount} poster cards instead of 15`);
+    }
 
     const robotsResponse = await fetchWithRetry(`${normalizedOrigin}/robots.txt`);
     if (!robotsResponse) {

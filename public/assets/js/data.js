@@ -28,6 +28,7 @@ export const ui = {
     navCities: "城市",
     navContact: "联系",
     language: "语言",
+    primaryNavigation: "主导航",
     skipToContent: "跳到主要内容",
     heroTitle: "朔风霜月",
     avatarAlt: "朔风霜月的头像",
@@ -48,7 +49,7 @@ export const ui = {
     shareFail: "暂时无法分享，请稍后重试",
     downloadStarted: "正在打开通讯录文件",
     retry: "重新加载",
-    toggleTheme: "切换深色模式",
+    toggleTheme: "切换明暗主题",
     primaryCta: "看旅行足迹",
     secondaryCta: "打开 GitHub",
     aboutTitle: "关于我",
@@ -58,21 +59,21 @@ export const ui = {
     githubTitle: "GitHub 与创作",
     contactTitle: "联系方式",
     sectionHome: "名片内容",
-    latest: "最新解锁",
-    upcoming: "即将出发",
+    latest: "最新到访",
+    upcoming: "最新远行",
     totalCities: "累计点亮",
     cityUnit: "座城市",
     searchPlaceholder: "搜索城市、风景、美食或省份",
     allCities: "全部城市",
     noResults: "没有找到匹配的城市。",
     travelIntro:
-      "从呼和浩特出发，把山川、古城、夜市和列车窗外的光都收进足迹里。",
+      "从呼和浩特出发，把山川、古城、夜市和列车窗外的光都收进足迹里。最新一站，是横跨东京与关西的十五日日本旅记。",
     japanIntro:
-      "2026 年暑假会去日本。路线还未锁定，先把期待写成一页空白的行程笺。",
+      "2026 年 6 月 30 日至 7 月 14 日，从东京一路走到河口湖、热海与关西；十五天的光影，收成十五张旅行海报。",
     backTravel: "返回旅行总览",
     prevCity: "上一站",
     nextCity: "下一站",
-    visitedOn: "解锁日期",
+    visitedOn: "到访日期",
     datePending: "日期待补",
     supplementMonth: "补充城市 / 日期待补",
     region: "地域",
@@ -80,7 +81,12 @@ export const ui = {
     food: "风味",
     scenery: "风景",
     culture: "文化",
-    plan: "计划",
+    plan: "旅记",
+    tripPeriod: "旅行日期",
+    tripChapters: "四章行程",
+    posterArchive: "海报旅记",
+    posterCount: "15 张海报",
+    dayLabel: "行程日",
     footerLeft: "轻触 NFC 卡即可再次打开本页",
     footerRight: "Last updated · Auto avatar & language",
   },
@@ -92,6 +98,7 @@ export const ui = {
     navCities: "都市",
     navContact: "連絡",
     language: "言語",
+    primaryNavigation: "メインナビゲーション",
     skipToContent: "本文へ移動",
     heroTitle: "朔風霜月",
     avatarAlt: "朔風霜月のアバター",
@@ -112,7 +119,7 @@ export const ui = {
     shareFail: "共有できません。しばらくしてからお試しください",
     downloadStarted: "連絡先ファイルを開いています",
     retry: "再読み込み",
-    toggleTheme: "ダークモード切替",
+    toggleTheme: "カラーテーマを切り替える",
     primaryCta: "旅の足跡を見る",
     secondaryCta: "GitHubを開く",
     aboutTitle: "自己紹介",
@@ -122,21 +129,21 @@ export const ui = {
     githubTitle: "GitHubと制作",
     contactTitle: "連絡先",
     sectionHome: "カード内容",
-    latest: "最新の解放",
-    upcoming: "次の旅",
+    latest: "最近の訪問",
+    upcoming: "最新の旅",
     totalCities: "訪れた都市",
     cityUnit: "都市",
     searchPlaceholder: "都市、風景、料理、地域を検索",
     allCities: "すべての都市",
     noResults: "一致する都市がありません。",
     travelIntro:
-      "フフホトから出発し、山河、古都、夜市、列車の窓の光を足跡に残しています。",
+      "フフホトから出発し、山河、古都、夜市、列車の窓の光を足跡に残しています。最新章は、東京から関西へと続く15日間の日本旅行記です。",
     japanIntro:
-      "2026年の夏休みに日本へ行く予定です。ルートは未定なので、まずは期待を一枚の旅の予告にしました。",
+      "2026年6月30日から7月14日まで、東京から河口湖、熱海、関西へ。15日間の光景を15枚のトラベルポスターにまとめました。",
     backTravel: "旅の一覧へ戻る",
     prevCity: "前の街",
     nextCity: "次の街",
-    visitedOn: "解放日",
+    visitedOn: "訪問日",
     datePending: "日付未入力",
     supplementMonth: "追加都市 / 日付未入力",
     region: "地域",
@@ -144,7 +151,12 @@ export const ui = {
     food: "味",
     scenery: "風景",
     culture: "文化",
-    plan: "計画",
+    plan: "旅行記",
+    tripPeriod: "旅行期間",
+    tripChapters: "4章の旅程",
+    posterArchive: "ポスター旅日記",
+    posterCount: "15枚のポスター",
+    dayLabel: "旅の日",
     footerLeft: "NFCカードをかざすと、このページをもう一度開けます",
     footerRight: "Last updated · Auto avatar & language",
   },
@@ -156,6 +168,7 @@ export const ui = {
     navCities: "Cities",
     navContact: "Contact",
     language: "Language",
+    primaryNavigation: "Primary navigation",
     skipToContent: "Skip to content",
     heroTitle: "Shuofeng Shuanyue",
     avatarAlt: "Shuofeng Shuanyue's avatar",
@@ -178,7 +191,7 @@ export const ui = {
     shareFail: "Unable to share right now. Please try again",
     downloadStarted: "Opening the contact file",
     retry: "Reload",
-    toggleTheme: "Toggle dark mode",
+    toggleTheme: "Toggle color theme",
     primaryCta: "View Footprints",
     secondaryCta: "Open GitHub",
     aboutTitle: "About",
@@ -188,21 +201,21 @@ export const ui = {
     githubTitle: "GitHub & Making",
     contactTitle: "Contact",
     sectionHome: "Card Notes",
-    latest: "Latest Unlock",
-    upcoming: "Coming Next",
+    latest: "Latest Visit",
+    upcoming: "Latest Journey",
     totalCities: "Lit Up",
     cityUnit: "cities",
     searchPlaceholder: "Search city, scenery, food, or region",
     allCities: "All Cities",
     noResults: "No matching cities found.",
     travelIntro:
-      "Starting from Hohhot, collecting mountains, old towns, night markets, and train-window light into a map of footsteps.",
+      "Starting from Hohhot, collecting mountains, old towns, night markets, and train-window light into a map of footsteps. The newest chapter is a fifteen-day journey from Tokyo to Kansai.",
     japanIntro:
-      "Japan is planned for summer 2026. The route is still open, so this page begins as a clean itinerary sheet.",
+      "From June 30 to July 14, 2026, the journey ran from Tokyo through Lake Kawaguchi and Atami to Kansai. Fifteen days of light and motion are collected in fifteen travel posters.",
     backTravel: "Back to Travel",
     prevCity: "Previous",
     nextCity: "Next",
-    visitedOn: "Unlocked",
+    visitedOn: "Visited",
     datePending: "Date pending",
     supplementMonth: "Supplemental Cities / Date Pending",
     region: "Region",
@@ -210,7 +223,12 @@ export const ui = {
     food: "Taste",
     scenery: "Scenery",
     culture: "Culture",
-    plan: "Plan",
+    plan: "Travelogue",
+    tripPeriod: "Trip Dates",
+    tripChapters: "Four Chapters",
+    posterArchive: "Poster Journal",
+    posterCount: "15 Posters",
+    dayLabel: "Trip Day",
     footerLeft: "Tap the NFC card to open this page again",
     footerRight: "Last updated · Auto avatar & language",
   },
@@ -282,19 +300,19 @@ export const homeCards = [
     art: "pagoda",
     image: "assets/images/home/travel.png",
     title: {
-      zh: "已经点亮 32 座城市",
-      ja: "これまで32都市を訪問",
-      en: "32 cities have already lit up",
+      zh: "把每一段远行写成可以翻阅的旅记",
+      ja: "一つひとつの旅を、めくれる記録に",
+      en: "Turning every journey into a travelogue",
     },
     body: {
-      zh: "旅行历史从 2020 年的呼和浩特开始，到 2026 年 2 月的洛阳、郑州、开封、新乡、朔州。每一页都用水墨方式记下一座城市的风物。",
-      ja: "2020年のフフホトから、2026年2月の洛陽、鄭州、開封、新郷、朔州へ。各都市を水墨の雰囲気で記録します。",
-      en: "The footprint begins with Hohhot in 2020 and reaches Luoyang, Zhengzhou, Kaifeng, Xinxiang, and Shuozhou in February 2026. Each city gets an ink-style page.",
+      zh: "足迹从呼和浩特起笔，一路记下古城、山海和列车窗景。2026 年夏天，又用十五张极简 zine 海报收藏了从东京到关西的日本旅行。",
+      ja: "足跡はフフホトから始まり、古都、山と海、列車の車窓を記録してきました。2026年夏の日本旅行は、東京から関西までの15日間をミニマルなzineポスターに残しています。",
+      en: "The trail begins in Hohhot and keeps old towns, mountains, coastlines, and train-window views. In summer 2026, fifteen minimal zine posters captured a journey across Japan from Tokyo to Kansai.",
     },
     tags: {
-      zh: ["32 城市", "时间轴", "日本预告"],
-      ja: ["32都市", "タイムライン", "日本予告"],
-      en: ["32 Cities", "Timeline", "Japan Next"],
+      zh: ["城市足迹", "15 日日本", "zine 海报"],
+      ja: ["都市の足跡", "15日間の日本", "zineポスター"],
+      en: ["City Footprints", "15 Days in Japan", "Zine Posters"],
     },
   },
   {
@@ -683,18 +701,327 @@ export const cities = [
 
 export const japanPlan = {
   slug: "japan-2026",
-  date: "2026-07-01",
-  planned: true,
-  name: c("2026 夏 · 日本旅行计划", "2026年夏 · 日本旅行計画", "Summer 2026 · Japan Plan"),
+  date: "2026-06-30",
+  endDate: "2026-07-14",
+  dateStatus: "visited",
+  completed: true,
+  name: c("2026 夏 · 日本旅记", "2026年夏 · 日本旅行記", "Summer 2026 · Japan Travelogue"),
   region: c("日本", "日本", "Japan"),
   theme: "moon",
   summary: c(
-    "暑假会去日本。具体城市还未写死，先把这一页留给电车、神社、海风、便利店夜灯和还没发生的相遇。",
-    "夏休みに日本へ行く予定です。具体的な都市はまだ未定。電車、神社、海風、コンビニの夜灯、まだ起きていない出会いのためのページです。",
-    "Japan is planned for the summer break. The exact cities are not fixed yet, so this page waits for trains, shrines, sea wind, convenience-store lights, and meetings that have not happened."
+    "2026 年 6 月 30 日至 7 月 14 日，从东京的雨、铁路与夜色出发，经河口湖、热海前往大阪、京都、奈良与神户。十五张极简 zine 海报，记住了这次横跨关东与关西的夏日旅行。",
+    "2026年6月30日から7月14日まで、東京の雨、鉄道、夜景から始まり、河口湖と熱海を経て大阪、京都、奈良、神戸へ。15枚のミニマルなzineポスターが、関東から関西へ渡った夏の旅を記録します。",
+    "From June 30 to July 14, 2026, the journey moved from Tokyo rain, railways, and night light through Lake Kawaguchi and Atami, then onward to Osaka, Kyoto, Nara, and Kobe. Fifteen minimal zine posters preserve this summer crossing from Kanto to Kansai."
   ),
-  tags: [c("电车", "電車", "Trains"), c("神社", "神社", "Shrines"), c("夏日计划", "夏の計画", "Summer Plan")],
-  highlight: c("先不替未来决定路线，只把期待放在这里。", "未来のルートはまだ決めず、期待だけをここに置きます。", "The route is not decided for the future yet; the anticipation is placed here first."),
+  tags: [
+    c("东京与关西", "東京と関西", "Tokyo & Kansai"),
+    c("富士山与海岸", "富士山と海岸", "Fuji & Coast"),
+    c("15 张 zine 海报", "15枚のzineポスター", "15 Zine Posters"),
+  ],
+  highlight: c(
+    "十五天，四章路线，从抵达前的云层到归途机翼外的富士山。",
+    "15日間、4つの章。到着前の雲から、帰路の翼の向こうに見えた富士山まで。",
+    "Fifteen days in four chapters, from the clouds before arrival to Mount Fuji beyond the wing on the way home."
+  ),
+  chapters: [
+    {
+      id: "tokyo-prologue",
+      range: "2026-06-30/2026-07-04",
+      title: c("东京的开场", "東京のプロローグ", "Tokyo Prologue"),
+      summary: c(
+        "从云上抵达，把迪士尼海洋、雨后街区、春日部的铁路与东京换乘写进旅程的前五页。",
+        "雲の上から到着し、ディズニーシー、雨上がりの街、春日部の線路、東京の乗り換えを旅の最初の5ページに。",
+        "Arrival above the clouds opens five pages of DisneySea water, rain-wet neighborhoods, Kasukabe rail lines, and Tokyo transfers."
+      ),
+    },
+    {
+      id: "tower-cloud-coast",
+      range: "2026-07-05/2026-07-07",
+      title: c("高塔、云脊与蓝调海岸", "塔、雲稜、ブルーアワーの海岸", "Tower, Cloud Ridge & Blue Coast"),
+      summary: c(
+        "雨中的晴空塔、河口湖云下的山脊，以及热海入夜前的海，让城市逐渐向山水展开。",
+        "雨のスカイツリー、河口湖の雲の下に伸びる山稜、そして夜を待つ熱海の海。都市から山水へ風景が開いていきます。",
+        "A rainy Skytree, cloud-shadowed ridges at Lake Kawaguchi, and the sea before nightfall in Atami let the city open into landscape."
+      ),
+    },
+    {
+      id: "westbound-rail",
+      range: "2026-07-08/2026-07-11",
+      title: c("向西的列车", "西へ向かう列車", "Westbound by Rail"),
+      summary: c(
+        "新干线把热海与新大阪连在一起；道顿堀水道、新世界餐桌与京都鸟居，成为关西的三种节奏。",
+        "新幹線が熱海と新大阪をつなぎ、道頓堀の水路、新世界の食卓、京都の鳥居が関西の異なるリズムになります。",
+        "The Shinkansen joins Atami to Shin-Osaka; Dotonbori's channel, a Shinsekai table, and Kyoto torii become three Kansai rhythms."
+      ),
+    },
+    {
+      id: "deer-harbor-home",
+      range: "2026-07-12/2026-07-14",
+      title: c("鹿、港口与最后一眼", "鹿、港、最後の眺め", "Deer, Harbor & Last View"),
+      summary: c(
+        "奈良溪边的鹿、神户三宫的暮色和归程机窗外的富士山，为旅行留下安静的尾声。",
+        "奈良の水辺に佇む鹿、神戸・三宮の暮色、帰りの機窓から見えた富士山が、旅に静かな余韻を残します。",
+        "A deer beside Nara's stream, dusk around Kobe Sannomiya, and Fuji through the homebound window leave the journey a quiet coda."
+      ),
+    },
+  ],
+  posters: [
+    {
+      date: "2026-06-30",
+      place: c("东京 · 抵达", "東京 · 到着", "Tokyo · Arrival"),
+      label: c("抵达 / 01", "到着 / 01", "ARRIVAL / 01"),
+      summary: c(
+        "航程穿过云层抵达东京，机翼下的田野与城市成为旅行的第一帧。",
+        "雲を抜けて東京に到着。翼の下に広がる田野と街が、旅の最初の一幕になりました。",
+        "The flight crossed the clouds into Tokyo, with fields and city beneath the wing forming the journey's opening frame."
+      ),
+      alt: c(
+        "日本旅记海报 01：暖色纸张上的小幅机窗影像，云层下是即将抵达的田野与城市。",
+        "日本旅行記ポスター01。暖色の紙に小さな機窓の写真が置かれ、雲の下に到着間近の田野と街が見える。",
+        "Japan travel poster 01: a small airplane-window image on warm paper, with fields and city appearing below the clouds before arrival."
+      ),
+      image: "assets/images/japan-2026/01-arrival.png",
+      chapter: "tokyo-prologue",
+    },
+    {
+      date: "2026-07-01",
+      place: c("东京迪士尼海洋 · 大冢", "東京ディズニーシー · 大塚", "Tokyo DisneySea · Otsuka"),
+      label: c("潮汐 / 02", "潮 / 02", "TIDE / 02"),
+      summary: c(
+        "白天在海洋园区与水面之间游走，夜里回到大冢；一叶帆影留住了热闹中的片刻安静。",
+        "昼は海のテーマパークと水辺を歩き、夜は大塚へ。一艘の帆のシルエットが、賑わいの中の静けさを残しました。",
+        "A day among maritime scenery and water ended back in Otsuka; one sailboat silhouette held a quiet pause inside the crowds."
+      ),
+      alt: c(
+        "日本旅记海报 02：纸张留白中的小幅水面与帆船剪影，呈现日落前的宁静。",
+        "日本旅行記ポスター02。広い余白の中に水面と帆船の小さなシルエットがあり、日暮れ前の静けさを映す。",
+        "Japan travel poster 02: a small sailboat silhouette on water surrounded by open paper, holding the stillness before dusk."
+      ),
+      image: "assets/images/japan-2026/02-tide.png",
+      chapter: "tokyo-prologue",
+    },
+    {
+      date: "2026-07-02",
+      place: c("东京街区", "東京の街", "Tokyo Neighborhoods"),
+      label: c("雨后 / 03", "雨上がり / 03", "AFTER RAIN / 03"),
+      summary: c(
+        "雨水把窄巷和路面擦得发亮，神社、餐馆与晴空塔在一日漫游中交替出现。",
+        "雨が路地と路面を光らせ、神社、食堂、スカイツリーが一日の散歩の中で交互に現れました。",
+        "Rain polished narrow lanes and pavement while shrines, restaurants, and Skytree alternated through a day of wandering."
+      ),
+      alt: c(
+        "日本旅记海报 03：极简纸张上是雨后的窄巷、湿地和路面反光影像。",
+        "日本旅行記ポスター03。ミニマルな紙面に、雨上がりの細い路地、濡れた地面、路面の反射が配置されている。",
+        "Japan travel poster 03: a rain-wet narrow lane and reflective pavement set against a minimal paper field."
+      ),
+      image: "assets/images/japan-2026/03-after-rain.png",
+      chapter: "tokyo-prologue",
+    },
+    {
+      date: "2026-07-03",
+      place: c("春日部 · 新宿", "春日部 · 新宿", "Kasukabe · Shinjuku"),
+      label: c("线路 / 04", "線路 / 04", "LINE / 04"),
+      summary: c(
+        "白天沿着春日部的动画记忆行走，傍晚转入新宿的灯光；铁轨和架空线把两种城市尺度连在一起。",
+        "昼は春日部のアニメの記憶をたどり、夕方から新宿の灯りへ。レールと架線が二つの街のスケールをつなぎました。",
+        "The day followed anime memories through Kasukabe before turning toward Shinjuku lights; rails and overhead lines connected two city scales."
+      ),
+      alt: c(
+        "日本旅记海报 04：纸张上的小幅铁轨、架空线与延伸向远处的城市景深。",
+        "日本旅行記ポスター04。紙面の小さな写真にレールと架線、奥へ伸びる街の奥行きが写る。",
+        "Japan travel poster 04: rails, overhead wires, and deep urban perspective extending through a small image on paper."
+      ),
+      image: "assets/images/japan-2026/04-rail-line.png",
+      chapter: "tokyo-prologue",
+    },
+    {
+      date: "2026-07-04",
+      place: c("东京 · 小田急线", "東京 · 小田急線", "Tokyo · Odakyu Line"),
+      label: c("换乘 / 05", "乗り換え / 05", "TRANSFER / 05"),
+      summary: c(
+        "在小田急线与市区之间穿行，站内扶梯重复的线条，成了东京日常移动的注解。",
+        "小田急線と都心を行き来し、駅のエスカレーターに繰り返される線が、東京の日常的な移動を語りました。",
+        "Moving between the Odakyu Line and central Tokyo, repeated escalator lines became a note on the city's everyday transfers."
+      ),
+      alt: c(
+        "日本旅记海报 05：极简排版中的站内扶梯与重复线性结构。",
+        "日本旅行記ポスター05。ミニマルな紙面に、駅構内のエスカレーターと反復する直線的な構造が配置されている。",
+        "Japan travel poster 05: a station escalator and repeating linear geometry arranged in a sparse editorial layout."
+      ),
+      image: "assets/images/japan-2026/05-transfer.png",
+      chapter: "tokyo-prologue",
+    },
+    {
+      date: "2026-07-05",
+      place: c("浅草 · 东京晴空塔", "浅草 · 東京スカイツリー", "Asakusa · Tokyo Skytree"),
+      label: c("雨 / 06", "雨 / 06", "RAIN / 06"),
+      summary: c(
+        "雨伞与雨雾压低了天空，从浅草寺到晴空塔，传统街区与当代高塔在潮湿的光里对望。",
+        "傘と雨霧が空を低くし、浅草寺からスカイツリーまで、古い街と現代の塔が湿った光の中で向かい合いました。",
+        "Umbrellas and mist lowered the sky as old Asakusa and contemporary Skytree faced each other in rain-softened light."
+      ),
+      alt: c(
+        "日本旅记海报 06：雨伞、雨雾与东京晴空塔组成的小幅城市影像。",
+        "日本旅行記ポスター06。傘、雨霧、東京スカイツリーが小さな都市のイメージを作る。",
+        "Japan travel poster 06: umbrellas, rain haze, and Tokyo Skytree form a compact city image."
+      ),
+      image: "assets/images/japan-2026/06-rain-tower.png",
+      chapter: "tower-cloud-coast",
+    },
+    {
+      date: "2026-07-06",
+      place: c("河口湖", "河口湖", "Lake Kawaguchi"),
+      label: c("云脊 / 07", "雲稜 / 07", "CLOUD RIDGE / 07"),
+      summary: c(
+        "列车进入富士山周边，草地、低云与山脊在河口湖畔铺成宽阔的横向风景。",
+        "列車が富士山周辺へ入り、河口湖のほとりで草地、低い雲、山稜が横に広がる風景を作りました。",
+        "The train entered Fuji country, where grass, low clouds, and ridges spread into a broad horizontal landscape beside Lake Kawaguchi."
+      ),
+      alt: c(
+        "日本旅记海报 07：大片留白中的草地、厚云与富士山周边山脊。",
+        "日本旅行記ポスター07。大きな余白の中に、草地、厚い雲、富士山周辺の山稜が広がる。",
+        "Japan travel poster 07: grass, heavy clouds, and ridges around Mount Fuji sit within a wide field of open paper."
+      ),
+      image: "assets/images/japan-2026/07-cloud-ridge.png",
+      chapter: "tower-cloud-coast",
+    },
+    {
+      date: "2026-07-07",
+      place: c("热海", "熱海", "Atami"),
+      label: c("蓝调时刻 / 08", "ブルーアワー / 08", "BLUE HOUR / 08"),
+      summary: c(
+        "神社、海岸与温泉小城被傍晚的蓝色包围，远岸的细小灯火让海面显得更安静。",
+        "神社、海岸、温泉街が夕暮れの青に包まれ、対岸の小さな灯りが海をより静かに見せました。",
+        "Shrines, coast, and hot-spring streets settled into blue hour, with tiny lights across the water making the sea feel quieter."
+      ),
+      alt: c(
+        "日本旅记海报 08：蓝调海面、远岸轮廓与少量灯火组成的安静夜景。",
+        "日本旅行記ポスター08。ブルーアワーの海、遠岸の輪郭、わずかな灯りが静かな夜景を作る。",
+        "Japan travel poster 08: blue-hour water, a distant shore, and a few small lights form a quiet coastal night."
+      ),
+      image: "assets/images/japan-2026/08-blue-hour.png",
+      chapter: "tower-cloud-coast",
+    },
+    {
+      date: "2026-07-08",
+      place: c("热海 → 新大阪", "熱海 → 新大阪", "Atami → Shin-Osaka"),
+      label: c("行进中 / 09", "移動中 / 09", "IN MOTION / 09"),
+      summary: c(
+        "新干线向西奔赴，窗外田野、城镇与光影拉成短暂的流线，旅程由关东进入关西。",
+        "新幹線で西へ。車窓の田畑、街、光が短い流線となり、旅は関東から関西へ入りました。",
+        "The Shinkansen ran west as fields, towns, and light stretched into fleeting lines outside the window, carrying the journey into Kansai."
+      ),
+      alt: c(
+        "日本旅记海报 09：新干线窗外田野的速度感与横向拖影。",
+        "日本旅行記ポスター09。新幹線の車窓から見る田野に、速度感と横向きのブレが残る。",
+        "Japan travel poster 09: fields beyond a Shinkansen window carry speed and horizontal motion blur."
+      ),
+      image: "assets/images/japan-2026/09-motion-field.png",
+      chapter: "westbound-rail",
+    },
+    {
+      date: "2026-07-09",
+      place: c("大阪 · 道顿堀", "大阪 · 道頓堀", "Osaka · Dotonbori"),
+      label: c("水道 / 10", "水路 / 10", "CHANNEL / 10"),
+      summary: c(
+        "从桥上看道顿堀河道穿过城市，两岸的标识、餐馆与人流围绕一条水上中轴展开。",
+        "橋の上から道頓堀川が街を貫く様子を眺め、両岸の看板、飲食店、人波が水の軸を中心に広がりました。",
+        "From a bridge, the Dotonbori channel cut through the city while signs, restaurants, and crowds unfolded along its watery axis."
+      ),
+      alt: c(
+        "日本旅记海报 10：桥梁与城市两岸围绕道顿堀河道中轴的组图。",
+        "日本旅行記ポスター10。道頓堀川を中軸に、橋と街の両岸が向かい合う構図。",
+        "Japan travel poster 10: a central Dotonbori channel framed by a bridge and dense city banks."
+      ),
+      image: "assets/images/japan-2026/10-channel-city.png",
+      chapter: "westbound-rail",
+    },
+    {
+      date: "2026-07-10",
+      place: c("大阪 · 新世界", "大阪 · 新世界", "Osaka · Shinsekai"),
+      label: c("餐桌手记 / 11", "食卓メモ / 11", "TABLE NOTE / 11"),
+      summary: c(
+        "通天阁与新世界之间的一天，最后落在一顿普通的饭上；器皿与桌面把热闹收成日常尺度。",
+        "通天閣と新世界を歩いた一日は、ありふれた食事に着地。器とテーブルが街の賑わいを日常の尺度に戻しました。",
+        "A day around Tsutenkaku and Shinsekai landed at an ordinary meal, where dishes and tabletop returned the bustle to everyday scale."
+      ),
+      alt: c(
+        "日本旅记海报 11：暖纸上的餐桌静物，器皿与一顿日常饭菜构成画面。",
+        "日本旅行記ポスター11。暖かい紙の上に、器と日常の食事を写した食卓の静物がある。",
+        "Japan travel poster 11: a tabletop still life of dishes and an everyday meal rests on warm paper."
+      ),
+      image: "assets/images/japan-2026/11-table-note.png",
+      chapter: "westbound-rail",
+    },
+    {
+      date: "2026-07-11",
+      place: c("京都 · 伏见稻荷与清水寺", "京都 · 伏見稲荷と清水寺", "Kyoto · Fushimi Inari & Kiyomizu-dera"),
+      label: c("通道 / 12", "参道 / 12", "PASSAGE / 12"),
+      summary: c(
+        "鸟居沿着林间山路一座座延伸，从伏见稻荷到清水寺，京都的空间总在门、坡道与转折之间展开。",
+        "鳥居が林の山道を連なり、伏見稲荷から清水寺へ。京都の空間は、門、坂、曲がり角の間で展開します。",
+        "Torii climbed through the woods from Fushimi Inari toward a day ending at Kiyomizu-dera, with Kyoto unfolding through gates, slopes, and turns."
+      ),
+      alt: c(
+        "日本旅记海报 12：无人鸟居通道深入林间，重复的门构成纵深感。",
+        "日本旅行記ポスター12。人のいない鳥居の参道が林の奥へ続き、重なる門が奥行きを作る。",
+        "Japan travel poster 12: an empty torii passage recedes into the woods, its repeated gates creating depth."
+      ),
+      image: "assets/images/japan-2026/12-gate-path.png",
+      chapter: "westbound-rail",
+    },
+    {
+      date: "2026-07-12",
+      place: c("奈良", "奈良", "Nara"),
+      label: c("静水 / 13", "静水 / 13", "STILL WATER / 13"),
+      summary: c(
+        "奈良公园的人流之外，一只鹿停在溪流与石岸旁，让返回大阪前的午后慢了下来。",
+        "奈良公園の人波から少し離れ、一頭の鹿が流れと石岸のそばに立ち、大阪に戻る前の午後をゆっくりにしました。",
+        "Away from Nara Park's crowds, one deer paused beside a stream and stone bank, slowing the afternoon before returning to Osaka."
+      ),
+      alt: c(
+        "日本旅记海报 13：一只鹿站在溪流与石岸边，水面平静、构图留白。",
+        "日本旅行記ポスター13。一頭の鹿が流れと石岸のそばに立ち、静かな水面と広い余白がある。",
+        "Japan travel poster 13: a lone deer stands by a stream and stone bank amid still water and generous open space."
+      ),
+      image: "assets/images/japan-2026/13-stream-deer.png",
+      chapter: "deer-harbor-home",
+    },
+    {
+      date: "2026-07-13",
+      place: c("神户三宫 · 大阪", "神戸三宮 · 大阪", "Kobe Sannomiya · Osaka"),
+      label: c("窗 / 14", "窓 / 14", "WINDOW / 14"),
+      summary: c(
+        "列车将三宫与大阪连在傍晚里，窗格之后的城市逐渐变暗，像旅程结束前的一次停顿。",
+        "列車が三宮と大阪を夕暮れの中でつなぎ、網入りガラスの向こうで街が少しずつ暗くなり、旅の終わり前の一拍となりました。",
+        "The train linked Sannomiya and Osaka at dusk as the city darkened behind window panes, a pause before the journey's close."
+      ),
+      alt: c(
+        "日本旅记海报 14：窗格后是逐渐入夜的城市轮廓与暮色。",
+        "日本旅行記ポスター14。網入りガラス越しに、夜へ移る街の輪郭と夕暮れが見える。",
+        "Japan travel poster 14: dusk and a city silhouette moving toward night are seen through a grid of window panes."
+      ),
+      image: "assets/images/japan-2026/14-window-city.png",
+      chapter: "deer-harbor-home",
+    },
+    {
+      date: "2026-07-14",
+      place: c("归程 · 富士山远望", "帰路 · 富士山遠望", "Homebound · Fuji in the Distance"),
+      label: c("最后一眼 / 15", "最後の眺め / 15", "LAST VIEW / 15"),
+      summary: c(
+        "车站、机场与登机流程将旅行收束，起飞后，机翼与远处富士山共同留下最后一帧。",
+        "駅、空港、搭乗の時間が旅を閉じ、離陸後、翼と遠くの富士山が最後の一幕を残しました。",
+        "Stations, airport, and boarding closed the journey; after takeoff, the wing and distant Mount Fuji shared its final frame."
+      ),
+      alt: c(
+        "日本旅记海报 15：归程机窗外的机翼，以及远处最后一次出现的富士山。",
+        "日本旅行記ポスター15。帰りの機窓の外に翼が伸び、遠くに最後の富士山が現れる。",
+        "Japan travel poster 15: the wing outside a homebound airplane window, with Mount Fuji making one final appearance in the distance."
+      ),
+      image: "assets/images/japan-2026/15-last-view.png",
+      chapter: "deer-harbor-home",
+    },
+  ],
 };
 
 const pendingCities = [
@@ -885,7 +1212,7 @@ const cityDetails = {
   zhangjiajie: { food: c("三下锅", "三下鍋", "Sanxiaguo"), landmark: c("国家森林公园", "国家森林公園", "National Forest Park"), shape: "peaks", glyph: "峰", accent: "#54724e" },
   xian: { food: c("肉夹馍", "肉夹馍", "Roujiamo"), landmark: c("兵马俑", "兵馬俑", "Terracotta Warriors"), shape: "wall", glyph: "秦", accent: "#b98448" },
   dunhuang: { food: c("驴肉黄面", "驢肉黄麺", "Yellow Noodles"), landmark: c("莫高窟 / 月牙泉", "莫高窟 / 月牙泉", "Mogao Caves / Crescent Lake"), shape: "desert", glyph: "敦", accent: "#c1943d" },
-  japan: { food: c("便利店夜灯", "コンビニの夜灯", "Convenience-store lights"), landmark: c("电车、鸟居与富士山轮廓", "電車、鳥居、富士山の輪郭", "Trains, torii, and Mount Fuji silhouette"), shape: "japan", glyph: "旅", accent: "#b95f37" },
+  japan: { food: c("东京日常与关西餐桌", "東京の日常と関西の食卓", "Tokyo days and Kansai tables"), landmark: c("东京、富士山、热海与关西", "東京、富士山、熱海、関西", "Tokyo, Fuji, Atami, and Kansai"), shape: "japan", glyph: "旅", accent: "#b95f37" },
 };
 
 const accentCycle = ["#35584a", "#4f7d72", "#b95f37", "#c1943d", "#6c7650", "#7b684d"];
@@ -909,7 +1236,7 @@ const regionalImages = {
 };
 
 const cityImages = {
-  "japan-2026": "assets/images/cities/japan-train-fuji-torii.png",
+  "japan-2026": "assets/images/japan-2026/01-arrival.png",
   luoyang: "assets/images/cities/henan-longmen-peony.png",
   zhengzhou: "assets/images/cities/henan-yellow-river-songdu.png",
   kaifeng: "assets/images/cities/henan-yellow-river-songdu.png",
@@ -998,7 +1325,7 @@ Object.assign(japanPlan, {
   food: cityDetails.japan.food,
   landmark: cityDetails.japan.landmark,
   regionGroup: c("日本", "日本", "Japan").zh,
-  dateStatus: "planned",
+  dateStatus: "visited",
   visual: {
     shape: cityDetails.japan.shape,
     glyph: cityDetails.japan.glyph,
@@ -1006,8 +1333,8 @@ Object.assign(japanPlan, {
     image: cityImages["japan-2026"] || regionalImages["日本"],
   },
   notes: {
-    scenery: c("用电车、鸟居和富士山远影做占位，不提前写死具体城市。", "電車、鳥居、富士山の遠影で、具体的な都市を決めずに置いておきます。", "Trains, torii, and a distant Mount Fuji hold the page without fixing the route."),
-    food: c("便利店夜灯和夏日饮料先作为味觉记号，等真实路线回来再替换。", "コンビニの夜灯と夏の飲み物を味の記号にして、実際の旅の後で置き換えます。", "Convenience-store lights and summer drinks mark the taste until the real route returns."),
+    scenery: c("雨中东京、河口湖云脊、热海蓝调海岸与归途富士山，共同构成十五天的风景轴线。", "雨の東京、河口湖の雲稜、熱海の青い海岸、帰路の富士山が15日間の風景の軸を作ります。", "Rainy Tokyo, cloud ridges at Lake Kawaguchi, Atami's blue coast, and a final Fuji view form the trip's scenic axis."),
+    food: c("从东京街区到大阪新世界，餐桌与便利店灯光把每天的移动拉回到日常。", "東京の街から大阪・新世界まで、食卓とコンビニの灯りが毎日の移動を日常の尺度に戻しました。", "From Tokyo neighborhoods to Osaka's Shinsekai, tables and convenience-store light brought each day of movement back to everyday scale."),
     culture: japanPlan.highlight,
   },
 });

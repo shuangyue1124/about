@@ -17,18 +17,19 @@
 
 ## 证据地图
 
-- 三语静态页面框架、canonical/hreflang、Open Graph/Twitter 与 JSON-LD: `scripts/build-pages.mjs:73-123`, `scripts/build-pages.mjs:328-343`。
-- NFC 首页首屏、保存通讯录、分享与联系入口: `scripts/build-pages.mjs:159-204`。
-- 无 JavaScript 时的保底说明与可读静态正文: `scripts/build-pages.mjs:120-123`, `scripts/build-pages.mjs:318-325`。
-- Web Share API、复制降级和操作反馈: `assets/js/app.js:717-789`。
-- 首页卡片图片来自 `homeCards.image`: `assets/js/data.js:219-303`。
-- 城市图片优先来自 `cityImages`，未命中才回退 `regionalImages`: `assets/js/data.js:892-972`。
-- 响应式 WebP、首页 hero、1200×630 分享图和应用图标的生成: `scripts/optimize-images.mjs:14-94`。
-- `public/` 发布目录的重建与复制清单: `scripts/prepare-worker-assets.mjs:3-27`；构建入口见 `package.json:7-11`。
+- 三语静态页面框架、canonical/hreflang、Open Graph/Twitter 与 JSON-LD: `scripts/build-pages.mjs:79-159`, `scripts/build-pages.mjs:456-531`。
+- NFC 首页首屏、保存通讯录、分享与联系入口: `scripts/build-pages.mjs:191-236`。
+- 无 JavaScript 时的保底说明与可读静态正文: `scripts/build-pages.mjs:147-150`, `scripts/build-pages.mjs:346-454`。
+- Web Share API、复制降级和操作反馈: `assets/js/app.js:757-814`。
+- 首页卡片图片来自 `homeCards.image`: `assets/js/data.js:237-339`。
+- 城市图片优先来自 `cityImages`，未命中才回退 `regionalImages`: `assets/js/data.js:1219-1314`。
+- 日本十五日三语海报旅记、章节与图说: `assets/js/data.js:702-1025`, `scripts/build-pages.mjs:346-435`。
+- 响应式 WebP、日本海报 1440 WebP、首页 hero、1200×630 分享图和应用图标的生成: `scripts/optimize-images.mjs:14-104`。
+- `public/` 发布目录的重建与复制清单: `scripts/prepare-worker-assets.mjs:3-29`；构建入口见 `package.json:6-11`。
 - VCF 的响应头和旧地址迁移: `_headers:28-35`, `_redirects:1-2`。
-- Service Worker 的页面网络优先与静态资源缓存策略: `sw.js:1-77`。
+- Service Worker 的页面网络优先与静态资源缓存策略: `sw.js:1-79`。
 - Pages Git 集成与本地 Worker 预览的职责边界: `README.md:31-78`, `wrangler.jsonc:1-5`, `wrangler.jsonc:29-33`。
-- 本地及线上资源回归检查: `scripts/verify-image-assets.mjs:120-158`。
+- 本地及线上资源回归检查: `scripts/verify-image-assets.mjs:78-293`。
 
 ## 维护约束
 
