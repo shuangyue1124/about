@@ -18,11 +18,11 @@
 
 ## 源码资源与 Pages 输出分离
 
-源码页面与资源保存在仓库目录，`npm run build` 依次生成图片衍生资源、三语静态页面，然后删除并重建 `public/`。`public/` 是 Cloudflare Pages 的构建输出目录；任何源图、文案或样式变化都必须经过完整构建才会进入待发布目录。证据: `package.json:6-11`, `scripts/prepare-worker-assets.mjs:3-28`, `wrangler.jsonc:29-33`。
+源码页面与资源保存在仓库目录，`npm run build` 依次生成图片衍生资源、三语静态页面，然后删除并重建 `public/`。日本 4:5 PNG 只作为构建源图保留，复制资源时从 Pages 输出中排除；专题页只引用体积更小的 WebP。`public/` 是 Cloudflare Pages 的构建输出目录，任何源图、文案或样式变化都必须经过完整构建。证据: `package.json:6-11`, `scripts/prepare-worker-assets.mjs:3-43`, `scripts/build-pages.mjs:355-434`, `wrangler.jsonc:29-33`。
 
 ## 图片衍生资源由构建统一生成
 
-所有内容 PNG 会产生 480/960 宽度的 WebP；`assets/images/japan-2026/` 下的 1440×1800、4:5 海报额外产生 1440 宽 WebP，并在检查中验证三个尺寸都保持 4:5。日本专题的 hero 首图通过同一组 `imagesrcset` / `srcset` 候选预加载并使用高优先级；图廊卡片使用 `loading="lazy"`，点击时链接到 1440 WebP。证据: `scripts/optimize-images.mjs:14-47`, `scripts/build-pages.mjs:108-116`, `scripts/build-pages.mjs:355-371`, `scripts/build-pages.mjs:393-434`, `scripts/verify-image-assets.mjs:146-167`。
+所有内容 PNG 会产生 480/960 宽度的 WebP；`assets/images/japan-2026/` 下的 1440×1800、4:5 海报额外产生 1440 宽 WebP，并在检查中验证三个尺寸都保持 4:5。日本专题的 hero 首图通过同一组 `imagesrcset` / `srcset` 候选预加载并使用高优先级；图廊卡片使用 `loading="lazy"`，图片回退与点击大图也都使用 WebP，不要求线上保留 PNG。证据: `scripts/optimize-images.mjs:14-47`, `scripts/build-pages.mjs:108-116`, `scripts/build-pages.mjs:355-371`, `scripts/build-pages.mjs:393-434`, `scripts/verify-image-assets.mjs:138-193`。
 
 ## 首页与城市图片由资料层声明
 
@@ -42,4 +42,4 @@
 
 ## 版本号、不可变图片与线上探测分属不同边界
 
-静态页面通过 query string 引用带版本号的 CSS/JS，Service Worker 缓存名随版本更新。图片响应头则对 `/assets/images/*` 声明一年 `immutable`；因此已发布图片不能通过同名覆盖来可靠更新，新画面必须使用新文件名并在资料层切换 URL。发布前检查还会验证十五张源图、三种 WebP 衍生尺寸、三语页面与 `public/` 产物；传入 `--origin` 后再探测线上三语旅记、版本和核心资源。证据: `scripts/build-pages.mjs:8`, `scripts/build-pages.mjs:95-96`, `sw.js:1-15`, `_headers:25-26`, `scripts/verify-image-assets.mjs:118-183`, `scripts/verify-image-assets.mjs:191-269`。
+静态页面通过 query string 引用带版本号的 CSS/JS，Service Worker 缓存名随版本更新。图片响应头则对 `/assets/images/*` 声明一年 `immutable`；因此已发布图片不能通过同名覆盖来可靠更新，新画面必须使用新文件名并在资料层切换 URL。发布前检查还会验证十五张源图、三种 WebP 衍生尺寸、三语页面与 `public/` 产物；传入 `--origin` 后再探测线上三语旅记、版本和核心资源。证据: `scripts/build-pages.mjs:8`, `scripts/build-pages.mjs:95-96`, `sw.js:1-15`, `_headers:25-26`, `scripts/verify-image-assets.mjs:127-196`, `scripts/verify-image-assets.mjs:228-282`。

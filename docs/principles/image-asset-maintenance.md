@@ -30,7 +30,7 @@
 
 **理由**: 普通内容图、旅行海报和分享图承担不同职责；用不同尺寸与文字边界可以保留系列风格，又不让语义被锁在像素中。
 
-**示例**: 首页卡片见 `assets/js/data.js:298-317`；日本海报尺寸检查见 `scripts/verify-image-assets.mjs:118-167`；海报页的独立替代文本与图说见 `assets/js/data.js:768-1024`, `scripts/build-pages.mjs:426-434`；分享卡片排版见 `scripts/optimize-images.mjs:64-93`。
+**示例**: 首页卡片见 `assets/js/data.js:298-317`；日本海报尺寸检查见 `scripts/verify-image-assets.mjs:127-177`；海报页的独立替代文本与图说见 `assets/js/data.js:768-1024`, `scripts/build-pages.mjs:426-434`；分享卡片排版见 `scripts/optimize-images.mjs:64-93`。
 
 ## 首页、城市与旅行海报保持目录边界
 
@@ -38,7 +38,7 @@
 
 **理由**: 目录与资料映射同时表达用途，可防止宽幅城市图被当作竖版海报，也避免不同专题大范围复用视觉。
 
-**示例**: `assets/js/data.js:298-317`, `assets/js/data.js:768-1024`, `assets/js/data.js:1238-1284`, `scripts/verify-image-assets.mjs:99-110`, `scripts/verify-image-assets.mjs:129-148`。
+**示例**: `assets/js/data.js:298-317`, `assets/js/data.js:768-1024`, `assets/js/data.js:1238-1284`, `scripts/verify-image-assets.mjs:108-120`, `scripts/verify-image-assets.mjs:127-153`。
 
 ## 单张城市图最多覆盖三个城市
 
@@ -46,7 +46,7 @@
 
 **理由**: 这能减少重复，又避免为每个短暂停留城市生成低价值图片。
 
-**示例**: `scripts/verify-image-assets.mjs:92-116` 统计站点图片复用次数并在超过三个时失败。
+**示例**: `scripts/verify-image-assets.mjs:101-125` 统计站点图片复用次数并在超过三个时失败。
 
 ## 海报画面与页面语义分开维护
 
@@ -58,11 +58,11 @@
 
 ## 只编辑源资源，衍生文件交给构建
 
-头像和原始内容图在源码目录维护；响应式 WebP、hero 变体、Open Graph 卡片和应用图标由 `npm run build` 生成，不手工修改 `public/` 或 `assets/images/generated/` 中的衍生文件。普通 PNG 生成 480/960 WebP，日本 4:5 海报另外生成 1440 WebP。
+头像和原始内容图在源码目录维护；响应式 WebP、hero 变体、Open Graph 卡片和应用图标由 `npm run build` 生成，不手工修改 `public/` 或 `assets/images/generated/` 中的衍生文件。普通 PNG 生成 480/960 WebP，日本 4:5 海报另外生成 1440 WebP；海报 PNG 留在源码目录，Pages 输出只携带 WebP。
 
 **理由**: 构建会重建衍生资源和整个 `public/`，手工改产物会在下一次构建丢失。
 
-**示例**: `scripts/optimize-images.mjs:14-47`, `scripts/optimize-images.mjs:50-104`, `scripts/prepare-worker-assets.mjs:3-28`, `package.json:6-11`。
+**示例**: `scripts/optimize-images.mjs:14-47`, `scripts/optimize-images.mjs:50-104`, `scripts/prepare-worker-assets.mjs:3-43`, `package.json:6-11`。
 
 ## 首幅海报优先，图廊图片延迟加载
 
@@ -74,7 +74,7 @@
 
 ## 已发布图片不做同名覆盖
 
-`/assets/images/*` 下的源图和衍生图使用长期 `immutable` 缓存。替换日本海报或其他已发布图片时，必须使用新文件名并同步修改资料映射；不使用同一 URL 覆盖新内容。
+Pages 输出中 `/assets/images/*` 下的普通内容图与 WebP 衍生图使用长期 `immutable` 缓存。替换日本海报或其他已发布图片时，必须使用新文件名并同步修改资料映射；不使用同一 URL 覆盖新内容。日本 PNG 源图不属于线上 URL。
 
 **理由**: CSS/JS 的查询参数版本和 Service Worker 缓存名不会改变图片自身的 URL；同名替换会让已缓存访客继续看到旧图。
 
@@ -86,7 +86,7 @@
 
 **理由**: 页面查询参数与 Service Worker 缓存是两个独立的更新边界，只改其中一个可能继续命中旧资源。
 
-**示例**: `scripts/build-pages.mjs:8`, `scripts/build-pages.mjs:95-96`, `sw.js:1-15`, `scripts/verify-image-assets.mjs:191-197`。
+**示例**: `scripts/build-pages.mjs:8`, `scripts/build-pages.mjs:95-96`, `sw.js:1-15`, `scripts/verify-image-assets.mjs:204-210`。
 
 ## 生产发布只走 Pages Git 集成
 
@@ -98,7 +98,7 @@ node scripts/verify-image-assets.mjs --origin https://about.shuangyue.space
 
 **理由**: 仓库把 `public/` 定义为 Pages 输出，而 Wrangler 配置只模拟本地 Functions；另行部署 Worker 会制造第二个入口和两套环境变量边界。
 
-**示例**: `README.md:31-78`, `wrangler.jsonc:1-5`, `wrangler.jsonc:29-33`, `scripts/verify-image-assets.mjs:215-245`。
+**示例**: `README.md:31-78`, `wrangler.jsonc:1-5`, `wrangler.jsonc:29-33`, `scripts/verify-image-assets.mjs:228-269`。
 
 ## 预览域名不得参与索引
 

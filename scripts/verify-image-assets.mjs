@@ -38,6 +38,15 @@ async function assertFile(path) {
   }
 }
 
+async function assertMissing(path) {
+  try {
+    await stat(path);
+    fail(`${path} should not be published`);
+  } catch (error) {
+    if (error?.code !== "ENOENT") fail(`${path} could not be checked`);
+  }
+}
+
 async function assertContains(path, expected) {
   try {
     const content = await readFile(path, "utf8");
@@ -107,7 +116,7 @@ async function main() {
       fail(`${image} must use the dedicated ${stop.slug} image collection`);
     }
     await assertFile(toLocalPath(image));
-    await assertFile(toLocalPath(image, "public"));
+    if (stop.slug !== japanPlan.slug) await assertFile(toLocalPath(image, "public"));
   }
 
   const overused = [...imageCounts.entries()].filter(([, count]) => count > 3);
@@ -145,7 +154,7 @@ async function main() {
 
     const sourcePath = toLocalPath(poster.image);
     await assertFile(sourcePath);
-    await assertFile(toLocalPath(poster.image, "public"));
+    await assertMissing(toLocalPath(poster.image, "public"));
     const metadata = await sharp(sourcePath).metadata();
     if (metadata.width !== 1440 || metadata.height !== 1800 || metadata.format !== "png") {
       fail(`${poster.image} must be a 1440x1800 PNG, got ${metadata.width}x${metadata.height} ${metadata.format}`);
@@ -174,9 +183,13 @@ async function main() {
     await assertContains(resolve(root, "public", page), 'class="poster-card"');
     try {
       const content = await readFile(resolve(root, page), "utf8");
+      const publicContent = await readFile(resolve(root, "public", page), "utf8");
       const posterCards = content.match(/class="poster-card"/g)?.length || 0;
       if (posterCards !== 15) fail(`${page} must render 15 poster cards, got ${posterCards}`);
       if (/E:\\env|日本旅游_照片整理/.test(content)) fail(`${page} must not expose local source paths`);
+      if (/assets\/images\/japan-2026\/[^"']+\.png/.test(content) || /assets\/images\/japan-2026\/[^"']+\.png/.test(publicContent)) {
+        fail(`${page} must publish generated WebP posters instead of source PNG files`);
+      }
     } catch {
       fail(`${page} could not be read for poster count verification`);
     }

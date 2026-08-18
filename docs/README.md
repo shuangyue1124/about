@@ -29,7 +29,7 @@
 - VCF 的响应头和旧地址迁移: `_headers:28-35`, `_redirects:1-2`。
 - Service Worker 的页面网络优先与静态资源缓存策略: `sw.js:1-79`。
 - Pages Git 集成与本地 Worker 预览的职责边界: `README.md:31-78`, `wrangler.jsonc:1-5`, `wrangler.jsonc:29-33`。
-- 本地及线上资源回归检查: `scripts/verify-image-assets.mjs:78-293`。
+- 本地及线上资源回归检查: `scripts/verify-image-assets.mjs:87-301`。
 
 ## 维护约束
 

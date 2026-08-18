@@ -355,7 +355,7 @@ function japanTripPage(locale, trip) {
     ? `<span class="trip-title__part">${esc(tripTitleParts[0])} ·</span> <span class="trip-title__part">${esc(tripTitleParts.slice(1).join(" · "))}</span>`
     : esc(tripTitle);
   const firstPoster = trip.posters[0];
-  const firstPosterSrc = relAsset(depth, firstPoster.image);
+  const firstPosterSrc = generatedImage(depth, firstPoster.image, 960);
   const routeIntro = lang === "en"
     ? "Follow the journey in order: Tokyo, the lakes and coast, Kansai, then the flight home."
     : lang === "ja"
@@ -429,7 +429,7 @@ function posterFigure(locale, depth, trip, poster) {
   const lang = locale.code;
   const index = trip.posters.indexOf(poster) + 1;
   const number = String(index).padStart(2, "0");
-  const image = relAsset(depth, poster.image);
+  const image = generatedImage(depth, poster.image, 960);
   const fullImage = generatedImage(depth, poster.image, 1440);
   return `<li><figure class="poster-card"><a class="poster-card__link" href="${attr(fullImage)}" aria-label="${attr(`${t(lang, poster.place)} · ${poster.date} · ${t(lang, poster.label)}`)}">
     <span class="poster-media"><picture><source type="image/webp" srcset="${attr(imageSrcset(depth, poster.image))}" sizes="(max-width: 640px) calc(100vw - 30px), (max-width: 920px) 44vw, 340px"><img src="${attr(image)}" alt="${attr(t(lang, poster.alt))}" loading="lazy" decoding="async" width="1440" height="1800"></picture></span>
