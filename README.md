@@ -172,10 +172,10 @@ CSS 会优先使用这些本地 woff2 文件，然后回退到 `Styrene B` / `Ti
 
 注意：仓库没有打包 Claude.ai 使用的商业字体原文件。若你拥有合法授权的 `Styrene B` / `Tiempos Text` 字体文件，可以再替换 `assets/fonts/` 中的文件和 `@font-face` 配置。
 
-当前仓库已经绑定的 Workers KV namespace id：
+当前仓库已经绑定的 Workers KV namespace id（公开评论缓存）：
 
 ```text
-316829b9926e4f09b5faff727b875af7
+f7c63320decb47d584bb78fbd6144167
 ```
 
 ## 更新旅行与城市内容
