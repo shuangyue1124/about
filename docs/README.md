@@ -12,7 +12,7 @@
 
 - 改 `assets/js/data.js`、`assets/js/app.js` 或 `scripts/build-pages.mjs` 的用户可见行为时，同步检查功能文档。
 - 改 `scripts/optimize-images.mjs`、`scripts/prepare-worker-assets.mjs`、`sw.js`、`wrangler.jsonc` 或 `package.json` 的构建交付链路时，同步检查架构与维护原则。
-- 发布前运行 `npm run build` 和 `npm run check`；`npm run build:worker` 只是兼容别名，不代表生产站部署到独立 Worker。
+- 发布前运行 `npm run build`、`npm run check` 和 `npm run test:site`；`npm run build:worker` 只是兼容别名，不代表生产站部署到独立 Worker。
 - 推送 `main` 后，等待 Pages Git 集成完成生产部署，再运行 `node scripts/verify-image-assets.mjs --origin https://about.shuangyue.space`，确认线上资源版本、头像、分享卡片和 VCF 均可访问。
 
 ## 证据地图

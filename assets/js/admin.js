@@ -28,6 +28,7 @@ const state = {
     { role: "assistant", content: "可以问我访问量、热门页面、最近事件、评论审核状态等。数据来自 D1，只读查询。" },
   ],
   chatLoading: false,
+  chatDataAt: "",
 };
 
 function esc(value) {
@@ -62,7 +63,7 @@ function shell(content) {
     <header class="topbar">
       <a class="brand" href="./" aria-label="返回首页">
         <span class="brand__mark brand__mark--avatar">
-          <img src="https://q1.qlogo.cn/g?b=qq&nk=1970259391&s=640" alt="朔风霜月头像" loading="lazy">
+          <img src="/assets/images/avatar.webp" alt="朔风霜月头像" loading="lazy">
         </span>
         <span>
           <span class="brand__name">朔风霜月</span>
@@ -136,6 +137,7 @@ function dashboard() {
         <div class="admin-actions">
           <button class="btn" type="button" id="refreshButton" aria-label="刷新后台数据">刷新数据</button>
           <button class="btn" type="button" id="migrateButton" aria-label="从旧 KV 迁移评论到 D1" ${config.migrationEnabled ? "" : "disabled"}>迁移旧评论</button>
+          <button class="btn" type="button" id="cleanupEventsButton" aria-label="清理 90 天前的统计事件">清理统计事件</button>
         </div>
         <p class="admin-status" role="status">${esc(state.status)}</p>
       </section>
@@ -197,6 +199,7 @@ function dashboard() {
           ${state.chatMessages.map(chatMessage).join("")}
           ${state.chatLoading ? '<p class="admin-chat-message admin-chat-message--assistant">正在查询 D1 并生成回复...</p>' : ""}
         </div>
+        ${state.chatDataAt ? `<p class="admin-chat-meta">数据生成时间：${esc(formatDate(state.chatDataAt))} · 统计窗口：过去 24 小时 / 7 天 / 30 天</p>` : ""}
         <form class="admin-chat-form" id="aiChatForm">
           <label>
             <span>向 AI 提问</span>
@@ -353,6 +356,7 @@ function bind() {
   document.getElementById("configForm")?.addEventListener("submit", saveConfig);
   document.getElementById("refreshButton")?.addEventListener("click", loadDashboard);
   document.getElementById("migrateButton")?.addEventListener("click", migrateComments);
+  document.getElementById("cleanupEventsButton")?.addEventListener("click", cleanupEvents);
   document.getElementById("logoutButton")?.addEventListener("click", logout);
   document.getElementById("aiChatForm")?.addEventListener("submit", sendAiChat);
   document.getElementById("statusFilter")?.addEventListener("change", (event) => {
@@ -491,6 +495,29 @@ async function migrateComments() {
   }
 }
 
+async function cleanupEvents() {
+  if (!window.confirm("将删除 90 天前的 site_events 统计事件（后台接口支持 7~365 天）。确定继续吗？")) return;
+  const button = document.getElementById("cleanupEventsButton");
+  if (button) button.disabled = true;
+  state.status = "正在清理过期统计事件...";
+  render();
+  try {
+    const response = await api("/api/admin/cleanup-events", {
+      method: "POST",
+      body: JSON.stringify({ days: 90 }),
+    });
+    if (!response.ok) throw new Error(await responseText(response));
+    const data = await response.json();
+    state.status = `统计事件已清理：删除 ${data.deleted ?? 0} 条（早于 ${data.cutoff || "90 天前"}）。`;
+    render();
+  } catch (error) {
+    state.status = error.message || "清理失败。";
+    render();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function sendAiChat(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -511,6 +538,7 @@ async function sendAiChat(event) {
     if (!response.ok) throw new Error(await responseText(response));
     const data = await response.json();
     state.chatMessages.push({ role: "assistant", content: data.reply || "没有得到回复。" });
+    if (data.contextMeta?.generatedAt) state.chatDataAt = String(data.contextMeta.generatedAt);
   } catch (error) {
     state.chatMessages.push({ role: "assistant", content: error.message || "AI 对话暂时不可用。" });
   } finally {

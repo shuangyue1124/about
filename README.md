@@ -36,8 +36,13 @@ npx wrangler dev
 npm ci
 npm run build
 npm run check
+npm run test:site
 git push origin main
 ```
+
+- `npm run build`：优化图片、生成三语页面、重建 `public/`。
+- `npm run check`：JS 语法 + 图片产物验证 + `check:data`（数据完整性）+ `check:i18n`（三语完整性）+ `check:links`（断链）+ `check:seo`（SEO 元素）。
+- `npm run test:site`：本地 HTTP 服务对 sitemap 全部页面做冒烟（status/title/lang/h1/main/canonical/资源），并用内存 KV/D1 mock 跑 API 冒烟（405/400/401/429 等分支）。
 
 不要对这份配置运行 `npx wrangler deploy`；`wrangler.jsonc` 和 `worker.js` 用于本地模拟 Pages Functions 运行环境，生产自定义域名由 Pages 托管。启用 Functions 后，Cloudflare 会为 Pages 项目生成 `pages-worker--*-production` / `pages-worker--*-preview` 内部脚本；控制台中看到它们不代表存在第二个同名站点，也不要单独删除。
 
@@ -96,7 +101,7 @@ IP 归属地来自 Cloudflare 请求信息，优先显示国家 / 地区 / 城�
 
 ### D1 主库 + KV 缓存
 
-评论完整数据和站点配置保存在 D1，KV 只缓存已审核公开评论；Worker 实例内还有短期内存缓存。读取路径是内存缓存 -> KV -> D1。KV 是最终一致存储，公开评论刷新后全球边缘传播可能需要 60 秒以上，后台配置里的 KV TTL 默认 60 秒。
+评论完整数据和站点配置保存在 D1；KV 只承担公开评论缓存（`comments:approved:v1`）和短期限流计数，不再保存站点配置（旧 KV `site:settings` 仅作为无 D1 环境的迁移回退读取）。Worker 实例内还有短期内存缓存。读取路径是内存缓存 -> KV -> D1。KV 是最终一致存储，公开评论刷新后全球边缘传播可能需要 60 秒以上，后台配置里的 KV TTL 默认 60 秒。
 
 创建 D1 数据库：
 
@@ -158,8 +163,26 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 - 管理运行时配置：评论开关、AI 模型、缓存 TTL、Turnstile site key、站点标题 / 副标题 / 公告
 - 查看 D1、KV、AI、Turnstile secret、管理员密码的只读健康状态
 - 幂等迁移旧 KV `comments:index` 到 D1
+- 清理 90 天前的 `site_events` 统计事件
 
 登录态使用 HttpOnly Cookie 保存 24 小时，Cookie 签名由 `ADMIN_PASSWORD` 派生。没有配置 `ADMIN_PASSWORD` 时，后台登录会返回 `ADMIN_PASSWORD is not configured`。
+
+### API 防滥用与数据保留
+
+所有写入接口都带 KV 固定窗口限流（计数写入 KV、自动过期，不增加 D1 负担）：
+
+- `/api/events`：单 IP 60 次/分钟、240 次/10 分钟；`type` 仅接受 `page_view`，`page`/`lang` 为有限枚举，空 UA 或超大 body 会被拒绝。
+- `/api/comments` POST：单 IP 5 次/分钟、20 次/10 分钟，在 Turnstile 验证之前先限流。
+- `/api/admin/login`：单 IP 5 次失败/5 分钟后返回 429，登录成功后清零。
+- `/api/admin/ai-chat`：每个管理员会话 30 次/分钟。
+
+`site_events` 没有自动无限增长：后台「清理统计事件」按钮调用 `POST /api/admin/cleanup-events`（默认删除 90 天前事件，可传 `days` 7~365）。个人站建议定期手动清理；未来如需定时任务可直接复用该接口。
+
+### 安全响应头与 CSP
+
+静态页面通过 `_headers` 下发 HSTS（`max-age=31536000`，不含 `includeSubDomains`）与 `Content-Security-Policy-Report-Only`（先只报告不拦截），CSP 违规报告由同源 `POST /api/csp-report` 记录到 Workers 日志。API 响应在 `worker.js` 内单独附加 `nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy` 与 `Permissions-Policy`；管理员 API 不开放跨域，公共 API 保持 `Access-Control-Allow-Origin: *`。
+
+启用正式 CSP 前，请先在线上观察 `/api/csp-report` 的违规报告，再按真实资源来源收紧 `_headers` 中的策略。
 
 ## 字体
 
@@ -180,6 +203,8 @@ f7c63320decb47d584bb78fbd6144167
 
 ## 更新旅行与城市内容
 
+首页「年龄」不再硬编码：在 `assets/js/data.js` 的 `profile.birthDate` 填写 `YYYY-MM-DD` 后，`npm run build` 会自动计算年龄并显示为「N 岁 · 学生 · 呼和浩特」；留空则只显示「学生 · 呼和浩特」。`npm run check:data` 会校验生日格式。
+
 ### 日本 2026 旅记
 
 日本专题的三语文案、四个章节与十五天海报清单统一维护在 `assets/js/data.js` 的 `japanPlan`。每张源图保存在 `assets/images/japan-2026/`，并遵守以下约定：
@@ -189,6 +214,8 @@ f7c63320decb47d584bb78fbd6144167
 - 图片 URL 使用长期不可变缓存；替换画面时应使用新文件名并同步更新 `image`，不要以新内容覆盖已发布的同名资产。
 
 `npm run build` 会为日本海报生成 480、960 和 1440 宽的 WebP，生成中、日、英三语专题页，然后完整重建 `public/`。1440×1800 PNG 只作为仓库源图保留，不复制到 Pages 输出；线上页面与分享元数据只发布 WebP。
+
+专题页包含纯 CSS 的路线概览（东京 → 河口湖 → 热海 → 关西）与海报 Gallery：点击任意海报在灯箱中放大，支持键盘 ←/→ 切换、ESC 关闭和触屏滑动。
 
 ### 普通城市
 

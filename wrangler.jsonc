@@ -24,7 +24,8 @@
   },
   "vars": {
     "COMMENT_MODERATION_MODEL": "@cf/meta/llama-3.2-3b-instruct",
-    "TURNSTILE_SITE_KEY": "0x4AAAAAADnuEH7YMTYy_Dgd"
+    "TURNSTILE_SITE_KEY": "0x4AAAAAADnuEH7YMTYy_Dgd",
+    "RUNTIME_SCHEMA_BOOTSTRAP": "1"
   },
   "assets": {
     "directory": "public",

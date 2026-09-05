@@ -102,7 +102,8 @@ function pageFrame({
   const alternates = localizedLinks(path);
   const rootAttr = depth === 0 ? "." : Array.from({ length: depth }, () => "..").join("/");
   const homePreloads = page === "home" ? [
-    { href: "assets/images/generated/home-hero-ink-960.webp", media: "(max-width: 920px)" },
+    { href: "assets/images/generated/home-hero-ink-480.webp", media: "(max-width: 640px)" },
+    { href: "assets/images/generated/home-hero-ink-960.webp", media: "(min-width: 641px) and (max-width: 920px)" },
     { href: "assets/images/generated/home-hero-ink-1600.webp", media: "(min-width: 921px)" },
   ] : [];
   const imagePreloads = [...homePreloads, ...preloadImages]
@@ -188,6 +189,21 @@ function layout(locale, depth, page, content, currentPath = "") {
   `;
 }
 
+function heroMetaText(lang) {
+  const base = l(lang, "heroMeta");
+  if (!profile.birthDate) return base;
+  const born = new Date(profile.birthDate);
+  if (Number.isNaN(born.getTime())) return base;
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const beforeBirthday = now.getMonth() < born.getMonth() || (now.getMonth() === born.getMonth() && now.getDate() < born.getDate());
+  if (beforeBirthday) age -= 1;
+  if (age <= 0) return base;
+  if (lang === "en") return `${age} · ${base}`;
+  if (lang === "ja") return `${age}歳 · ${base}`;
+  return `${age} 岁 · ${base}`;
+}
+
 function homePage(locale) {
   const lang = locale.code;
   const depth = locale.prefix ? 1 : 0;
@@ -197,7 +213,7 @@ function homePage(locale) {
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="112" height="112" fetchpriority="high" decoding="async"></div>
-          <p class="eyebrow">${esc(l(lang, "heroMeta"))}</p>
+          <p class="eyebrow">${esc(heroMetaText(lang))}</p>
           <h1>${esc(l(lang, "heroTitle"))}</h1>
           <p class="hero__subtitle">${esc(l(lang, "heroSubtitle"))}</p>
           <p class="hero__motto">${esc(l(lang, "homeMotto"))}</p>
@@ -281,6 +297,8 @@ function travelPage(locale) {
     return acc;
   }, {});
   const latest = cities[0];
+  const dated = cities.filter((city) => city.dateStatus === "visited" && String(city.date || "") !== "0000-00-00").length;
+  const pending = cities.filter((city) => city.dateStatus === "pending").length;
   const main = layout(locale, depth, "travel", `
     <main id="main-content" tabindex="-1">
       <section class="travel-hero">
@@ -288,6 +306,8 @@ function travelPage(locale) {
         <div class="travel-stats">
           <a class="stat-card" href="${attr(localePath(locale, `cities/${latest.slug}.html`))}"><span>${esc(l(lang, "latest"))}</span><strong>${esc(t(lang, latest.name))}</strong><small>${esc(stopDate(lang, latest))}</small></a>
           <a class="stat-card stat-card--seal" href="${attr(localePath(locale, "cities/japan-2026.html"))}"><span>${esc(l(lang, "upcoming"))}</span><strong>${esc(t(lang, japanPlan.name))}</strong><small>${esc(stopDate(lang, japanPlan))} · ${esc(l(lang, "posterCount"))}</small></a>
+          <div class="stat-card stat-card--breakdown"><span>${esc(l(lang, "statsDated"))}</span><strong>${dated}</strong><small>${esc(l(lang, "cityUnit"))}</small></div>
+          <div class="stat-card stat-card--breakdown"><span>${esc(l(lang, "statsPending"))}</span><strong>${pending}</strong><small>${esc(l(lang, "cityUnit"))}</small></div>
         </div>
       </section>
       <section class="travel-search" id="cities"><label><span>${esc(l(lang, "allCities"))}</span><input type="search" id="citySearch" autocomplete="off" placeholder="${attr(l(lang, "searchPlaceholder"))}"></label></section>
@@ -388,6 +408,12 @@ function japanTripPage(locale, trip) {
         <div class="trip-route__header"><div><h2 id="trip-route-title">${esc(l(lang, "tripChapters"))}</h2><p>${esc(routeIntro)}</p></div>
           <nav class="trip-route__nav" aria-label="${attr(l(lang, "tripChapters"))}">${trip.chapters.map((chapter) => `<a href="#chapter-${attr(chapter.id)}">${esc(t(lang, chapter.title))}</a>`).join("")}</nav>
         </div>
+        <ol class="trip-route__stops" aria-label="${attr(l(lang, "routeTitle"))}">
+          <li class="trip-route__stop"><span class="trip-route__dot" aria-hidden="true">01</span><span class="trip-route__stop-text"><strong>${esc(l(lang, "routeStopTokyo"))}</strong><small>${esc(l(lang, "routeStopTokyoNote"))}</small></span></li>
+          <li class="trip-route__stop"><span class="trip-route__dot" aria-hidden="true">02</span><span class="trip-route__stop-text"><strong>${esc(l(lang, "routeStopFuji"))}</strong><small>${esc(l(lang, "routeStopFujiNote"))}</small></span></li>
+          <li class="trip-route__stop"><span class="trip-route__dot" aria-hidden="true">03</span><span class="trip-route__stop-text"><strong>${esc(l(lang, "routeStopAtami"))}</strong><small>${esc(l(lang, "routeStopAtamiNote"))}</small></span></li>
+          <li class="trip-route__stop"><span class="trip-route__dot" aria-hidden="true">04</span><span class="trip-route__stop-text"><strong>${esc(l(lang, "routeStopKansai"))}</strong><small>${esc(l(lang, "routeStopKansaiNote"))}</small></span></li>
+        </ol>
       </section>
       ${trip.chapters.map((chapter) => tripChapter(locale, depth, trip, chapter)).join("")}
       <div class="trip-footer"><p>${esc(footerNote)}</p><a class="trip-back-link" href="${attr(localePath(locale, "travel/"))}">← ${esc(l(lang, "backTravel"))}</a></div>

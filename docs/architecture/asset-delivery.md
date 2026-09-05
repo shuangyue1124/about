@@ -43,3 +43,7 @@
 ## 版本号、不可变图片与线上探测分属不同边界
 
 静态页面通过 query string 引用带版本号的 CSS/JS，Service Worker 缓存名随版本更新。图片响应头则对 `/assets/images/*` 声明一年 `immutable`；因此已发布图片不能通过同名覆盖来可靠更新，新画面必须使用新文件名并在资料层切换 URL。发布前检查还会验证十五张源图、三种 WebP 衍生尺寸、三语页面与 `public/` 产物；传入 `--origin` 后再探测线上三语旅记、版本和核心资源。证据: `scripts/build-pages.mjs:8`, `scripts/build-pages.mjs:95-96`, `sw.js:1-15`, `_headers:25-26`, `scripts/verify-image-assets.mjs:127-196`, `scripts/verify-image-assets.mjs:228-282`。
+
+## 质量检查在构建产物上自动执行
+
+`npm run check` 在语法与图片验证之后串联四个脚本：`check:data` 校验资料层（slug 唯一、日期、三语、图片、日本 Day 01~15 连续）；`check:i18n` 校验 `ui` 三语 key 一致与城市/行程三语完整；`check:links` 扫描 `public/` 内 `href/src/srcset/og:image` 的本地引用是否存在；`check:seo` 按 `sitemap.xml` 逐页校验 title、description、canonical、hreflang、Open Graph/Twitter、JSON-LD、`lang` 与 `h1/main`。`npm run test:site` 用 Node 内置 HTTP 服务对 sitemap 全部页面做状态与结构冒烟，并用内存 KV/D1 mock 直接调用 `worker.js` 的 API 处理器验证 405/400/401/429 等分支，无需 Playwright。证据: `package.json:7-16`, `scripts/check-data.mjs:1-148`, `scripts/check-i18n.mjs:1-86`, `scripts/check-links.mjs:1-110`, `scripts/check-seo.mjs:1-96`, `scripts/test-site.mjs:1-230`。

@@ -17,6 +17,10 @@ export default {
       return handleComments(request, env);
     }
 
+    if (url.pathname === "/api/csp-report" || url.pathname === "/api/csp-report/") {
+      return handleCspReport(request);
+    }
+
     if (request.method !== "GET" && request.method !== "HEAD") {
       return env.ASSETS.fetch(request);
     }
@@ -66,6 +70,25 @@ const DEFAULT_CACHE_TTL_SECONDS = 60;
 const DEFAULT_MEMORY_TTL_SECONDS = 15;
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
+const RATE_LIMIT_PREFIX = "rl";
+const EVENTS_RATE_LIMITS = [
+  { limit: 60, windowSeconds: 60 },
+  { limit: 240, windowSeconds: 600 },
+];
+const COMMENTS_RATE_LIMITS = [
+  { limit: 5, windowSeconds: 60 },
+  { limit: 20, windowSeconds: 600 },
+];
+const LOGIN_FAILURE_LIMIT = { max: 5, windowSeconds: 300 };
+const AI_CHAT_RATE_LIMITS = [{ limit: 30, windowSeconds: 60 }];
+const ALLOWED_EVENT_TYPES = new Set(["page_view"]);
+const ALLOWED_EVENT_PAGES = new Set(["home", "travel", "city", "trip"]);
+const ALLOWED_EVENT_LANGS = new Set(["zh", "ja", "en"]);
+const MAX_EVENT_BODY_BYTES = 4096;
+const EVENT_RETENTION_DAYS_DEFAULT = 90;
+const EVENT_RETENTION_DAYS_MIN = 7;
+const EVENT_RETENTION_DAYS_MAX = 365;
+
 const memory = {
   comments: null,
   commentsExpiresAt: 0,
@@ -106,7 +129,7 @@ const DEFAULT_SITE_CONFIG = {
 };
 
 export async function handleComments(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
 
   try {
     if (request.method === "GET") {
@@ -125,6 +148,9 @@ export async function handleComments(request, env) {
       const name = cleanOneLine(payload.name, 32);
       const message = cleanMessage(payload.message, 500);
       if (!name || !message) return json({ error: "name and message are required" }, 400);
+
+      const rate = await rateLimitCheck(env, "comments", clientIp(request), COMMENTS_RATE_LIMITS);
+      if (rate.limited) return rateLimitedResponse(rate.retryAfter);
 
       const turnstile = await verifyTurnstile(request, env, payload.turnstileToken || payload["cf-turnstile-response"]);
       if (!turnstile.ok) return json({ error: "turnstile verification failed", codes: turnstile.errorCodes }, turnstile.status);
@@ -159,39 +185,77 @@ export async function handleComments(request, env) {
 
     return json({ error: "method not allowed" }, 405);
   } catch (error) {
-    return json({ error: error?.message || "comments unavailable" }, 503);
+    return serviceErrorResponse(error);
   }
 }
 
 export async function handleSite(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
   if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
-  const settings = await loadSiteConfig(env);
-  return json({ settings: publicSiteSettings(settings) });
+  try {
+    const settings = await loadSiteConfig(env);
+    return json({ settings: publicSiteSettings(settings) });
+  } catch (error) {
+    return serviceErrorResponse(error);
+  }
 }
 
 export async function handleEvents(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+
+  const contentLength = Number.parseInt(request.headers.get("content-length") || "0", 10) || 0;
+  if (contentLength > MAX_EVENT_BODY_BYTES) return json({ error: "payload too large" }, 413);
+
+  const userAgent = cleanOneLine(request.headers.get("user-agent"), 300);
+  if (!userAgent) return json({ error: "missing user agent" }, 400);
+
+  const rate = await rateLimitCheck(env, "events", clientIp(request), EVENTS_RATE_LIMITS);
+  if (rate.limited) return rateLimitedResponse(rate.retryAfter);
+
   if (!env.COMMENTS_DB) return json({ ok: true }, 202);
 
-  const payload = await request.json().catch(() => ({}));
-  await saveEvent(env, {
-    type: cleanOneLine(payload.type, 40) || "page_view",
-    path: cleanPath(payload.path),
-    page: cleanOneLine(payload.page, 40),
-    lang: cleanOneLine(payload.lang, 12),
-    title: cleanOneLine(payload.title, 120),
-    referrer: cleanOneLine(payload.referrer, 300),
-    userAgent: cleanOneLine(request.headers.get("user-agent"), 300),
-    ip: clientIp(request),
-    ipLocation: clientLocation(request),
-  });
-  return json({ ok: true }, 202);
+  const payload = await request.json().catch(() => null);
+  if (!payload || typeof payload !== "object") return json({ error: "invalid payload" }, 400);
+
+  const type = cleanOneLine(payload.type, 40) || "page_view";
+  if (!ALLOWED_EVENT_TYPES.has(type)) return json({ error: "invalid event type" }, 400);
+
+  const page = cleanOneLine(payload.page, 40);
+  const lang = cleanOneLine(payload.lang, 12);
+  if (page && !ALLOWED_EVENT_PAGES.has(page)) return json({ error: "invalid page value" }, 400);
+  if (lang && !ALLOWED_EVENT_LANGS.has(lang)) return json({ error: "invalid lang value" }, 400);
+
+  try {
+    await saveEvent(env, {
+      type,
+      path: cleanPath(payload.path),
+      page,
+      lang,
+      title: cleanOneLine(payload.title, 120),
+      referrer: cleanOneLine(payload.referrer, 300),
+      userAgent,
+      ip: clientIp(request),
+      ipLocation: clientLocation(request),
+    });
+    return json({ ok: true }, 202);
+  } catch (error) {
+    return serviceErrorResponse(error);
+  }
+}
+
+export async function handleCspReport(request) {
+  try {
+    const body = await request.text();
+    console.error(`[csp-report] ${body.slice(0, 4000)}`);
+  } catch {
+    // Report bodies are best-effort; ignore unreadable payloads.
+  }
+  return new Response(null, { status: 204 });
 }
 
 export async function handleAdmin(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: adminApiHeaders() });
 
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/api/admin";
@@ -202,29 +266,29 @@ export async function handleAdmin(request, env) {
     }
 
     if (path === "/api/admin/logout" && request.method === "POST") {
-      return json({ ok: true }, 200, {
+      return jsonAdmin({ ok: true }, 200, {
         "set-cookie": `${ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
       });
     }
 
     const session = await adminSession(request, env);
-    if (!session) return json({ error: "unauthorized" }, 401);
+    if (!session) return jsonAdmin({ error: "unauthorized" }, 401);
 
     if (request.method !== "GET" && request.headers.get("x-admin-action") !== "1") {
-      return json({ error: "missing admin action header" }, 403);
+      return jsonAdmin({ error: "missing admin action header" }, 403);
     }
 
     if ((path === "/api/admin" || path === "/api/admin/me") && request.method === "GET") {
-      return json({ ok: true, expiresAt: session.exp * 1000 });
+      return jsonAdmin({ ok: true, expiresAt: session.exp * 1000 });
     }
 
     if (path === "/api/admin/health" && request.method === "GET") {
-      return json({ health: await adminHealth(env) });
+      return jsonAdmin({ health: await adminHealth(env) });
     }
 
     if ((path === "/api/admin/config" || path === "/api/admin/settings") && request.method === "GET") {
       const config = await loadSiteConfig(env);
-      return json({ config, settings: config });
+      return jsonAdmin({ config, settings: config });
     }
 
     if ((path === "/api/admin/config" || path === "/api/admin/settings") && request.method === "PUT") {
@@ -234,78 +298,141 @@ export async function handleAdmin(request, env) {
       config.updatedAt = new Date().toISOString();
       await saveSiteConfig(env, config);
       await refreshApprovedCommentsCache(env);
-      return json({ config, settings: config });
+      return jsonAdmin({ config, settings: config });
     }
 
     if (path === "/api/admin/comments" && request.method === "GET") {
       const limit = commentLimit(url.searchParams.get("limit") || String(MAX_STORED_COMMENTS));
       const status = cleanOneLine(url.searchParams.get("status"), 20) || "all";
       const comments = await listAdminComments(env, limit, status);
-      return json({ comments });
+      return jsonAdmin({ comments });
     }
 
     if (path === "/api/admin/migrate-comments" && request.method === "POST") {
       const config = await loadSiteConfig(env);
-      if (!config.migrationEnabled) return json({ error: "migration is disabled" }, 403);
-      return json({ result: await migrateLegacyComments(env) });
+      if (!config.migrationEnabled) return jsonAdmin({ error: "migration is disabled" }, 403);
+      return jsonAdmin({ result: await migrateLegacyComments(env) });
+    }
+
+    if (path === "/api/admin/cleanup-events" && request.method === "POST") {
+      if (!env.COMMENTS_DB) return jsonAdmin({ error: "D1 event storage is not configured" }, 503);
+      const payload = await request.json().catch(() => ({}));
+      const days = boundedInt(payload.days, EVENT_RETENTION_DAYS_DEFAULT, EVENT_RETENTION_DAYS_MIN, EVENT_RETENTION_DAYS_MAX);
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const result = await env.COMMENTS_DB.prepare("DELETE FROM site_events WHERE created_at < ?").bind(cutoff).run();
+      return jsonAdmin({ ok: true, deleted: result.meta?.changes || 0, cutoff, days });
     }
 
     if (path === "/api/admin/ai-chat" && request.method === "POST") {
+      const rate = await adminAiChatRateLimit(request, env);
+      if (rate.limited) return rateLimitedResponse(rate.retryAfter, true);
+
       const payload = await request.json().catch(() => ({}));
       const message = cleanMessage(payload.message, 1000);
-      if (!message) return json({ error: "message is required" }, 400);
-      return json({ reply: await adminAiChat(env, message) });
+      if (!message) return jsonAdmin({ error: "message is required" }, 400);
+      const result = await adminAiChat(env, message);
+      return jsonAdmin({ reply: result.reply, contextMeta: result.contextMeta });
     }
 
     if (path.startsWith("/api/admin/comments/")) {
       const id = decodeURIComponent(path.slice("/api/admin/comments/".length));
-      if (!id) return json({ error: "comment id is required" }, 400);
+      if (!id) return jsonAdmin({ error: "comment id is required" }, 400);
 
       if (request.method === "PATCH") {
         const payload = await request.json().catch(() => ({}));
         const status = cleanOneLine(payload.status, 20);
         if (!["approved", "pending", "rejected"].includes(status)) {
-          return json({ error: "invalid comment status" }, 400);
+          return jsonAdmin({ error: "invalid comment status" }, 400);
         }
         const comment = await updateCommentStatus(env, id, status);
         if (status !== "pending") await refreshApprovedCommentsCache(env);
-        return json({ comment });
+        return jsonAdmin({ comment });
       }
 
       if (request.method === "DELETE") {
         await deleteComment(env, id);
         await refreshApprovedCommentsCache(env);
-        return json({ ok: true });
+        return jsonAdmin({ ok: true });
       }
     }
 
-    return json({ error: "method not allowed" }, 405);
+    return jsonAdmin({ error: "method not allowed" }, 405);
   } catch (error) {
-    return json({ error: error?.message || "admin unavailable" }, 503);
+    return serviceErrorResponse(error, true);
   }
+}
+
+async function adminAiChatRateLimit(request, env) {
+  const token = cookieValue(request.headers.get("Cookie"), ADMIN_COOKIE_NAME);
+  const id = token ? (await sha256Hex(token)).slice(0, 32) : clientIp(request);
+  return rateLimitCheck(env, "aichat", id, AI_CHAT_RATE_LIMITS);
 }
 
 async function adminLogin(request, env) {
   const adminPassword = await loadAdminPassword(env);
   if (!adminPassword) {
-    return json({
+    return jsonAdmin({
       error: "Admin password is not configured for this deployment. Set ADMIN_PASSWORD on the Worker or Pages project that serves this custom domain.",
     }, 503);
+  }
+
+  const ip = clientIp(request);
+  const failure = await loginFailureState(env, ip);
+  if (failure.count >= LOGIN_FAILURE_LIMIT.max) {
+    return rateLimitedResponse(failure.retryAfter, true);
   }
 
   const payload = await request.json().catch(() => ({}));
   const password = String(payload.password || "");
   const ok = await verifyPassword(password, adminPassword);
-  if (!ok) return json({ error: "invalid password" }, 401);
+  if (!ok) {
+    await incrementLoginFailure(env, ip);
+    return jsonAdmin({ error: "invalid password" }, 401);
+  }
 
+  await clearLoginFailures(env, ip);
   const token = await createAdminToken(adminPassword);
-  return json({ ok: true }, 200, {
+  return jsonAdmin({ ok: true }, 200, {
     "set-cookie": `${ADMIN_COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ADMIN_SESSION_SECONDS}`,
   });
 }
 
+function loginFailureKey(ip, bucket) {
+  return `${RATE_LIMIT_PREFIX}:login-fail:${ip}:${bucket}`;
+}
+
+async function loginFailureState(env, ip) {
+  if (!env.COMMENTS_KV) return { count: 0, retryAfter: 0 };
+  const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
+  const now = Date.now();
+  const bucket = Math.floor(now / windowMs);
+  const count = Number.parseInt(await env.COMMENTS_KV.get(loginFailureKey(ip, bucket)).catch(() => "0") || "0", 10) || 0;
+  const retryAfter = Math.max(1, LOGIN_FAILURE_LIMIT.windowSeconds - Math.floor((now % windowMs) / 1000));
+  return { count, retryAfter };
+}
+
+async function incrementLoginFailure(env, ip) {
+  if (!env.COMMENTS_KV) return;
+  const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
+  const bucket = Math.floor(Date.now() / windowMs);
+  const key = loginFailureKey(ip, bucket);
+  const count = Number.parseInt(await env.COMMENTS_KV.get(key).catch(() => "0") || "0", 10) || 0;
+  await env.COMMENTS_KV.put(key, String(count + 1), { expirationTtl: LOGIN_FAILURE_LIMIT.windowSeconds * 2 }).catch(() => {});
+}
+
+async function clearLoginFailures(env, ip) {
+  if (!env.COMMENTS_KV) return;
+  const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
+  const bucket = Math.floor(Date.now() / windowMs);
+  await env.COMMENTS_KV.delete(loginFailureKey(ip, bucket)).catch(() => {});
+}
+
 async function ensureSchema(env) {
   if (!env.COMMENTS_DB || memory.schemaReady) return;
+  // Production schema is managed by migrations/0001_comments_d1.sql and
+  // migrations/0002_site_events.sql. The DDL bootstrap below only runs for
+  // local preview where RUNTIME_SCHEMA_BOOTSTRAP is set.
+  if (env.RUNTIME_SCHEMA_BOOTSTRAP !== "1") return;
   await env.COMMENTS_DB.prepare(`
     CREATE TABLE IF NOT EXISTS comments (
       id TEXT PRIMARY KEY,
@@ -538,7 +665,13 @@ async function adminAiChat(env, message) {
     `Admin question: ${message}`,
   ].join("\n");
   const result = await runTextModel(env, model, prompt);
-  return extractModelText(result) || "没有得到可读的 AI 回复。";
+  return {
+    reply: extractModelText(result) || "没有得到可读的 AI 回复。",
+    contextMeta: {
+      generatedAt: context.generatedAt,
+      windows: ["过去 24 小时", "过去 7 天", "过去 30 天"],
+    },
+  };
 }
 
 async function adminAiContext(env, config) {
@@ -696,10 +829,9 @@ async function saveSiteConfig(env, config) {
     `).bind(SITE_CONFIG_KEY, JSON.stringify(next), next.updatedAt || new Date().toISOString()).run();
   }
 
-  if (env.COMMENTS_KV) {
-    await env.COMMENTS_KV.put(SITE_SETTINGS_KEY, JSON.stringify(next));
-  }
-
+  // KV is no longer a site_config store: with D1 present it only holds the
+  // approved comments cache (comments:approved:v1) and short-lived rate-limit
+  // counters. Legacy KV-only deployments keep reading SITE_SETTINGS_KEY above.
   memory.config = next;
   memory.configExpiresAt = Date.now() + Math.max(1, Math.min(next.memoryCacheTtlSeconds, 300)) * 1000;
 }
@@ -1204,16 +1336,66 @@ function countryName(code) {
   return countries[String(code || "").toUpperCase()] || code || "";
 }
 
-function json(data, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(data), { status, headers: { ...apiHeaders(), ...extraHeaders } });
+function json(data, status = 200, extraHeaders = {}, baseHeaders = publicApiHeaders()) {
+  return new Response(JSON.stringify(data), { status, headers: { ...baseHeaders, ...extraHeaders } });
 }
 
-function apiHeaders() {
+function jsonAdmin(data, status = 200, extraHeaders = {}) {
+  return json(data, status, extraHeaders, adminApiHeaders());
+}
+
+function serviceErrorResponse(error, admin = false) {
+  const requestId = crypto.randomUUID();
+  console.error(`[api error ${requestId}]`, error);
+  return json({ error: "service unavailable", requestId }, 503, {}, admin ? adminApiHeaders() : publicApiHeaders());
+}
+
+function rateLimitedResponse(retryAfter, admin = false) {
+  return json({ error: "too many requests", retryAfter }, 429, { "retry-after": String(retryAfter) }, admin ? adminApiHeaders() : publicApiHeaders());
+}
+
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+};
+
+function publicApiHeaders() {
   return {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type, authorization, x-admin-action",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type, accept",
+    ...SECURITY_HEADERS,
   };
+}
+
+function adminApiHeaders() {
+  return {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    ...SECURITY_HEADERS,
+  };
+}
+
+async function rateLimitCheck(env, scope, id, limits) {
+  if (!env.COMMENTS_KV) return { limited: false, retryAfter: 0 };
+  const safeId = cleanOneLine(id, 64) || "unknown";
+  const now = Date.now();
+
+  for (const { limit, windowSeconds } of limits) {
+    const windowMs = windowSeconds * 1000;
+    const bucket = Math.floor(now / windowMs);
+    const key = `${RATE_LIMIT_PREFIX}:${scope}:${safeId}:${windowSeconds}s:${bucket}`;
+    const count = Number.parseInt(await env.COMMENTS_KV.get(key).catch(() => "0") || "0", 10) || 0;
+    if (count >= limit) {
+      const retryAfter = Math.max(1, windowSeconds - Math.floor((now % windowMs) / 1000));
+      return { limited: true, retryAfter };
+    }
+    await env.COMMENTS_KV.put(key, String(count + 1), { expirationTtl: windowSeconds * 2 }).catch(() => {});
+  }
+
+  return { limited: false, retryAfter: 0 };
 }
