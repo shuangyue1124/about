@@ -138,6 +138,7 @@ function dashboard() {
           <button class="btn" type="button" id="refreshButton" aria-label="刷新后台数据">刷新数据</button>
           <button class="btn" type="button" id="migrateButton" aria-label="从旧 KV 迁移评论到 D1" ${config.migrationEnabled ? "" : "disabled"}>迁移旧评论</button>
           <button class="btn" type="button" id="cleanupEventsButton" aria-label="清理 90 天前的统计事件">清理统计事件</button>
+          <button class="btn" type="button" id="telegramTestButton" aria-label="发送一条 Telegram 通知测试">测试 Telegram</button>
         </div>
         <p class="admin-status" role="status">${esc(state.status)}</p>
       </section>
@@ -238,6 +239,7 @@ function healthView() {
     ["AI binding", health.ai],
     ["TURNSTILE_SECRET_KEY", health.turnstileSecret],
     ["ADMIN_PASSWORD", health.adminPassword],
+    ["Telegram 通知", health.telegram],
   ];
   return `
     <div class="admin-health">
@@ -357,6 +359,7 @@ function bind() {
   document.getElementById("refreshButton")?.addEventListener("click", loadDashboard);
   document.getElementById("migrateButton")?.addEventListener("click", migrateComments);
   document.getElementById("cleanupEventsButton")?.addEventListener("click", cleanupEvents);
+  document.getElementById("telegramTestButton")?.addEventListener("click", testTelegram);
   document.getElementById("logoutButton")?.addEventListener("click", logout);
   document.getElementById("aiChatForm")?.addEventListener("submit", sendAiChat);
   document.getElementById("statusFilter")?.addEventListener("change", (event) => {
@@ -512,6 +515,25 @@ async function cleanupEvents() {
     render();
   } catch (error) {
     state.status = error.message || "清理失败。";
+    render();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function testTelegram() {
+  if (!window.confirm("将向配置的 Telegram 聊天发送一条测试通知。确定继续吗？")) return;
+  const button = document.getElementById("telegramTestButton");
+  if (button) button.disabled = true;
+  state.status = "正在发送 Telegram 测试通知...";
+  render();
+  try {
+    const response = await api("/api/admin/test-telegram", { method: "POST", body: JSON.stringify({}) });
+    if (!response.ok) throw new Error(await responseText(response));
+    state.status = "Telegram 测试通知已发送，请查看聊天。";
+    render();
+  } catch (error) {
+    state.status = error.message || "Telegram 测试失败。";
     render();
   } finally {
     if (button) button.disabled = false;

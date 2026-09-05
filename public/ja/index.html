@@ -73,6 +73,18 @@
           </div>
         </div>
       </section>
+
+      <section class="now-status" id="nowStatus" data-now-status hidden aria-labelledby="nowStatusTitle">
+        <div class="now-status__head">
+          <span class="now-status__dot" aria-hidden="true"></span>
+          <h2 id="nowStatusTitle">今の様子</h2>
+          <span class="now-status__time"><span class="now-status__timelabel">中国時間</span> <time id="nowStatusTime" data-now-time>--:--</time></span>
+        </div>
+        <p class="now-status__text" id="nowStatusText" data-now-text role="status"></p>
+        <p class="now-status__disclaimer">公開時間割からの目安であり、リアルタイムの位置情報ではありません</p>
+        <button class="btn btn--compact now-status__toggle" id="nowStatusToggle" type="button" aria-expanded="false" aria-controls="nowStatusPanel">今日の時間割</button>
+        <div class="now-status__panel" id="nowStatusPanel" data-now-panel hidden></div>
+      </section>
       <section class="feature-section" aria-labelledby="home-sections">
         <h2 id="home-sections">カード内容</h2>
         <div class="feature-list">

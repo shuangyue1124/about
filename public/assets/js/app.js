@@ -61,6 +61,78 @@ function rootUrl(path) {
   return root === "." ? path : `${root}/${path}`;
 }
 
+const commentUi = {
+  zh: {
+    title: "留言区",
+    intro: "不用注册，也不用邮箱；写下名字和留言就可以。",
+    name: "名称",
+    message: "留言",
+    namePlaceholder: "怎么称呼你",
+    messagePlaceholder: "写点想说的话",
+    submit: "发布留言",
+    loading: "正在读取留言...",
+    empty: "还没有留言。",
+    success: "留言已发布。",
+    pending: "留言已提交，正在等待管理员审核。",
+    error: "留言暂时不可用。",
+    disabled: "留言发布暂时关闭，已有留言仍可查看。",
+    turnstileMissing: "留言防刷组件尚未配置，请稍后再试。",
+    rateLimited: "留言太频繁，请稍后再试。",
+    serviceUnavailable: "留言服务暂时不可用，请稍后再试。",
+    turnstileFailed: "人机验证未通过，请重试。",
+    ip: "IP",
+    location: "归属地",
+    unknownLocation: "未知归属地",
+    time: "时间",
+  },
+  ja: {
+    title: "コメント",
+    intro: "登録やメールは不要です。名前とコメントだけで送れます。",
+    name: "名前",
+    message: "コメント",
+    namePlaceholder: "表示する名前",
+    messagePlaceholder: "書きたいこと",
+    submit: "送信",
+    loading: "コメントを読み込み中...",
+    empty: "まだコメントはありません。",
+    success: "コメントを投稿しました。",
+    pending: "コメントを送信しました。管理者の確認を待っています。",
+    error: "コメント機能は一時的に利用できません。",
+    disabled: "コメント投稿は一時停止中です。既存のコメントは表示できます。",
+    turnstileMissing: "スパム防止コンポーネントが未設定です。後でもう一度お試しください。",
+    rateLimited: "送信が多すぎます。しばらくしてからお試しください。",
+    serviceUnavailable: "コメント機能は一時的に利用できません。後でもう一度お試しください。",
+    turnstileFailed: "認証に失敗しました。もう一度お試しください。",
+    ip: "IP",
+    location: "所在地",
+    unknownLocation: "所在地不明",
+    time: "時間",
+  },
+  en: {
+    title: "Comments",
+    intro: "No signup or email required. Just leave a name and a note.",
+    name: "Name",
+    message: "Comment",
+    namePlaceholder: "How should I call you",
+    messagePlaceholder: "Write a note",
+    submit: "Post Comment",
+    loading: "Loading comments...",
+    empty: "No comments yet.",
+    success: "Comment posted.",
+    pending: "Comment submitted and waiting for admin review.",
+    error: "Comments are temporarily unavailable.",
+    disabled: "Posting is temporarily closed. Existing comments remain visible.",
+    turnstileMissing: "The anti-spam challenge is not configured yet. Please try again later.",
+    rateLimited: "Too many comments. Please try again later.",
+    serviceUnavailable: "Comments are temporarily unavailable. Please try again later.",
+    turnstileFailed: "Verification failed. Please try again.",
+    ip: "IP",
+    location: "Location",
+    unknownLocation: "Unknown location",
+    time: "Time",
+  },
+};
+
 function commentLabel(key) {
   return commentUi[lang]?.[key] || commentUi.zh[key] || key;
 }
@@ -121,6 +193,7 @@ function bindCommon() {
   bindTripImageFallback();
   bindPosterGallery();
   bindComments();
+  bindNowStatus();
   bindThemeToggle();
   registerServiceWorker();
   trackPageView();
@@ -404,6 +477,118 @@ function loadTurnstile() {
   script.defer = true;
   script.dataset.turnstile = "true";
   document.head.appendChild(script);
+}
+
+const nowStatusNotes = {
+  lunch: {
+    zh: "午间为午餐与休息时间。",
+    ja: "昼は昼食と休憩の時間です。",
+    en: "Midday is lunch and rest time.",
+  },
+  dinner: {
+    zh: "晚餐时间（约 17:40–19:00）。",
+    ja: "夕食の時間（17:40–19:00頃）。",
+    en: "Dinner time (around 17:40–19:00).",
+  },
+  noonReading: {
+    zh: "另有午读（数学），时间不固定。",
+    ja: "昼読書（数学）もありますが、時間は流動的です。",
+    en: "Plus noon reading (Mathematics) at a varying time.",
+  },
+  now: { zh: "现在", ja: "今", en: "now" },
+};
+
+function nowNoteText(key) {
+  return nowStatusNotes[key]?.[lang] || nowStatusNotes[key]?.zh || "";
+}
+
+// "What am I doing now" widget: computed entirely in the browser from the
+// static timetable in schedule.js. No API requests, no D1/KV writes. The
+// timetable module is loaded lazily so a missing schedule.js can never break
+// the rest of the page (theme, comments, sharing all keep working).
+function bindNowStatus() {
+  const card = document.querySelector("[data-now-status]");
+  if (!card) return;
+  import("./schedule.js").then((schedule) => {
+    try {
+      initNowStatus(card, schedule);
+    } catch {
+      card.remove();
+    }
+  }).catch(() => {
+    card.remove();
+  });
+}
+
+function initNowStatus(card, schedule) {
+  const textEl = card.querySelector("[data-now-text]");
+  const timeEl = card.querySelector("[data-now-time]");
+  const toggle = document.getElementById("nowStatusToggle");
+  const panel = document.getElementById("nowStatusPanel");
+  if (!textEl || !timeEl) return;
+
+  const tick = () => {
+    if (document.hidden) return;
+    const now = new Date();
+    timeEl.textContent = schedule.formatChinaTime(now);
+    try {
+      textEl.textContent = schedule.statusText(schedule.resolveStatus(now), lang);
+    } catch {
+      textEl.textContent = "";
+    }
+    if (panel && !panel.hidden) renderNowPanel(panel, now, schedule);
+  };
+
+  card.hidden = false;
+  tick();
+  const timer = window.setInterval(tick, 45000);
+  window.addEventListener("pagehide", () => window.clearInterval(timer));
+
+  if (toggle && panel) {
+    toggle.addEventListener("click", () => {
+      const open = panel.hidden;
+      if (open) {
+        renderNowPanel(panel, new Date(), schedule);
+        panel.hidden = false;
+        toggle.setAttribute("aria-expanded", "true");
+      } else {
+        panel.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !panel.hidden) {
+        panel.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.focus();
+      }
+    });
+  }
+}
+
+function renderNowPanel(panel, now, schedule) {
+  const day = schedule.describeDay(now);
+  const parts = schedule.chinaParts(now);
+  const heading = `${schedule.chinaWeekdayName(now, lang)} · ${label("nowStatusTimetable")}`;
+  if (day.isRestDay) {
+    panel.innerHTML = `<p class="now-status__day">${esc(heading)}</p><p class="now-status__note">${esc(schedule.statusText({ kind: "rest" }, lang))}</p>`;
+    return;
+  }
+  const toMin = (value) => {
+    const [h, m] = String(value).split(":").map(Number);
+    return h * 60 + m;
+  };
+  const rows = day.slots.map((slot) => {
+    const current = parts.totalMinutes >= toMin(slot.start) && parts.totalMinutes < toMin(slot.end);
+    return `<li${current ? ' aria-current="true"' : ""}><time>${esc(slot.start)}–${esc(slot.end)}</time><span>${esc(schedule.slotLabel(slot, lang))}</span>${current ? `<span class="now-status__nowtag">${esc(nowNoteText("now"))}</span>` : ""}</li>`;
+  }).join("");
+  const notes = day.notes.map((note) => {
+    if (note.kind === "lunch-note") return `<p class="now-status__note">${esc(nowNoteText("lunch"))}</p>`;
+    if (note.kind === "dinner-note") return `<p class="now-status__note">${esc(nowNoteText("dinner"))}</p>`;
+    if (note.kind === "noon-reading-note") return `<p class="now-status__note">${esc(nowNoteText("noonReading"))}</p>`;
+    return "";
+  }).join("");
+  panel.innerHTML = `<p class="now-status__day">${esc(heading)}</p><ol class="now-status__list">${rows}</ol>${notes}`;
 }
 
 function bindThemeToggle() {

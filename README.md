@@ -154,6 +154,25 @@ npx wrangler secret put TURNSTILE_SECRET_KEY
 
 Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全或模型调用失败时，留言会进入后台待审，管理员批准后才会写入公开评论缓存。
 
+### Telegram 新留言通知（仅管理员接收）
+
+访客不需要 Telegram。新留言成功写入 D1 后，服务端会用 Bot API 给站长发一条通知（`worker.js` 的 `sendTelegramNotification`，`fetch` 直调 `https://api.telegram.org`，不经过浏览器）：
+
+1. 在 Telegram 里找 @BotFather 创建 bot，拿到 bot token。
+2. 给 bot 发一句话，然后打开 `https://api.telegram.org/bot<TOKEN>/getMe` 确认可用，再用 `getUpdates` 查到你的 chat ID（不要把 token 发给任何人）。
+3. 在 Pages 项目的 Settings -> Functions（或本地 `npx wrangler dev` 的环境）里添加两个 secret：
+   - `TELEGRAM_BOT_TOKEN`
+   - `TELEGRAM_CHAT_ID`
+4. 重新部署，发一条测试留言，查看是否收到通知。
+5. 也可在后台「测试 Telegram」按钮发送测试消息（需登录，有频率限制）；后台健康检查会显示 Telegram 是否已配置（只显示是否配置，不回显 secret）。
+
+行为说明：
+
+- 通知内容只有名称、页面、语言、留言正文（截断）、中国时间、留言 ID 和审核状态；不含 IP、Cookie、Turnstile token 或请求头。
+- 通知是 D1 写入成功后的后台副作用（`ctx.waitUntil`），Telegram 失败不会回滚留言，也不会让访客等待；失败只记服务端日志。
+- 每次成功写入只通知一次（复用留言 UUID），不建额外去重表，不写 KV。
+- 没有公开的 Telegram 测试接口；唯一的测试入口是需登录的 `POST /api/admin/test-telegram`。
+
 ## 管理员后台
 
 访问 `/admin.html` 或 `/admin` 进入后台。后台功能：
@@ -161,9 +180,10 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 - 使用 `ADMIN_PASSWORD` 登录
 - 审核、批准、驳回或删除留言
 - 管理运行时配置：评论开关、AI 模型、缓存 TTL、Turnstile site key、站点标题 / 副标题 / 公告
-- 查看 D1、KV、AI、Turnstile secret、管理员密码的只读健康状态
+- 查看 D1、KV、AI、Turnstile secret、管理员密码、Telegram 的只读健康状态
 - 幂等迁移旧 KV `comments:index` 到 D1
 - 清理 90 天前的 `site_events` 统计事件
+- 发送 Telegram 通知测试（需先配置 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`）
 
 登录态使用 HttpOnly Cookie 保存 24 小时，Cookie 签名由 `ADMIN_PASSWORD` 派生。没有配置 `ADMIN_PASSWORD` 时，后台登录会返回 `ADMIN_PASSWORD is not configured`。
 
@@ -172,11 +192,14 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 所有写入接口都带 KV 固定窗口限流（计数写入 KV、自动过期，不增加 D1 负担）：
 
 - `/api/events`：单 IP 60 次/分钟、240 次/10 分钟；`type` 仅接受 `page_view`，`page`/`lang` 为有限枚举，空 UA 或超大 body 会被拒绝。
-- `/api/comments` POST：单 IP 5 次/分钟、20 次/10 分钟，在 Turnstile 验证之前先限流。
+- `/api/comments` POST：单 IP 5 次/分钟、20 次/10 分钟，在 Turnstile 验证之前先限流；超大 body（>8KB）直接 413。
 - `/api/admin/login`：单 IP 5 次失败/5 分钟后返回 429，登录成功后清零。
 - `/api/admin/ai-chat`：每个管理员会话 30 次/分钟。
+- `/api/admin/test-telegram`：每个管理员会话 3 次/分钟。
 
-`site_events` 没有自动无限增长：后台「清理统计事件」按钮调用 `POST /api/admin/cleanup-events`（默认删除 90 天前事件，可传 `days` 7~365）。个人站建议定期手动清理；未来如需定时任务可直接复用该接口。
+限流键里的客户端标识是 SHA-256 哈希（KV 只存短 TTL 计数），不以明文存 IP。静态页面不触碰 KV，只有 API 写入走 KV。
+
+`site_events` 没有自动无限增长：后台「清理统计事件」按钮调用 `POST /api/admin/cleanup-events`（默认删除 90 天前事件，可传 `days` 7~365）。`wrangler.jsonc` 另配了每天 00:00 中国时间（即 16:00 UTC，Cron 按 UTC 运行）的 `scheduled()` 自动清理，只删早于保留期的数据；个人站建议保留手动清理按钮作为兜底。
 
 ### 安全响应头与 CSP
 
@@ -225,3 +248,13 @@ f7c63320decb47d584bb78fbd6144167
 npm run build
 npm run check
 ```
+
+## 作息与「现在的状态」
+
+首页有一张小卡片，根据公开课表估算站长现在大概在做什么（例如「现在大概在上数学课」），并显示中国时间。实现要点：
+
+- 课表唯一数据源是 `assets/js/schedule.js`（`SCHOOL_SCHEDULE` 式集中结构：周一至周五模板 + 周六特殊表 + 周日休息），改课表只改这一个文件；`npm run check:schedule` 会跑 49 个边界用例（含 06:50/07:25/22:30 等临界点、周六/周日特例与 CST 换算）。
+- 时间一律按中国标准时间（UTC+8，全年无夏令时）计算：`schedule.js` 把任意时刻先整体 +8 小时再取星期/时分，访客在哪个时区都不影响结果。
+- 纯浏览器计算，每 45 秒刷新一次（页面隐藏时跳过），不请求 API、不写 D1/KV；无 JS 时卡片保持隐藏，页面其余功能不受影响。
+- 文案刻意使用「大概」类估计语，不做实时定位，不暴露任何地址与精确位置；中/日/英三语分别在 `schedule.js` 与 `assets/js/data.js`（`nowStatus*` 键）中维护。
+- 注意：19:00–19:40 是合并的「晚辅导/晚餐」条目（原始描述只给了这一个时间段，未虚构拆分）；周六午读（数学）同样没有给出时间，按无固定时间备注展示。

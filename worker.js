@@ -1,5 +1,5 @@
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/api/site" || url.pathname === "/api/site/") {
       return handleSite(request, env);
@@ -10,11 +10,11 @@ export default {
     }
 
     if (url.pathname.startsWith("/api/admin")) {
-      return handleAdmin(request, env);
+      return handleAdmin(request, env, ctx);
     }
 
     if (url.pathname === "/api/comments" || url.pathname === "/api/comments/") {
-      return handleComments(request, env);
+      return handleComments(request, env, ctx);
     }
 
     if (url.pathname === "/api/csp-report" || url.pathname === "/api/csp-report/") {
@@ -35,6 +35,22 @@ export default {
     }
 
     return env.ASSETS.fetch(request);
+  },
+
+  // Optional Cron maintenance (see wrangler.jsonc triggers). Cloudflare Cron
+  // runs in UTC; the cutoff below is an absolute instant, so no CST/UTC
+  // confusion is possible. The school timetable is client-side only and is
+  // never touched by this trigger.
+  async scheduled(event, env, ctx) {
+    if (!env.COMMENTS_DB) return;
+    const days = EVENT_RETENTION_DAYS_DEFAULT;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      const result = await env.COMMENTS_DB.prepare("DELETE FROM site_events WHERE created_at < ?").bind(cutoff).run();
+      console.log(`[scheduled cleanup] deleted ${result.meta?.changes || 0} site_events older than ${cutoff}`);
+    } catch (error) {
+      console.error("[scheduled cleanup] failed", error?.message || error);
+    }
   },
 };
 
@@ -85,6 +101,9 @@ const ALLOWED_EVENT_TYPES = new Set(["page_view"]);
 const ALLOWED_EVENT_PAGES = new Set(["home", "travel", "city", "trip"]);
 const ALLOWED_EVENT_LANGS = new Set(["zh", "ja", "en"]);
 const MAX_EVENT_BODY_BYTES = 4096;
+const MAX_COMMENT_BODY_BYTES = 8192;
+const TELEGRAM_API_TIMEOUT_MS = 8000;
+const TELEGRAM_TEST_LIMIT = { limit: 3, windowSeconds: 60 };
 const EVENT_RETENTION_DAYS_DEFAULT = 90;
 const EVENT_RETENTION_DAYS_MIN = 7;
 const EVENT_RETENTION_DAYS_MAX = 365;
@@ -128,7 +147,7 @@ const DEFAULT_SITE_CONFIG = {
   },
 };
 
-export async function handleComments(request, env) {
+export async function handleComments(request, env, ctx) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
 
   try {
@@ -141,6 +160,10 @@ export async function handleComments(request, env) {
     if (request.method === "POST") {
       const config = await loadSiteConfig(env);
       if (!config.commentsEnabled) return json({ error: "comments are closed" }, 403);
+
+      // Cheap abuse guard before parsing: reject oversized bodies early.
+      const contentLength = Number.parseInt(request.headers.get("content-length") || "0", 10) || 0;
+      if (contentLength > MAX_COMMENT_BODY_BYTES) return json({ error: "payload too large" }, 413);
 
       const payload = await request.json().catch(() => ({}));
       if (payload.website) return json({ ok: true, status: "pending" }, 202);
@@ -179,6 +202,19 @@ export async function handleComments(request, env) {
 
       await saveComment(env, comment);
       if (comment.status === "approved") await refreshApprovedCommentsCache(env);
+
+      // Auxiliary side effect only: the comment is already persisted. A
+      // Telegram failure must never roll it back or delay the visitor, so the
+      // notification runs in the background and swallows its own errors.
+      const telegramText = buildTelegramMessage(comment, {
+        page: refererPage(request),
+        lang: refererLang(request),
+      });
+      const notify = sendTelegramNotification(env, telegramText).catch((error) => {
+        console.error("[telegram] notification failed", error?.message || error);
+      });
+      if (ctx?.waitUntil) ctx.waitUntil(notify);
+      else notify.catch(() => {});
 
       return json({ comment: publicComment(comment), status: comment.status }, comment.status === "approved" ? 201 : 202);
     }
@@ -254,7 +290,7 @@ export async function handleCspReport(request) {
   return new Response(null, { status: 204 });
 }
 
-export async function handleAdmin(request, env) {
+export async function handleAdmin(request, env, ctx) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: adminApiHeaders() });
 
   const url = new URL(request.url);
@@ -334,6 +370,20 @@ export async function handleAdmin(request, env) {
       return jsonAdmin({ reply: result.reply, contextMeta: result.contextMeta });
     }
 
+    // Admin-only Telegram test. There is intentionally no public endpoint that
+    // can send Telegram messages; this one requires a valid admin session plus
+    // the admin action header, and is rate limited per session.
+    if (path === "/api/admin/test-telegram" && request.method === "POST") {
+      const token = cookieValue(request.headers.get("Cookie"), ADMIN_COOKIE_NAME);
+      const sessionId = token ? (await sha256Hex(token)).slice(0, 32) : clientIp(request);
+      const rate = await rateLimitCheck(env, "telegram-test", sessionId, [TELEGRAM_TEST_LIMIT]);
+      if (rate.limited) return rateLimitedResponse(rate.retryAfter, true);
+      const result = await sendTelegramNotification(env, `✅ Telegram 通知测试成功（${formatCst(new Date())}）\n来自 about.shuangyue.space 管理员后台。`);
+      if (result.skipped) return jsonAdmin({ error: "telegram is not configured" }, 503);
+      if (!result.ok) return jsonAdmin({ error: "telegram send failed" }, 502);
+      return jsonAdmin({ ok: true });
+    }
+
     if (path.startsWith("/api/admin/comments/")) {
       const id = decodeURIComponent(path.slice("/api/admin/comments/".length));
       if (!id) return jsonAdmin({ error: "comment id is required" }, 400);
@@ -397,8 +447,12 @@ async function adminLogin(request, env) {
   });
 }
 
-function loginFailureKey(ip, bucket) {
-  return `${RATE_LIMIT_PREFIX}:login-fail:${ip}:${bucket}`;
+function loginFailureKey(ipHash, bucket) {
+  return `${RATE_LIMIT_PREFIX}:login-fail:${ipHash}:${bucket}`;
+}
+
+async function hashedIp(ip) {
+  return (await sha256Hex(cleanOneLine(ip, 128) || "unknown")).slice(0, 32);
 }
 
 async function loginFailureState(env, ip) {
@@ -406,7 +460,7 @@ async function loginFailureState(env, ip) {
   const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
   const now = Date.now();
   const bucket = Math.floor(now / windowMs);
-  const count = Number.parseInt(await env.COMMENTS_KV.get(loginFailureKey(ip, bucket)).catch(() => "0") || "0", 10) || 0;
+  const count = Number.parseInt(await env.COMMENTS_KV.get(loginFailureKey(await hashedIp(ip), bucket)).catch(() => "0") || "0", 10) || 0;
   const retryAfter = Math.max(1, LOGIN_FAILURE_LIMIT.windowSeconds - Math.floor((now % windowMs) / 1000));
   return { count, retryAfter };
 }
@@ -415,7 +469,7 @@ async function incrementLoginFailure(env, ip) {
   if (!env.COMMENTS_KV) return;
   const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
   const bucket = Math.floor(Date.now() / windowMs);
-  const key = loginFailureKey(ip, bucket);
+  const key = loginFailureKey(await hashedIp(ip), bucket);
   const count = Number.parseInt(await env.COMMENTS_KV.get(key).catch(() => "0") || "0", 10) || 0;
   await env.COMMENTS_KV.put(key, String(count + 1), { expirationTtl: LOGIN_FAILURE_LIMIT.windowSeconds * 2 }).catch(() => {});
 }
@@ -424,7 +478,7 @@ async function clearLoginFailures(env, ip) {
   if (!env.COMMENTS_KV) return;
   const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
   const bucket = Math.floor(Date.now() / windowMs);
-  await env.COMMENTS_KV.delete(loginFailureKey(ip, bucket)).catch(() => {});
+  await env.COMMENTS_KV.delete(loginFailureKey(await hashedIp(ip), bucket)).catch(() => {});
 }
 
 async function ensureSchema(env) {
@@ -645,6 +699,65 @@ async function saveEvent(env, event) {
     event.userAgent || "",
     new Date().toISOString()
   ).run();
+}
+
+// --- Telegram comment notifications (owner-only, outgoing only) ---
+// Secrets live in Pages/Worker bindings (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+// and are never logged, returned, or sent to the browser.
+
+export function buildTelegramMessage(comment, meta = {}) {
+  const lines = [
+    "💬 New comment on about.shuangyue.space",
+    "",
+    `Name: ${cleanOneLine(comment?.name, 32) || "Anonymous"}`,
+    `Page: ${cleanPath(meta.page || "/")}`,
+    `Language: ${cleanOneLine(meta.lang, 12) || "zh"}`,
+    `Status: ${cleanOneLine(comment?.status, 20) || "pending"}`,
+    "",
+    "Message:",
+    cleanMessage(comment?.message, 400),
+    "",
+    "Time:",
+    formatCst(comment?.createdAt ? new Date(comment.createdAt) : new Date()),
+    "",
+    "Comment ID:",
+    cleanOneLine(comment?.id, 80),
+  ];
+  return lines.join("\n");
+}
+
+// Never include raw IPs, cookies, auth tokens, Turnstile tokens, or request
+// headers in the notification. The comment row already has its own UUID, so
+// each successful insert notifies exactly once with no extra dedup storage.
+export async function sendTelegramNotification(env, text, fetchImpl = fetch) {
+  const token = await loadSecret(env, "TELEGRAM_BOT_TOKEN");
+  const chatId = await loadSecret(env, "TELEGRAM_CHAT_ID");
+  if (!token || !chatId) return { ok: false, skipped: true, reason: "telegram is not configured" };
+
+  const body = cleanMessage(text, 3000);
+  if (!body) return { ok: false, skipped: true, reason: "empty message" };
+
+  let response;
+  try {
+    response = await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: body, disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(TELEGRAM_API_TIMEOUT_MS),
+    });
+  } catch (error) {
+    return { ok: false, error: error?.message || "telegram request failed" };
+  }
+  if (!response.ok) {
+    return { ok: false, error: `telegram responded HTTP ${response.status}` };
+  }
+  return { ok: true };
+}
+
+export function formatCst(date = new Date()) {
+  const shifted = new Date(date.getTime() + 8 * 3600 * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())} +08:00`;
 }
 
 async function adminAiChat(env, message) {
@@ -1039,6 +1152,7 @@ async function adminHealth(env) {
     ai: Boolean(env.AI?.run),
     turnstileSecret: Boolean(await loadSecret(env, "TURNSTILE_SECRET_KEY")),
     adminPassword: Boolean(await loadAdminPassword(env)),
+    telegram: Boolean(await loadSecret(env, "TELEGRAM_BOT_TOKEN")) && Boolean(await loadSecret(env, "TELEGRAM_CHAT_ID")),
   };
 }
 
@@ -1246,6 +1360,23 @@ function boundedInt(value, fallback, min, max) {
   return Math.min(Math.max(number, min), max);
 }
 
+function refererPage(request) {
+  try {
+    return cleanPath(new URL(request.headers.get("referer") || "").pathname);
+  } catch {
+    return "/";
+  }
+}
+
+function refererLang(request) {
+  try {
+    const first = new URL(request.headers.get("referer") || "").pathname.split("/").filter(Boolean)[0] || "";
+    return first === "en" || first === "ja" ? first : "zh";
+  } catch {
+    return "zh";
+  }
+}
+
 function clientIp(request) {
   return (
     request.headers.get("CF-Connecting-IP") ||
@@ -1382,7 +1513,9 @@ function adminApiHeaders() {
 
 async function rateLimitCheck(env, scope, id, limits) {
   if (!env.COMMENTS_KV) return { limited: false, retryAfter: 0 };
-  const safeId = cleanOneLine(id, 64) || "unknown";
+  // Hash the client identifier so KV keys never store raw IPs in plaintext.
+  // Keys keep a short TTL (2x window) and only API writes touch KV.
+  const safeId = (await sha256Hex(cleanOneLine(id, 128) || "unknown")).slice(0, 32);
   const now = Date.now();
 
   for (const { limit, windowSeconds } of limits) {

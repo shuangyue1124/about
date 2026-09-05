@@ -204,6 +204,22 @@ function heroMetaText(lang) {
   return `${age} 岁 · ${base}`;
 }
 
+function nowStatusCard(locale) {
+  const lang = locale.code;
+  return `
+      <section class="now-status" id="nowStatus" data-now-status hidden aria-labelledby="nowStatusTitle">
+        <div class="now-status__head">
+          <span class="now-status__dot" aria-hidden="true"></span>
+          <h2 id="nowStatusTitle">${esc(l(lang, "nowStatusTitle"))}</h2>
+          <span class="now-status__time"><span class="now-status__timelabel">${esc(l(lang, "nowStatusChinaTime"))}</span> <time id="nowStatusTime" data-now-time>--:--</time></span>
+        </div>
+        <p class="now-status__text" id="nowStatusText" data-now-text role="status"></p>
+        <p class="now-status__disclaimer">${esc(l(lang, "nowStatusDisclaimer"))}</p>
+        <button class="btn btn--compact now-status__toggle" id="nowStatusToggle" type="button" aria-expanded="false" aria-controls="nowStatusPanel">${esc(l(lang, "nowStatusTimetable"))}</button>
+        <div class="now-status__panel" id="nowStatusPanel" data-now-panel hidden></div>
+      </section>`;
+}
+
 function homePage(locale) {
   const lang = locale.code;
   const depth = locale.prefix ? 1 : 0;
@@ -224,6 +240,7 @@ function homePage(locale) {
           </div>
         </div>
       </section>
+      ${nowStatusCard(locale)}
       <section class="feature-section" aria-labelledby="home-sections">
         <h2 id="home-sections">${esc(l(lang, "sectionHome"))}</h2>
         <div class="feature-list">${homeCards.map((card, index) => homeCard(locale, depth, card, index)).join("")}</div>

@@ -6,6 +6,12 @@
   "compatibility_date": "2026-06-13",
   "workers_dev": true,
   "preview_urls": true,
+  // Daily site_events cleanup at 00:00 China Standard Time (16:00 UTC;
+  // Cloudflare Cron runs in UTC). The scheduled() handler in worker.js only
+  // deletes rows older than the 90-day retention cutoff.
+  "triggers": {
+    "crons": ["0 16 * * *"]
+  },
   "kv_namespaces": [
     {
       "binding": "COMMENTS_KV",

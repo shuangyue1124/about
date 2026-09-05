@@ -3310,3 +3310,129 @@ button.contact-link {
     max-width: calc(100vw - 96px);
   }
 }
+
+/* Visitor-facing "what am I doing now" status card (progressive enhancement;
+   the section stays hidden until JS fills it, so no-JS pages are unaffected). */
+.now-status {
+  max-width: 720px;
+  margin: 28px auto 0;
+  padding: 16px 18px;
+  background: var(--paper);
+  border: 1px solid rgba(38, 37, 30, 0.1);
+  border-radius: 10px;
+}
+
+.now-status__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 10px;
+}
+
+.now-status__head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.now-status__dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  align-self: center;
+  background: var(--green-dark);
+  border-radius: 50%;
+}
+
+.now-status__time {
+  margin-left: auto;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.now-status__text {
+  margin: 8px 0 0;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.now-status__disclaimer {
+  margin: 6px 0 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.now-status__toggle {
+  margin-top: 10px;
+}
+
+.now-status__panel {
+  margin-top: 12px;
+  border-top: 1px solid rgba(38, 37, 30, 0.1);
+  padding-top: 10px;
+}
+
+.now-status__day {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.now-status__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.now-status__list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 8px;
+  border-left: 3px solid transparent;
+  border-radius: 0 6px 6px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.now-status__list time {
+  flex: none;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.now-status__list li[aria-current="true"] {
+  background: var(--paper-deep);
+  border-left-color: var(--green-dark);
+  font-weight: 600;
+}
+
+.now-status__nowtag {
+  flex: none;
+  margin-left: auto;
+  color: var(--green-dark);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.now-status__note {
+  margin: 8px 0 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .now-status {
+    margin-right: 16px;
+    margin-left: 16px;
+    padding: 14px;
+  }
+
+  .now-status__text {
+    font-size: 16px;
+  }
+}

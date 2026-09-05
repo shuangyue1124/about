@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync, statSync } from "node:fs";
 import { extname, resolve } from "node:path";
-import { handleAdmin, handleComments, handleCspReport, handleEvents, handleSite } from "../worker.js";
+import { buildTelegramMessage, handleAdmin, handleComments, handleCspReport, handleEvents, handleSite, sendTelegramNotification } from "../worker.js";
 import { checkHtmlLinks } from "./check-links.mjs";
 
 const ROOT = resolve(".");
@@ -188,6 +188,9 @@ async function apiSmoke() {
   // /api/comments validation + rate limit
   const empty = await asJson(await handleComments(apiRequest("/api/comments", { method: "POST", body: {} }), env));
   check("comments 空 body → 400", empty.status === 400, empty.status);
+  const bigBody = JSON.stringify({ name: "smoke", message: "y".repeat(9000) });
+  const big = await asJson(await handleComments(apiRequest("/api/comments", { method: "POST", body: bigBody, headers: { "content-length": String(bigBody.length) } }), env));
+  check("comments 超大 body → 413", big.status === 413, big.status);
   let commentsLimited = null;
   for (let i = 0; i < 6; i += 1) {
     commentsLimited = await asJson(await handleComments(apiRequest("/api/comments", {
@@ -244,6 +247,33 @@ async function apiSmoke() {
   // csp-report endpoint
   const report = await handleCspReport(apiRequest("/api/csp-report", { method: "POST", body: '{"csp-report":{"blocked-uri":"x"}}' }));
   check("csp-report → 204", report.status === 204, report.status);
+
+  // telegram helpers: failure must never throw, secrets must never leak
+  const sampleText = buildTelegramMessage(
+    { id: "comment-1", name: "Example User", message: "Hello!", status: "approved", ip: "203.0.113.9", createdAt: "2026-09-05T13:42:18.000Z" },
+    { page: "/en/", lang: "en" }
+  );
+  check("telegram 文案不含原始 IP", !sampleText.includes("203.0.113.9"), sampleText.slice(0, 60));
+  check("telegram 文案含 ID/状态/时间", sampleText.includes("comment-1") && sampleText.includes("approved") && sampleText.includes("+08:00"));
+  const tgSkipped = await sendTelegramNotification(env, "hi");
+  check("telegram 未配置 → skipped 不抛错", tgSkipped.skipped === true && tgSkipped.ok === false);
+  const tgEnv = { ...env, TELEGRAM_BOT_TOKEN: "fake-token", TELEGRAM_CHAT_ID: "123" };
+  const tgFailed = await sendTelegramNotification(tgEnv, "hi", async () => { throw new Error("network down"); });
+  check("telegram 网络失败 → ok:false 不抛错", tgFailed.ok === false && !tgFailed.skipped);
+  const tgSent = await sendTelegramNotification(tgEnv, "hi", async () => new Response("{}", { status: 200 }));
+  check("telegram 发送成功 → ok:true", tgSent.ok === true);
+
+  // admin-only telegram test endpoint: anonymous blocked, unconfigured → 503 without leaking secrets
+  const tgAnon = await asJson(await handleAdmin(apiRequest("/api/admin/test-telegram", { method: "POST", body: {} }), env));
+  check("test-telegram 未登录 → 401", tgAnon.status === 401, tgAnon.status);
+  const tgAdmin = await asJson(await handleAdmin(apiRequest("/api/admin/test-telegram", {
+    method: "POST",
+    body: {},
+    headers: { "x-admin-action": "1" },
+    cookie: `sfsy_admin=${token}`,
+  }), env));
+  const tgBody = JSON.stringify(tgAdmin.data || {});
+  check("test-telegram 未配置 → 503 且不泄露 secret", tgAdmin.status === 503 && !/fake|token|chat/i.test(tgBody), tgAdmin.status);
 
   return failures;
 }
