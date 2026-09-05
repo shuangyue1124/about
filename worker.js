@@ -114,6 +114,13 @@ const memory = {
   config: null,
   configExpiresAt: 0,
   schemaReady: false,
+  // Per-isolate fixed-window counters for high-frequency endpoints.
+  // /api/events fires on every page view, so it must never touch KV per
+  // request: KV Free allows only 1,000 writes/day (reset 00:00 UTC, hard fail),
+  // and 500 page views would already exhaust that with 2 KV writes each.
+  // Memory-only limiting costs 0 KV ops on the hot path; KV is retained only
+  // for low-volume scopes (comments/login/ai-chat/telegram-test).
+  rateLimits: new Map(),
 };
 
 const DEFAULT_SITE_CONFIG = {
@@ -246,7 +253,12 @@ export async function handleEvents(request, env) {
   const userAgent = cleanOneLine(request.headers.get("user-agent"), 300);
   if (!userAgent) return json({ error: "missing user agent" }, 400);
 
-  const rate = await rateLimitCheck(env, "events", clientIp(request), EVENTS_RATE_LIMITS);
+  // Memory-only: 0 KV reads/writes on the per-page-view hot path. The event
+  // endpoint is best-effort analytics (D1 INSERT follows); per-isolate fixed
+  // windows stop single-source floods without burning the 1,000/day KV write
+  // budget. Cross-isolate abuse still lands in D1, which allows ~100x more
+  // daily writes than KV on Free.
+  const rate = memoryRateLimitCheck("events", clientIp(request), EVENTS_RATE_LIMITS);
   if (rate.limited) return rateLimitedResponse(rate.retryAfter);
 
   if (!env.COMMENTS_DB) return json({ ok: true }, 202);
@@ -1511,10 +1523,46 @@ function adminApiHeaders() {
   };
 }
 
+// Fixed-window counters kept only in isolate memory: 0 KV reads, 0 KV writes,
+// 0 KV deletes. Same bucket math as rateLimitCheck so limits behave identically
+// within one isolate. Entries expire with the window (2x TTL, like KV) and the
+// map is bounded to avoid unbounded growth; eviction only resets counters
+// (fail-open briefly), never blocks legitimate traffic.
+function memoryRateLimitCheck(scope, id, limits) {
+  const now = Date.now();
+  if (memory.rateLimits.size > 2000) {
+    for (const [key, entry] of memory.rateLimits) {
+      if (entry.expiresAt <= now) memory.rateLimits.delete(key);
+    }
+    if (memory.rateLimits.size > 2000) memory.rateLimits.clear();
+  }
+  // Memory-only and ephemeral (per isolate, never persisted or logged), so the
+  // raw truncated identifier is sufficient here; KV keys remain hashed.
+  const safeId = cleanOneLine(id, 128) || "unknown";
+
+  for (const { limit, windowSeconds } of limits) {
+    const windowMs = windowSeconds * 1000;
+    const bucket = Math.floor(now / windowMs);
+    const key = `mem:${scope}:${safeId}:${windowSeconds}s:${bucket}`;
+    let entry = memory.rateLimits.get(key);
+    if (!entry || entry.expiresAt <= now) {
+      entry = { count: 0, expiresAt: now + windowMs * 2 };
+      memory.rateLimits.set(key, entry);
+    }
+    if (entry.count >= limit) {
+      const retryAfter = Math.max(1, windowSeconds - Math.floor((now % windowMs) / 1000));
+      return { limited: true, retryAfter };
+    }
+    entry.count += 1;
+  }
+
+  return { limited: false, retryAfter: 0 };
+}
+
 async function rateLimitCheck(env, scope, id, limits) {
   if (!env.COMMENTS_KV) return { limited: false, retryAfter: 0 };
   // Hash the client identifier so KV keys never store raw IPs in plaintext.
-  // Keys keep a short TTL (2x window) and only API writes touch KV.
+  // Keys keep a short TTL (2x window) and only low-volume API writes touch KV.
   const safeId = (await sha256Hex(cleanOneLine(id, 128) || "unknown")).slice(0, 32);
   const now = Date.now();
 

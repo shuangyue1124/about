@@ -189,15 +189,15 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 
 ### API 防滥用与数据保留
 
-所有写入接口都带 KV 固定窗口限流（计数写入 KV、自动过期，不增加 D1 负担）：
+写入接口的限流按频率分层（KV Free 仅 1,000 写/天，超限会硬失败；D1 写额度约为 KV 的 100 倍）：
 
-- `/api/events`：单 IP 60 次/分钟、240 次/10 分钟；`type` 仅接受 `page_view`，`page`/`lang` 为有限枚举，空 UA 或超大 body 会被拒绝。
-- `/api/comments` POST：单 IP 5 次/分钟、20 次/10 分钟，在 Turnstile 验证之前先限流；超大 body（>8KB）直接 413。
+- `/api/events`：单 IP 60 次/分钟、240 次/10 分钟，但只用 Worker 内存固定窗口（0 KV 读/写），因为它随每次页面访问触发；`type` 仅接受 `page_view`，`page`/`lang` 为有限枚举，空 UA 或超大 body 会被拒绝。
+- `/api/comments` POST：单 IP 5 次/分钟、20 次/10 分钟（KV：2 读 + 2 写/次），在 Turnstile 验证之前先限流；超大 body（>8KB）直接 413。
 - `/api/admin/login`：单 IP 5 次失败/5 分钟后返回 429，登录成功后清零。
 - `/api/admin/ai-chat`：每个管理员会话 30 次/分钟。
 - `/api/admin/test-telegram`：每个管理员会话 3 次/分钟。
 
-限流键里的客户端标识是 SHA-256 哈希（KV 只存短 TTL 计数），不以明文存 IP。静态页面不触碰 KV，只有 API 写入走 KV。
+限流键里的客户端标识是 SHA-256 哈希（KV 只存短 TTL 计数），不以明文存 IP。静态页面不触碰 KV；`/api/events` 正常与超限时均为 0 KV 操作，只有低频 API（评论/登录/AI 对话/Telegram 测试）与公开评论缓存会走 KV。
 
 `site_events` 没有自动无限增长：后台「清理统计事件」按钮调用 `POST /api/admin/cleanup-events`（默认删除 90 天前事件，可传 `days` 7~365）。`wrangler.jsonc` 另配了每天 00:00 中国时间（即 16:00 UTC，Cron 按 UTC 运行）的 `scheduled()` 自动清理，只删早于保留期的数据；个人站建议保留手动清理按钮作为兜底。
 
