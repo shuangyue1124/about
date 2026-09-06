@@ -116,8 +116,6 @@ const SATURDAY_SLOTS = [
   { start: "18:30", end: "19:10", type: "class", subject: "biology" },
 ];
 
-export const SATURDAY_NOON_READING = null;
-
 function toMinutes(value) {
   const [h, m] = String(value).split(":").map(Number);
   return h * 60 + m;
