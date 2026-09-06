@@ -200,7 +200,7 @@ function dashboard() {
           ${state.chatMessages.map(chatMessage).join("")}
           ${state.chatLoading ? '<p class="admin-chat-message admin-chat-message--assistant">正在查询 D1 并生成回复...</p>' : ""}
         </div>
-        ${state.chatDataAt ? `<p class="admin-chat-meta">数据生成时间：${esc(formatDate(state.chatDataAt))} · 统计窗口：过去 24 小时 / 7 天 / 30 天</p>` : ""}
+        ${state.chatDataAt ? `<p class="admin-chat-meta">数据生成时间：${esc(formatTime(state.chatDataAt))} · 统计窗口：过去 24 小时 / 7 天 / 30 天</p>` : ""}
         <form class="admin-chat-form" id="aiChatForm">
           <label>
             <span>向 AI 提问</span>
@@ -643,9 +643,9 @@ async function loadDashboard() {
       api(`/api/admin/comments?limit=100&status=${encodeURIComponent(state.statusFilter)}`),
       api("/api/admin/health"),
     ]);
-    if (!configResponse.ok) throw new Error(await responseText(configResponse));
-    if (!commentsResponse.ok) throw new Error(await responseText(commentsResponse));
-    if (!healthResponse.ok) throw new Error(await responseText(healthResponse));
+    if (!configResponse.ok) throw await apiError(configResponse);
+    if (!commentsResponse.ok) throw await apiError(commentsResponse);
+    if (!healthResponse.ok) throw await apiError(healthResponse);
     const configData = await configResponse.json();
     const commentsData = await commentsResponse.json();
     const healthData = await healthResponse.json();
@@ -656,11 +656,20 @@ async function loadDashboard() {
     state.loading = false;
     render();
   } catch (error) {
-    state.authed = false;
     state.loading = false;
-    state.status = error.message || "需要重新登录。";
+    state.status = error.message || "加载失败，请点击「刷新数据」重试。";
+    if (error.status === 401 || error.status === 403) {
+      state.authed = false;
+      state.health = null;
+    }
     render();
   }
+}
+
+async function apiError(response) {
+  const error = new Error(await responseText(response));
+  error.status = response.status;
+  return error;
 }
 
 async function responseText(response) {
