@@ -35,10 +35,11 @@ export const SUBJECTS = {
 // type: morning-reading | class | noon-reading | eye-exercise | big-break |
 //       flag-ceremony | activity | tutoring | self-study
 // Undetermined noon reading uses subject: null.
-// Evening tutoring Mon-Thu is one combined 17:30-19:00 block carrying both
-// subjects: the source gives only that single range, so no finer split is
-// invented. Friday's two tutoring sessions do have exact times and are split.
-// Dinner (19:00-19:40) is a routine gap kind, not a timed slot.
+// Evening tutoring Mon-Thu is split into 17:30-18:10 (session 1) and
+// 18:20-19:00 (session 2) per the authoritative timetable; the 18:10-18:20
+// gap resolves to break. Friday's two tutoring sessions have their own exact
+// times and are split as well. Dinner (19:00-19:40) is a routine gap kind,
+// not a timed slot.
 function morningSlots(subjects, flagCeremony) {
   const slots = [
     { start: "06:50", end: "07:25", type: "morning-reading", subject: subjects.early },
@@ -73,9 +74,13 @@ function afternoonSlots(subjects) {
 // Per weekday subjects.
 // Order: early, p1-p5, noon (null = undetermined), p6, p7, p8 (+p8type),
 // extra (+extratype), tutoring: [session1, session2].
-// Only Tuesday (physics) and Wednesday (politics) pin a noon-reading subject;
-// the other weekdays leave noon reading undetermined, and only Friday splits
-// tutoring into timed halves.
+// Noon reading pins a subject only when the authoritative timetable names one:
+// Tuesday (physics), Wednesday (politics), Thursday (politics). Monday and
+// Friday noon reading have no fixed subject; Saturday 14:20-14:30 is
+// Mathematics noon reading (timed slot in SATURDAY_SLOTS below). Monday-Thursday evening
+// tutoring is split into 17:30-18:10 (session 1) and 18:20-19:00 (session 2)
+// with a 10-minute break between; Friday's two sessions have their own exact
+// times (17:50-18:25 geography, 18:25-19:00 biology).
 const WEEKDAY_SUBJECTS = {
   // Monday (09:55-10:25 is the flag-raising ceremony, not a big break)
   1: { early: "english", p1: "chinese", p2: "math", p3: "english", p4: "chemistry", p5: "geography", noon: null, p6: "psychology", p7: "physics", p8: "selfStudy", p8type: "self-study", extra: "classMeeting", extratype: "class", tutoring: ["chemistry", "politics"] },
@@ -83,25 +88,26 @@ const WEEKDAY_SUBJECTS = {
   2: { early: "chinese", p1: "english", p2: "chinese", p3: "history", p4: "biology", p5: "math", noon: "physics", p6: "physics", p7: "politics", p8: "selfStudy", p8type: "self-study", extra: "activity", extratype: "activity", tutoring: ["math", "math"] },
   // Wednesday
   3: { early: "english", p1: "chinese", p2: "chemistry", p3: "math", p4: "english", p5: "physics", noon: "politics", p6: "art", p7: "music", p8: "selfStudy", p8type: "self-study", extra: "activity", extratype: "activity", tutoring: ["physics", "history"] },
-  // Thursday
-  4: { early: "chinese", p1: "math", p2: "chinese", p3: "english", p4: "physics", p5: "chemistry", noon: null, p6: "politics", p7: "biology", p8: "pe", p8type: "class", extra: "cleaning", extratype: "activity", tutoring: ["english", "chinese"] },
+  // Thursday (noon reading is politics per the authoritative timetable)
+  4: { early: "chinese", p1: "math", p2: "chinese", p3: "english", p4: "physics", p5: "chemistry", noon: "politics", p6: "politics", p7: "biology", p8: "pe", p8type: "class", extra: "cleaning", extratype: "activity", tutoring: ["english", "chinese"] },
   // Friday (school course 2 and split tutoring have their own exact times)
   5: { early: "english", p1: "english", p2: "history", p3: "chinese", p4: "math", p5: "geography", noon: null, p6: "pe", p7: "pe", p8: "schoolCourse" },
 };
 
 // Saturday special timetable (fully timed entries, no template).
-// 06:50 starts two back-to-back normal Chinese classes (not morning reading).
+// 06:50-07:30 is Chinese morning reading, followed by a normal Chinese class.
+// 14:20-14:30 is Mathematics noon reading. There is no night
+// self-study: classes end at 19:10 and the rest of the evening is free time.
 const SATURDAY_SLOTS = [
-  { start: "06:50", end: "07:30", type: "class", subject: "chinese" },
+  { start: "06:50", end: "07:30", type: "morning-reading", subject: "chinese" },
   { start: "07:30", end: "08:10", type: "class", subject: "chinese" },
   { start: "08:20", end: "09:00", type: "class", subject: "chemistry" },
   { start: "09:10", end: "09:50", type: "class", subject: "history" },
   { start: "09:50", end: "10:10", type: "activity", subject: "activity" },
   { start: "10:10", end: "10:50", type: "class", subject: "physics" },
   { start: "11:00", end: "11:40", type: "class", subject: "politics" },
-  // Midday gap 11:40-14:20 resolves to lunch. The source lists a Saturday noon
-  // reading (Mathematics) without a time range, so it is shown as an untimed
-  // note in the day view, not as an invented timed slot.
+  // Midday gap 11:40-14:20 resolves to lunch.
+  { start: "14:20", end: "14:30", type: "noon-reading", subject: "math" },
   { start: "14:30", end: "15:10", type: "class", subject: "math" },
   { start: "15:20", end: "16:00", type: "class", subject: "english" },
   { start: "16:00", end: "16:20", type: "activity", subject: "activity" },
@@ -110,7 +116,7 @@ const SATURDAY_SLOTS = [
   { start: "18:30", end: "19:10", type: "class", subject: "biology" },
 ];
 
-export const SATURDAY_NOON_READING = "math";
+export const SATURDAY_NOON_READING = null;
 
 function toMinutes(value) {
   const [h, m] = String(value).split(":").map(Number);
@@ -163,23 +169,24 @@ function expandWeekday(weekday) {
     ...afternoonSlots(subjects),
     { start: "16:10", end: "16:50", type: subjects.p8type, subject: subjects.p8 },
     { start: "16:50", end: "17:30", type: subjects.extratype, subject: subjects.extra },
-    // One combined block: the source names two tutoring sessions but only
-    // gives the single range 17:30-19:00, so both subjects share this entry
-    // instead of inventing a split.
-    { start: "17:30", end: "19:00", type: "tutoring", subjects: subjects.tutoring },
+    // Authoritative split: session 1 at 17:30-18:10, a 10-minute break at
+    // 18:10-18:20, then session 2 at 18:20-19:00. The gap resolves to break.
+    { start: "17:30", end: "18:10", type: "tutoring", subjects: [subjects.tutoring[0]] },
+    { start: "18:20", end: "19:00", type: "tutoring", subjects: [subjects.tutoring[1]] },
     ...NIGHT_SLOTS.map((slot) => ({ ...slot })),
   ];
 }
 
-// Friday: school course 1 at 16:10, school course 2 at the exact range
-// 17:00-17:40, then split tutoring 17:50-18:25 (geography) and 18:25-19:00
-// (biology). Dinner 19:00-19:40 and night self-study follow the normal plan.
+// Friday: school course 1 at the exact range 16:10-17:00, school course 2 at
+// 17:00-17:40, a short break 17:40-17:50, then split tutoring 17:50-18:25
+// (geography) and 18:25-19:00 (biology). Dinner 19:00-19:40 and night
+// self-study follow the normal plan.
 function expandFriday() {
   const subjects = WEEKDAY_SUBJECTS[5];
   return [
     ...morningSlots(subjects, false),
     ...afternoonSlots(subjects),
-    { start: "16:10", end: "16:50", type: "class", subject: "schoolCourse" },
+    { start: "16:10", end: "17:00", type: "class", subject: "schoolCourse" },
     { start: "17:00", end: "17:40", type: "class", subject: "schoolCourse" },
     { start: "17:50", end: "18:25", type: "tutoring", subjects: ["geography"] },
     { start: "18:25", end: "19:00", type: "tutoring", subjects: ["biology"] },
@@ -232,10 +239,9 @@ function weekdayRoutine(weekday, t) {
   if (t < 19 * 60) return { kind: "break", ...at(weekday, t) };
   if (t < 19 * 60 + 40) return { kind: "dinner", ...at(weekday, t) };
   if (t < 22 * 60 + 30) return { kind: "break", ...at(weekday, t) };
-  // Night self-study ends at 22:30. Keep the exact boundary instant as free
-  // time (spec test table), then a ~20 minute travel-home estimate.
-  if (t < 22 * 60 + 35) return { kind: "free", ...at(weekday, t) };
-  if (t < 22 * 60 + 55) return { kind: "travel-home", ...at(weekday, t) };
+  // Night self-study ends at 22:30, then ~20 minutes travel-home, a short
+  // wind-down, and sleep from 23:00.
+  if (t < 22 * 60 + 50) return { kind: "travel-home", ...at(weekday, t) };
   if (t < 23 * 60) return { kind: "free", ...at(weekday, t) };
   return { kind: "sleep", ...at(weekday, t) };
 }
@@ -245,13 +251,14 @@ function saturdayRoutine(t) {
   if (t < 6 * 60 + 30) return { kind: "sleep", ...at(t) };
   if (t < 6 * 60 + 50) return { kind: "travel-to", ...at(t) };
   if (t < 11 * 60 + 40) return { kind: "break", ...at(t) };
-  if (t < 14 * 60 + 30) return { kind: "lunch", ...at(t) };
+  if (t < 14 * 60 + 20) return { kind: "lunch", ...at(t) };
   if (t < 15 * 60 + 20 && t >= 15 * 60 + 10) return { kind: "break", ...at(t) };
-  if (t < 17 * 60 + 40 && t >= 17 * 60 + 20) return { kind: "dinner", ...at(t) };
+  // 17:20-17:40 is a short break between self-study and evening classes.
+  if (t < 17 * 60 + 40 && t >= 17 * 60 + 20) return { kind: "break", ...at(t) };
   if (t >= 18 * 60 + 20 && t < 18 * 60 + 30) return { kind: "break", ...at(t) };
-  // Evening classes end at 19:10, then ~20 minutes travel-home.
-  if (t >= 19 * 60 + 10 && t < 19 * 60 + 30) return { kind: "travel-home", ...at(t) };
-  if (t >= 19 * 60 + 30 && t < 23 * 60) return { kind: "free", ...at(t) };
+  // Daytime classes end at 19:10; the rest of the evening is free time.
+  // No night self-study and no invented school commute on Saturday.
+  if (t >= 19 * 60 + 10 && t < 23 * 60) return { kind: "free", ...at(t) };
   if (t >= 23 * 60) return { kind: "sleep", ...at(t) };
   return { kind: "break", ...at(t) };
 }
@@ -367,7 +374,9 @@ export function describeDay(date = new Date()) {
       isRestDay: false,
       isSaturday: true,
       slots: SATURDAY_SLOTS.map((slot) => ({ ...slot })),
-      notes: [{ kind: "lunch-note" }, { kind: "noon-reading-note", subject: SATURDAY_NOON_READING }],
+      // Saturday noon reading is a timed 14:20-14:30 Mathematics slot above,
+      // so only the lunch note remains; there is no untimed noon-reading note.
+      notes: [{ kind: "lunch-note" }],
     };
   }
   return {
