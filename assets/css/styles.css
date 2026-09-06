@@ -2110,6 +2110,55 @@ button.contact-link {
   border-color: rgba(185, 95, 55, 0.34);
 }
 
+.admin-health--envs {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.admin-health__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.admin-health__head code {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.admin-health__item .admin-health__state {
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-health__item.is-ok .admin-health__state {
+  color: var(--green-dark);
+}
+
+.admin-health__item.is-missing .admin-health__state {
+  color: var(--cinnabar);
+}
+
+.admin-health__meta {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-health__hint {
+  margin: 8px 0 0;
+  padding: 9px 11px;
+  color: var(--ink-soft);
+  background: rgba(185, 95, 55, 0.07);
+  border: 1px solid rgba(185, 95, 55, 0.18);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
 .admin-comment-toolbar {
   display: flex;
   align-items: end;

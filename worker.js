@@ -1167,13 +1167,33 @@ function parseFirstJsonObject(value) {
 }
 
 async function adminHealth(env) {
+  const turnstileSecret = Boolean(await loadSecret(env, "TURNSTILE_SECRET_KEY"));
+  const adminPassword = Boolean(await loadAdminPassword(env));
+  const telegramToken = Boolean(await loadSecret(env, "TELEGRAM_BOT_TOKEN"));
+  const telegramChatId = Boolean(await loadSecret(env, "TELEGRAM_CHAT_ID"));
+  const moderationModel = cleanOneLine(env.COMMENT_MODERATION_MODEL, 120);
+  const chatModel = cleanOneLine(env.AI_CHAT_MODEL || env.ADMIN_AI_CHAT_MODEL, 120);
+  const envChecks = [
+    { name: "COMMENTS_DB", ok: Boolean(env.COMMENTS_DB) },
+    { name: "COMMENTS_KV", ok: Boolean(env.COMMENTS_KV) },
+    { name: "AI", ok: Boolean(env.AI?.run) },
+    { name: "ADMIN_PASSWORD", ok: adminPassword },
+    { name: "TURNSTILE_SECRET_KEY", ok: turnstileSecret },
+    { name: "TURNSTILE_SITE_KEY", ok: Boolean(cleanOneLine(env.TURNSTILE_SITE_KEY, 256)), optional: true },
+    { name: "TELEGRAM_BOT_TOKEN", ok: telegramToken, optional: true },
+    { name: "TELEGRAM_CHAT_ID", ok: telegramChatId, optional: true },
+    { name: "COMMENT_MODERATION_MODEL", ok: Boolean(moderationModel), optional: true },
+    { name: "AI_CHAT_MODEL", ok: Boolean(chatModel), optional: true },
+    { name: "RUNTIME_SCHEMA_BOOTSTRAP", ok: env.RUNTIME_SCHEMA_BOOTSTRAP === "1", optional: true },
+  ];
   return {
     d1: Boolean(env.COMMENTS_DB),
     kv: Boolean(env.COMMENTS_KV),
     ai: Boolean(env.AI?.run),
-    turnstileSecret: Boolean(await loadSecret(env, "TURNSTILE_SECRET_KEY")),
-    adminPassword: Boolean(await loadAdminPassword(env)),
-    telegram: Boolean(await loadSecret(env, "TELEGRAM_BOT_TOKEN")) && Boolean(await loadSecret(env, "TELEGRAM_CHAT_ID")),
+    turnstileSecret,
+    adminPassword,
+    telegram: telegramToken && telegramChatId,
+    checks: envChecks,
   };
 }
 
