@@ -63,10 +63,11 @@ const cases = [
   ["tuesday", "16:50", "activity", null],
   ["tuesday", "17:30", "tutoring", null],
   ["tuesday", "19:00", "dinner", null],
-  // Wednesday: English early reading, art + music afternoon.
+  // Wednesday: English early reading, politics noon reading, art + music afternoon.
   ["wednesday", "06:50", "morning-reading", "english"],
   ["wednesday", "07:30", "class", "chinese"],
   ["wednesday", "08:20", "class", "chemistry"],
+  ["wednesday", "14:20", "noon-reading", "politics"],
   ["wednesday", "14:30", "class", "art"],
   ["wednesday", "15:20", "class", "music"],
   ["wednesday", "16:10", "self-study", null],
@@ -91,20 +92,27 @@ const cases = [
   ["sunday", "10:30", "rest", null],
   ["sunday", "23:59", "rest", null],
   // Saturday special timetable (never the weekday one).
-  ["saturday", "06:50", "morning-reading", "chinese"],
-  ["saturday", "07:30", "class", "chemistry"],
-  ["saturday", "08:20", "class", "history"],
-  ["saturday", "09:10", "class", "chinese"],
-  ["saturday", "09:50", "big-break", null],
+  // 06:50 starts two back-to-back normal Chinese classes (not morning reading).
+  ["saturday", "06:49", "travel-to", null],
+  ["saturday", "06:50", "class", "chinese"],
+  ["saturday", "07:29", "class", "chinese"],
+  ["saturday", "07:30", "class", "chinese"],
+  ["saturday", "08:10", "break", null],
+  ["saturday", "08:20", "class", "chemistry"],
+  ["saturday", "09:10", "class", "history"],
+  ["saturday", "09:50", "activity", null],
   ["saturday", "10:10", "class", "physics"],
   ["saturday", "11:00", "class", "politics"],
+  ["saturday", "11:40", "lunch", null],
   ["saturday", "14:30", "class", "math"],
   ["saturday", "15:20", "class", "english"],
   ["saturday", "16:00", "activity", null],
   ["saturday", "16:20", "self-study", null],
+  ["saturday", "17:20", "dinner", null],
   ["saturday", "17:40", "class", "geography"],
   ["saturday", "18:30", "class", "biology"],
-  ["saturday", "19:10", "free", null],
+  ["saturday", "19:10", "travel-home", null],
+  ["saturday", "19:30", "free", null],
   // Evening boundaries: tutoring ends 19:00 sharp, dinner 19:00-19:40.
   ["monday", "18:59", "tutoring", null],
   ["thursday", "18:59", "tutoring", null],
@@ -184,6 +192,18 @@ for (const [day, time, kind, subject] of cases) {
   if (flag !== "现在大概在参加升旗仪式") fail(`flag wording: got "${flag}"`);
   const rest = statusText(resolveStatus(at("sunday", "10:00")), "zh");
   if (rest.includes("数学") || rest.includes("课")) fail(`sunday wording leaks a subject: "${rest}"`);
+  // Saturday 06:50 is a normal Chinese class, never morning reading.
+  const satEarly = resolveStatus(at("saturday", "06:50"));
+  if (satEarly.kind !== "class" || satEarly.slot?.subject !== "chinese") {
+    fail(`saturday 06:50 wording precondition: got ${JSON.stringify(satEarly)}`);
+  }
+  const satZh = statusText(satEarly, "zh");
+  const satEn = statusText(satEarly, "en");
+  const satJa = statusText(satEarly, "ja");
+  if (satZh !== "现在大概在上语文课") fail(`saturday zh wording: got "${satZh}"`);
+  if (satEn !== "Probably in Chinese class right now") fail(`saturday en wording: got "${satEn}"`);
+  if (satJa !== "今は中国語の授業中かも") fail(`saturday ja wording: got "${satJa}"`);
+  if (satZh.includes("早读")) fail(`saturday 06:50 must not say 早读: "${satZh}"`);
 }
 
 // Day view shape.
@@ -193,6 +213,16 @@ for (const [day, time, kind, subject] of cases) {
   const monday = describeDay(at("monday", "10:00"));
   if (monday.isRestDay || monday.slots.length === 0) fail("describeDay monday should list timed slots");
   if (monday.slots.some((slot) => !slot.start || !slot.end || !slot.type)) fail("describeDay monday slots need start/end/type");
+  // Saturday day view: two opening Chinese classes, untimed math noon note.
+  const saturday = describeDay(at("saturday", "10:00"));
+  if (saturday.isRestDay || !saturday.isSaturday || saturday.slots.length === 0) fail("describeDay saturday should list timed slots");
+  if (saturday.slots.some((slot) => slot.type === "morning-reading")) fail("describeDay saturday must not label 06:50 as morning-reading");
+  const first = saturday.slots[0];
+  const second = saturday.slots[1];
+  if (!first || first.start !== "06:50" || first.type !== "class" || first.subject !== "chinese") fail(`describeDay saturday first slot: got ${JSON.stringify(first)}`);
+  if (!second || second.start !== "07:30" || second.type !== "class" || second.subject !== "chinese") fail(`describeDay saturday second slot: got ${JSON.stringify(second)}`);
+  if (!saturday.notes?.some((note) => note.kind === "noon-reading-note" && note.subject === "math")) fail("describeDay saturday should keep untimed math noon-reading note");
+  if (saturday.slots.some((slot) => slot.type === "noon-reading")) fail("describeDay saturday must not invent a timed noon-reading slot");
 }
 
 if (failures) {

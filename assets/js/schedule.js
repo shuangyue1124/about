@@ -73,15 +73,16 @@ function afternoonSlots(subjects) {
 // Per weekday subjects.
 // Order: early, p1-p5, noon (null = undetermined), p6, p7, p8 (+p8type),
 // extra (+extratype), tutoring: [session1, session2].
-// Only Tuesday pins a noon-reading subject (physics); the other weekdays leave
-// noon reading undetermined, and only Friday splits tutoring into timed halves.
+// Only Tuesday (physics) and Wednesday (politics) pin a noon-reading subject;
+// the other weekdays leave noon reading undetermined, and only Friday splits
+// tutoring into timed halves.
 const WEEKDAY_SUBJECTS = {
   // Monday (09:55-10:25 is the flag-raising ceremony, not a big break)
   1: { early: "english", p1: "chinese", p2: "math", p3: "english", p4: "chemistry", p5: "geography", noon: null, p6: "psychology", p7: "physics", p8: "selfStudy", p8type: "self-study", extra: "classMeeting", extratype: "class", tutoring: ["chemistry", "politics"] },
   // Tuesday
   2: { early: "chinese", p1: "english", p2: "chinese", p3: "history", p4: "biology", p5: "math", noon: "physics", p6: "physics", p7: "politics", p8: "selfStudy", p8type: "self-study", extra: "activity", extratype: "activity", tutoring: ["math", "math"] },
   // Wednesday
-  3: { early: "english", p1: "chinese", p2: "chemistry", p3: "math", p4: "english", p5: "physics", noon: null, p6: "art", p7: "music", p8: "selfStudy", p8type: "self-study", extra: "activity", extratype: "activity", tutoring: ["physics", "history"] },
+  3: { early: "english", p1: "chinese", p2: "chemistry", p3: "math", p4: "english", p5: "physics", noon: "politics", p6: "art", p7: "music", p8: "selfStudy", p8type: "self-study", extra: "activity", extratype: "activity", tutoring: ["physics", "history"] },
   // Thursday
   4: { early: "chinese", p1: "math", p2: "chinese", p3: "english", p4: "physics", p5: "chemistry", noon: null, p6: "politics", p7: "biology", p8: "pe", p8type: "class", extra: "cleaning", extratype: "activity", tutoring: ["english", "chinese"] },
   // Friday (school course 2 and split tutoring have their own exact times)
@@ -89,12 +90,13 @@ const WEEKDAY_SUBJECTS = {
 };
 
 // Saturday special timetable (fully timed entries, no template).
+// 06:50 starts two back-to-back normal Chinese classes (not morning reading).
 const SATURDAY_SLOTS = [
-  { start: "06:50", end: "07:30", type: "morning-reading", subject: "chinese" },
-  { start: "07:30", end: "08:10", type: "class", subject: "chemistry" },
-  { start: "08:20", end: "09:00", type: "class", subject: "history" },
-  { start: "09:10", end: "09:50", type: "class", subject: "chinese" },
-  { start: "09:50", end: "10:10", type: "big-break", subject: "activity" },
+  { start: "06:50", end: "07:30", type: "class", subject: "chinese" },
+  { start: "07:30", end: "08:10", type: "class", subject: "chinese" },
+  { start: "08:20", end: "09:00", type: "class", subject: "chemistry" },
+  { start: "09:10", end: "09:50", type: "class", subject: "history" },
+  { start: "09:50", end: "10:10", type: "activity", subject: "activity" },
   { start: "10:10", end: "10:50", type: "class", subject: "physics" },
   { start: "11:00", end: "11:40", type: "class", subject: "politics" },
   // Midday gap 11:40-14:20 resolves to lunch. The source lists a Saturday noon
@@ -247,11 +249,9 @@ function saturdayRoutine(t) {
   if (t < 15 * 60 + 20 && t >= 15 * 60 + 10) return { kind: "break", ...at(t) };
   if (t < 17 * 60 + 40 && t >= 17 * 60 + 20) return { kind: "dinner", ...at(t) };
   if (t >= 18 * 60 + 20 && t < 18 * 60 + 30) return { kind: "break", ...at(t) };
-  // Evening classes end at 19:10. Keep the exact boundary instant as free
-  // time (spec test table), then a ~20 minute travel-home estimate.
-  if (t >= 19 * 60 + 10 && t < 19 * 60 + 15) return { kind: "free", ...at(t) };
-  if (t >= 19 * 60 + 15 && t < 19 * 60 + 35) return { kind: "travel-home", ...at(t) };
-  if (t >= 19 * 60 + 35 && t < 23 * 60) return { kind: "free", ...at(t) };
+  // Evening classes end at 19:10, then ~20 minutes travel-home.
+  if (t >= 19 * 60 + 10 && t < 19 * 60 + 30) return { kind: "travel-home", ...at(t) };
+  if (t >= 19 * 60 + 30 && t < 23 * 60) return { kind: "free", ...at(t) };
   if (t >= 23 * 60) return { kind: "sleep", ...at(t) };
   return { kind: "break", ...at(t) };
 }
