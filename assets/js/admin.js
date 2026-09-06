@@ -1,5 +1,6 @@
 const app = document.getElementById("adminApp");
 const defaultAiModel = "@cf/meta/llama-3.2-3b-instruct";
+const AI_CHAT_TIMEOUT_MS = 60000;
 
 const emptyConfig = {
   commentsEnabled: true,
@@ -200,7 +201,7 @@ function dashboard() {
           ${state.chatMessages.map(chatMessage).join("")}
           ${state.chatLoading ? '<p class="admin-chat-message admin-chat-message--assistant">正在查询 D1 并生成回复...</p>' : ""}
         </div>
-        ${state.chatDataAt ? `<p class="admin-chat-meta">数据生成时间：${esc(formatDate(state.chatDataAt))} · 统计窗口：过去 24 小时 / 7 天 / 30 天</p>` : ""}
+        ${state.chatDataAt ? `<p class="admin-chat-meta">数据生成时间：${esc(formatTime(state.chatDataAt))} · 统计窗口：过去 24 小时 / 7 天 / 30 天</p>` : ""}
         <form class="admin-chat-form" id="aiChatForm">
           <label>
             <span>向 AI 提问</span>
@@ -616,18 +617,32 @@ async function sendAiChat(event) {
   input.value = "";
   render();
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
   try {
     const response = await api("/api/admin/ai-chat", {
       method: "POST",
       body: JSON.stringify({ message }),
+      signal: controller.signal,
     });
     if (!response.ok) throw new Error(await responseText(response));
     const data = await response.json();
     state.chatMessages.push({ role: "assistant", content: data.reply || "没有得到回复。" });
     if (data.contextMeta?.generatedAt) state.chatDataAt = String(data.contextMeta.generatedAt);
   } catch (error) {
-    state.chatMessages.push({ role: "assistant", content: error.message || "AI 对话暂时不可用。" });
+    if (controller.signal.aborted) {
+      state.chatMessages.push({
+        role: "assistant",
+        content: `查询超时（超过 ${Math.round(AI_CHAT_TIMEOUT_MS / 1000)} 秒未收到回复）。请稍后重试；若总是超时，可在「系统配置 → AI 对话模型」换用更快的模型。`,
+      });
+    } else {
+      state.chatMessages.push({
+        role: "assistant",
+        content: error.message || "AI 对话暂时不可用。",
+      });
+    }
   } finally {
+    clearTimeout(timeoutId);
     state.chatLoading = false;
     render();
     document.getElementById("adminChatLog")?.lastElementChild?.scrollIntoView({ block: "nearest" });
@@ -643,9 +658,9 @@ async function loadDashboard() {
       api(`/api/admin/comments?limit=100&status=${encodeURIComponent(state.statusFilter)}`),
       api("/api/admin/health"),
     ]);
-    if (!configResponse.ok) throw new Error(await responseText(configResponse));
-    if (!commentsResponse.ok) throw new Error(await responseText(commentsResponse));
-    if (!healthResponse.ok) throw new Error(await responseText(healthResponse));
+    if (!configResponse.ok) throw await apiError(configResponse);
+    if (!commentsResponse.ok) throw await apiError(commentsResponse);
+    if (!healthResponse.ok) throw await apiError(healthResponse);
     const configData = await configResponse.json();
     const commentsData = await commentsResponse.json();
     const healthData = await healthResponse.json();
@@ -656,11 +671,20 @@ async function loadDashboard() {
     state.loading = false;
     render();
   } catch (error) {
-    state.authed = false;
     state.loading = false;
-    state.status = error.message || "需要重新登录。";
+    state.status = error.message || "加载失败，请点击「刷新数据」重试。";
+    if (error.status === 401 || error.status === 403) {
+      state.authed = false;
+      state.health = null;
+    }
     render();
   }
+}
+
+async function apiError(response) {
+  const error = new Error(await responseText(response));
+  error.status = response.status;
+  return error;
 }
 
 async function responseText(response) {

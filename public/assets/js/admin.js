@@ -1,5 +1,6 @@
 const app = document.getElementById("adminApp");
 const defaultAiModel = "@cf/meta/llama-3.2-3b-instruct";
+const AI_CHAT_TIMEOUT_MS = 60000;
 
 const emptyConfig = {
   commentsEnabled: true,
@@ -128,11 +129,11 @@ function dashboard() {
     <section class="admin-hero">
       <p class="eyebrow">Dashboard</p>
       <h1>评论审核与系统配置</h1>
-      <p>D1 是主库，KV 与单实例内存用于公开评论缓存。Cloudflare 绑定和 secret 只做健康检查，真实配置仍在 Wrangler 或 Cloudflare Dashboard 中维护。</p>
+      <p>D1 是主库，KV 与单实例内存用于公开评论缓存。下方清单逐项检查后台依赖的 Cloudflare 绑定与环境变量，缺少时只提示变量名和期望值，不会拦截访问或管理；真实配置仍在 Cloudflare Dashboard 中维护。</p>
     </section>
     <div class="admin-layout">
       <section class="admin-panel" aria-labelledby="health-title">
-        <h2 id="health-title">绑定健康检查</h2>
+        <h2 id="health-title">环境变量与绑定检查（仅提醒）</h2>
         ${healthView()}
         <div class="admin-actions">
           <button class="btn" type="button" id="refreshButton" aria-label="刷新后台数据">刷新数据</button>
@@ -200,7 +201,7 @@ function dashboard() {
           ${state.chatMessages.map(chatMessage).join("")}
           ${state.chatLoading ? '<p class="admin-chat-message admin-chat-message--assistant">正在查询 D1 并生成回复...</p>' : ""}
         </div>
-        ${state.chatDataAt ? `<p class="admin-chat-meta">数据生成时间：${esc(formatDate(state.chatDataAt))} · 统计窗口：过去 24 小时 / 7 天 / 30 天</p>` : ""}
+        ${state.chatDataAt ? `<p class="admin-chat-meta">数据生成时间：${esc(formatTime(state.chatDataAt))} · 统计窗口：过去 24 小时 / 7 天 / 30 天</p>` : ""}
         <form class="admin-chat-form" id="aiChatForm">
           <label>
             <span>向 AI 提问</span>
@@ -231,24 +232,88 @@ function dashboard() {
   `;
 }
 
+const envCheckGuide = {
+  COMMENTS_DB: {
+    kind: "D1 数据库绑定",
+    badge: "必需",
+    hint: "期望值：新建或选择 D1 数据库（如 about-comments），并把 database_id 配置到 Pages 项目；缺少时留言无法入库，留言审核与 AI 数据对话不可用。设置位置：Cloudflare Pages → Settings → Functions → D1 Database Bindings（变量名保持 COMMENTS_DB）。",
+  },
+  COMMENTS_KV: {
+    kind: "KV 命名空间绑定",
+    badge: "必需",
+    hint: "期望值：KV namespace（绑定名 COMMENTS_KV），用于公开评论缓存与限流计数；缺少时公开评论读取与提交限流不可用。设置位置：Settings → Functions → KV Namespace Bindings。",
+  },
+  AI: {
+    kind: "Workers AI 绑定",
+    badge: "建议",
+    hint: "期望值：创建 Workers AI binding（无需密钥，绑定名 AI）；缺少时留言自动进入待审、AI 数据对话不可用，但页面访问与后台管理不受影响。设置位置：Settings → Functions → Workers AI Bindings。",
+  },
+  ADMIN_PASSWORD: {
+    kind: "管理员登录密码（Secret）",
+    badge: "必需",
+    hint: "期望值：你自己设置的管理员登录密码（建议足够长的随机串）。兼容变量名：ADMIN_SECRET、SFSY_ADMIN_PASSWORD、SITE_ADMIN_PASSWORD；或 Secrets Store 绑定 SECRETS / SECRET_STORE / ADMIN_SECRETS 中的同名密钥。缺少时无法登录后台，公开页面不受影响。设置位置：Settings → Functions → Environment Variables（Secret）。",
+  },
+  TURNSTILE_SECRET_KEY: {
+    kind: "Turnstile 私钥（Secret）",
+    badge: "必需",
+    hint: "期望值：Turnstile 控制台对应站点的 Secret Key（0x 开头），与公开 site key 成对；缺少时访客发布留言会被拒绝，页面浏览不受影响。设置位置：Settings → Functions → Environment Variables（Secret）。",
+  },
+  TURNSTILE_SITE_KEY: {
+    kind: "Turnstile 公钥（环境变量）",
+    badge: "可选",
+    hint: "期望值：Turnstile 控制台的 Site Key（0x 开头）。它只是环境变量级默认值，在后台「系统配置 → 公开 Turnstile site key」保存过时可以留空。设置位置：Settings → Functions → Environment Variables。",
+  },
+  TELEGRAM_BOT_TOKEN: {
+    kind: "Telegram Bot Token（Secret）",
+    badge: "可选",
+    hint: "期望值：@BotFather 创建的 bot token，形如 1234567890:AAF…，用于新留言通知与「测试 Telegram」按钮。缺少时只有该通知功能不可用，其余留言流程正常。设置位置：Settings → Functions → Environment Variables（Secret）。",
+  },
+  TELEGRAM_CHAT_ID: {
+    kind: "Telegram 接收 chat（Secret）",
+    badge: "可选",
+    hint: "期望值：站长自己的 chat id（先给 bot 发一句话，再用 getUpdates 查询），通常是一串数字或 @频道名，需与 TELEGRAM_BOT_TOKEN 成对设置。设置位置：Settings → Functions → Environment Variables（Secret）。",
+  },
+  COMMENT_MODERATION_MODEL: {
+    kind: "AI 审核模型（环境变量）",
+    badge: "可选",
+    hint: "期望值：Workers AI 模型名，如 @cf/meta/llama-guard-3-8b。不设置时用内置默认模型，后台「系统配置 → AI 审核模型」保存后以此为准。设置位置：Settings → Functions → Environment Variables。",
+  },
+  AI_CHAT_MODEL: {
+    kind: "AI 对话模型（环境变量）",
+    badge: "可选",
+    hint: "期望值：模型名，默认 @cf/meta/llama-3.2-3b-instruct；兼容旧名 ADMIN_AI_CHAT_MODEL。后台「AI 对话模型」已保存时可忽略此项。设置位置：Settings → Functions → Environment Variables。",
+  },
+  RUNTIME_SCHEMA_BOOTSTRAP: {
+    kind: "运行时装表（环境变量）",
+    badge: "可选",
+    hint: "期望值：设为 1 时 Worker 首次启动会自动在 D1 建表；生产若已用 migrations/0001_comments_d1.sql 建过表则不必设置（本地 wrangler.jsonc 默认已有）。设置位置：Settings → Functions → Environment Variables。",
+  },
+};
+
 function healthView() {
   const health = state.health || {};
-  const items = [
-    ["COMMENTS_DB / D1", health.d1],
-    ["COMMENTS_KV / KV", health.kv],
-    ["AI binding", health.ai],
-    ["TURNSTILE_SECRET_KEY", health.turnstileSecret],
-    ["ADMIN_PASSWORD", health.adminPassword],
-    ["Telegram 通知", health.telegram],
-  ];
+  const checks = Array.isArray(health.checks) ? health.checks : [];
   return `
-    <div class="admin-health">
-      ${items.map(([label, ok]) => `
-        <span class="admin-health__item ${ok ? "is-ok" : "is-missing"}">
-          <strong>${esc(label)}</strong>
-          <em>${ok ? "已配置" : "未配置"}</em>
-        </span>
-      `).join("")}
+    <p>以下清单只做提醒、不拦截任何功能：缺少某项时页面访问、留言区和后台管理仍然可用，只是对应功能不可用。逐项查看变量名、期望值与设置位置即可。</p>
+    <div class="admin-health admin-health--envs">
+      ${checks.length
+        ? checks.map(healthItem).join("")
+        : '<p class="comment-list__empty">暂无环境变量状态数据，请点击「刷新数据」。</p>'}
+    </div>
+  `;
+}
+
+function healthItem(check) {
+  const meta = envCheckGuide[check.name] || {};
+  const ok = Boolean(check.ok);
+  return `
+    <div class="admin-health__item ${ok ? "is-ok" : "is-missing"}">
+      <div class="admin-health__head">
+        <strong><code>${esc(check.name)}</code></strong>
+        <em class="admin-health__state">${ok ? "已配置" : "未配置"}</em>
+      </div>
+      <p class="admin-health__meta">${esc(meta.kind || "环境变量")}${meta.badge ? ` · ${esc(meta.badge)}` : ""}</p>
+      ${ok ? "" : meta.hint ? `<p class="admin-health__hint">${esc(meta.hint)}</p>` : ""}
     </div>
   `;
 }
@@ -552,18 +617,32 @@ async function sendAiChat(event) {
   input.value = "";
   render();
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
   try {
     const response = await api("/api/admin/ai-chat", {
       method: "POST",
       body: JSON.stringify({ message }),
+      signal: controller.signal,
     });
     if (!response.ok) throw new Error(await responseText(response));
     const data = await response.json();
     state.chatMessages.push({ role: "assistant", content: data.reply || "没有得到回复。" });
     if (data.contextMeta?.generatedAt) state.chatDataAt = String(data.contextMeta.generatedAt);
   } catch (error) {
-    state.chatMessages.push({ role: "assistant", content: error.message || "AI 对话暂时不可用。" });
+    if (controller.signal.aborted) {
+      state.chatMessages.push({
+        role: "assistant",
+        content: `查询超时（超过 ${Math.round(AI_CHAT_TIMEOUT_MS / 1000)} 秒未收到回复）。请稍后重试；若总是超时，可在「系统配置 → AI 对话模型」换用更快的模型。`,
+      });
+    } else {
+      state.chatMessages.push({
+        role: "assistant",
+        content: error.message || "AI 对话暂时不可用。",
+      });
+    }
   } finally {
+    clearTimeout(timeoutId);
     state.chatLoading = false;
     render();
     document.getElementById("adminChatLog")?.lastElementChild?.scrollIntoView({ block: "nearest" });
@@ -579,9 +658,9 @@ async function loadDashboard() {
       api(`/api/admin/comments?limit=100&status=${encodeURIComponent(state.statusFilter)}`),
       api("/api/admin/health"),
     ]);
-    if (!configResponse.ok) throw new Error(await responseText(configResponse));
-    if (!commentsResponse.ok) throw new Error(await responseText(commentsResponse));
-    if (!healthResponse.ok) throw new Error(await responseText(healthResponse));
+    if (!configResponse.ok) throw await apiError(configResponse);
+    if (!commentsResponse.ok) throw await apiError(commentsResponse);
+    if (!healthResponse.ok) throw await apiError(healthResponse);
     const configData = await configResponse.json();
     const commentsData = await commentsResponse.json();
     const healthData = await healthResponse.json();
@@ -592,11 +671,20 @@ async function loadDashboard() {
     state.loading = false;
     render();
   } catch (error) {
-    state.authed = false;
     state.loading = false;
-    state.status = error.message || "需要重新登录。";
+    state.status = error.message || "加载失败，请点击「刷新数据」重试。";
+    if (error.status === 401 || error.status === 403) {
+      state.authed = false;
+      state.health = null;
+    }
     render();
   }
+}
+
+async function apiError(response) {
+  const error = new Error(await responseText(response));
+  error.status = response.status;
+  return error;
 }
 
 async function responseText(response) {

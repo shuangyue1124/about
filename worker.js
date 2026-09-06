@@ -108,6 +108,7 @@ const MAX_EVENT_BODY_BYTES = 4096;
 const MAX_COMMENT_BODY_BYTES = 8192;
 const TELEGRAM_API_TIMEOUT_MS = 8000;
 const TELEGRAM_TEST_LIMIT = { limit: 3, windowSeconds: 60 };
+const AI_CHAT_TIMEOUT_MS = 24000;
 const EVENT_RETENTION_DAYS_DEFAULT = 90;
 const EVENT_RETENTION_DAYS_MIN = 7;
 const EVENT_RETENTION_DAYS_MAX = 365;
@@ -782,10 +783,32 @@ export function formatCst(date = new Date()) {
 }
 
 async function adminAiChat(env, message) {
-  if (!env.AI?.run) throw new Error("Workers AI binding is not configured");
+  if (!env.AI?.run) {
+    return {
+      reply: "Workers AI 绑定（AI）未配置，无法生成回复。请在 Cloudflare Pages → Settings → Functions → Workers AI Bindings 中添加。",
+      contextMeta: null,
+    };
+  }
+  if (!env.COMMENTS_DB) {
+    return {
+      reply: "D1 数据库绑定（COMMENTS_DB）未配置，无法查询统计数据。请在 Cloudflare Pages → Settings → Functions → D1 Database Bindings 中配置。",
+      contextMeta: null,
+    };
+  }
+
   const config = await loadSiteConfig(env);
   const model = cleanOneLine(config.aiChatModel, 120) || DEFAULT_CHAT_MODEL;
-  const context = await adminAiContext(env, config);
+
+  let context;
+  try {
+    context = await adminAiContext(env, config);
+  } catch (error) {
+    return {
+      reply: `查询 D1 数据失败：${error?.message || "数据库暂时不可用，请稍后重试。"}`,
+      contextMeta: null,
+    };
+  }
+
   const prompt = [
     "You are the private admin assistant for this personal site.",
     "Answer in Chinese unless the admin asks for another language.",
@@ -798,14 +821,32 @@ async function adminAiChat(env, message) {
     "",
     `Admin question: ${message}`,
   ].join("\n");
-  const result = await runTextModel(env, model, prompt);
+
+  const meta = {
+    generatedAt: context.generatedAt,
+    windows: ["过去 24 小时", "过去 7 天", "过去 30 天"],
+  };
+  const result = await raceWithTimeout(runTextModel(env, model, prompt), AI_CHAT_TIMEOUT_MS);
+  if (!result) {
+    return {
+      reply: `AI 推理超时（超过 ${Math.round(AI_CHAT_TIMEOUT_MS / 1000)} 秒），本次没有生成回复。请稍后重试；若持续超时，可在「系统配置」里把 AI 对话模型换成响应更快的模型。`,
+      contextMeta: meta,
+    };
+  }
   return {
     reply: extractModelText(result) || "没有得到可读的 AI 回复。",
-    contextMeta: {
-      generatedAt: context.generatedAt,
-      windows: ["过去 24 小时", "过去 7 天", "过去 30 天"],
-    },
+    contextMeta: meta,
   };
+}
+
+function raceWithTimeout(promise, timeoutMs) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 async function adminAiContext(env, config) {
