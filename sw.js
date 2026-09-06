@@ -8,6 +8,7 @@ const STATIC_ASSETS = [
   "/assets/css/styles.css?v=20260818-japan-travel",
   "/assets/js/app.js?v=20260818-japan-travel",
   "/assets/js/data.js",
+  "/assets/js/schedule.js",
   "/assets/images/avatar.webp",
   "/assets/images/generated/home-hero-ink-960.webp",
   "/assets/images/og-card.webp",

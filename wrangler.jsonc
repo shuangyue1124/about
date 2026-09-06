@@ -6,6 +6,15 @@
   "compatibility_date": "2026-06-13",
   "workers_dev": true,
   "preview_urls": true,
+  // Worker runtimes only (wrangler dev / wrangler deploy): daily site_events
+  // cleanup at 00:00 China Standard Time (16:00 UTC; Cloudflare Cron runs in
+  // UTC). The scheduled() handler in worker.js only deletes rows older than
+  // the 90-day retention cutoff. Pages Git deployments IGNORE this block
+  // (Pages Functions have no scheduled-event wiring), so production cleanup
+  // relies on the admin "cleanup events" button instead.
+  "triggers": {
+    "crons": ["0 16 * * *"]
+  },
   "kv_namespaces": [
     {
       "binding": "COMMENTS_KV",
@@ -24,7 +33,8 @@
   },
   "vars": {
     "COMMENT_MODERATION_MODEL": "@cf/meta/llama-3.2-3b-instruct",
-    "TURNSTILE_SITE_KEY": "0x4AAAAAADnuEH7YMTYy_Dgd"
+    "TURNSTILE_SITE_KEY": "0x4AAAAAADnuEH7YMTYy_Dgd",
+    "RUNTIME_SCHEMA_BOOTSTRAP": "1"
   },
   "assets": {
     "directory": "public",
