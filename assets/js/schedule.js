@@ -94,7 +94,8 @@ const WEEKDAY_SUBJECTS = {
   5: { early: "english", p1: "english", p2: "history", p3: "chinese", p4: "math", p5: "geography", noon: null, p6: "pe", p7: "pe", p8: "schoolCourse" },
 };
 
-// Saturday special timetable (fully timed entries, no template).
+// Saturday special timetable (SATURDAY_SLOTS is the source of truth for timed
+// Saturday periods: fully timed entries, no template).
 // 06:50-07:30 is Chinese morning reading, followed by a normal Chinese class.
 // 14:20-14:30 is Mathematics noon reading. There is no night
 // self-study: classes end at 19:10 and the rest of the evening is free time.
@@ -351,7 +352,7 @@ export function slotLabel(slot, lang = "zh") {
   const subject = slot.subjects ? joinSubjects(slot.subjects, l) : subjectName(slot.subject, l);
   if (!subject) return base;
   if (slot.type === "class" || slot.type === "morning-reading" || slot.type === "noon-reading" || slot.type === "tutoring") {
-    return l === "en" ? `${base} · ${subject}` : `${base} · ${subject}`;
+    return `${base} · ${subject}`;
   }
   if (slot.type === "activity" || slot.type === "big-break") {
     if (slot.subject === "activity") return base;
