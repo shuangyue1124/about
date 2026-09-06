@@ -37,10 +37,14 @@ export default {
     return env.ASSETS.fetch(request);
   },
 
-  // Optional Cron maintenance (see wrangler.jsonc triggers). Cloudflare Cron
-  // runs in UTC; the cutoff below is an absolute instant, so no CST/UTC
-  // confusion is possible. The school timetable is client-side only and is
-  // never touched by this trigger.
+  // Cron maintenance for Worker runtimes only (wrangler dev / wrangler deploy).
+  // It does NOT run on the production Cloudflare Pages deployment: Pages Git
+  // integration serves public/ plus the file-routed functions/ handlers, and
+  // Pages Functions have no scheduled-event wiring, so wrangler.jsonc triggers
+  // are ignored there. Production cleanup relies on the authenticated admin
+  // button (POST /api/admin/cleanup-events). Cloudflare Cron runs in UTC; the
+  // cutoff below is an absolute instant, so no CST/UTC confusion is possible.
+  // The school timetable is client-side only and is never touched by this.
   async scheduled(event, env, ctx) {
     if (!env.COMMENTS_DB) return;
     const days = EVENT_RETENTION_DAYS_DEFAULT;
@@ -253,14 +257,10 @@ export async function handleEvents(request, env) {
   const userAgent = cleanOneLine(request.headers.get("user-agent"), 300);
   if (!userAgent) return json({ error: "missing user agent" }, 400);
 
-  // Memory-only: 0 KV reads/writes on the per-page-view hot path. The event
-  // endpoint is best-effort analytics (D1 INSERT follows); per-isolate fixed
-  // windows stop single-source floods without burning the 1,000/day KV write
-  // budget. Cross-isolate abuse still lands in D1, which allows ~100x more
-  // daily writes than KV on Free.
-  const rate = memoryRateLimitCheck("events", clientIp(request), EVENTS_RATE_LIMITS);
-  if (rate.limited) return rateLimitedResponse(rate.retryAfter);
-
+  // Cheap validation runs before the rate-limit counters so malformed or
+  // disallowed payloads cost neither quota nor D1/KV. Flooding with junk
+  // therefore cannot burn legitimate clients' quota; only well-formed
+  // page_views advance the in-memory windows below (still 0 KV reads/writes).
   if (!env.COMMENTS_DB) return json({ ok: true }, 202);
 
   const payload = await request.json().catch(() => null);
@@ -273,6 +273,9 @@ export async function handleEvents(request, env) {
   const lang = cleanOneLine(payload.lang, 12);
   if (page && !ALLOWED_EVENT_PAGES.has(page)) return json({ error: "invalid page value" }, 400);
   if (lang && !ALLOWED_EVENT_LANGS.has(lang)) return json({ error: "invalid lang value" }, 400);
+
+  const rate = memoryRateLimitCheck("events", clientIp(request), EVENTS_RATE_LIMITS);
+  if (rate.limited) return rateLimitedResponse(rate.retryAfter);
 
   try {
     await saveEvent(env, {
@@ -372,12 +375,15 @@ export async function handleAdmin(request, env, ctx) {
     }
 
     if (path === "/api/admin/ai-chat" && request.method === "POST") {
-      const rate = await adminAiChatRateLimit(request, env);
-      if (rate.limited) return rateLimitedResponse(rate.retryAfter, true);
-
+      // Empty messages are rejected before the rate-limit counters so junk or
+      // accidental empty posts never burn KV writes.
       const payload = await request.json().catch(() => ({}));
       const message = cleanMessage(payload.message, 1000);
       if (!message) return jsonAdmin({ error: "message is required" }, 400);
+
+      const rate = await adminAiChatRateLimit(request, env);
+      if (rate.limited) return rateLimitedResponse(rate.retryAfter, true);
+
       const result = await adminAiChat(env, message);
       return jsonAdmin({ reply: result.reply, contextMeta: result.contextMeta });
     }
@@ -452,7 +458,7 @@ async function adminLogin(request, env) {
     return jsonAdmin({ error: "invalid password" }, 401);
   }
 
-  await clearLoginFailures(env, ip);
+  await clearLoginFailures(env, ip, failure.count);
   const token = await createAdminToken(adminPassword);
   return jsonAdmin({ ok: true }, 200, {
     "set-cookie": `${ADMIN_COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ADMIN_SESSION_SECONDS}`,
@@ -486,8 +492,11 @@ async function incrementLoginFailure(env, ip) {
   await env.COMMENTS_KV.put(key, String(count + 1), { expirationTtl: LOGIN_FAILURE_LIMIT.windowSeconds * 2 }).catch(() => {});
 }
 
-async function clearLoginFailures(env, ip) {
+async function clearLoginFailures(env, ip, knownCount = -1) {
   if (!env.COMMENTS_KV) return;
+  // A DELETE on an absent key still counts against the 1,000/day KV delete
+  // budget, so skip it when the pre-login state already shows zero failures.
+  if (knownCount === 0) return;
   const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
   const bucket = Math.floor(Date.now() / windowMs);
   await env.COMMENTS_KV.delete(loginFailureKey(await hashedIp(ip), bucket)).catch(() => {});
@@ -1540,6 +1549,9 @@ function memoryRateLimitCheck(scope, id, limits) {
   // raw truncated identifier is sufficient here; KV keys remain hashed.
   const safeId = cleanOneLine(id, 128) || "unknown";
 
+  // Read all windows first and only advance counters when the request is
+  // allowed: blocked requests neither burn quota nor inflate later windows.
+  const pending = [];
   for (const { limit, windowSeconds } of limits) {
     const windowMs = windowSeconds * 1000;
     const bucket = Math.floor(now / windowMs);
@@ -1553,8 +1565,9 @@ function memoryRateLimitCheck(scope, id, limits) {
       const retryAfter = Math.max(1, windowSeconds - Math.floor((now % windowMs) / 1000));
       return { limited: true, retryAfter };
     }
-    entry.count += 1;
+    pending.push(entry);
   }
+  for (const entry of pending) entry.count += 1;
 
   return { limited: false, retryAfter: 0 };
 }
@@ -1566,6 +1579,9 @@ async function rateLimitCheck(env, scope, id, limits) {
   const safeId = (await sha256Hex(cleanOneLine(id, 128) || "unknown")).slice(0, 32);
   const now = Date.now();
 
+  // Read all windows before writing: a blocked request costs only GETs and
+  // never inflates the counters a later legitimate request would be judged by.
+  const pending = [];
   for (const { limit, windowSeconds } of limits) {
     const windowMs = windowSeconds * 1000;
     const bucket = Math.floor(now / windowMs);
@@ -1575,6 +1591,9 @@ async function rateLimitCheck(env, scope, id, limits) {
       const retryAfter = Math.max(1, windowSeconds - Math.floor((now % windowMs) / 1000));
       return { limited: true, retryAfter };
     }
+    pending.push({ key, count, windowSeconds });
+  }
+  for (const { key, count, windowSeconds } of pending) {
     await env.COMMENTS_KV.put(key, String(count + 1), { expirationTtl: windowSeconds * 2 }).catch(() => {});
   }
 

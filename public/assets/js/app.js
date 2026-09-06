@@ -442,9 +442,10 @@ function bindComments() {
       if (window.turnstile) window.turnstile.reset();
       if (status) status.textContent = data.status === "pending" ? commentLabel("pending") : commentLabel("success");
       if (data.comment && data.status === "approved") {
+        if (commentsCache.comments) commentsCache.comments.unshift(data.comment);
         prependComment(list, data.comment);
       } else {
-        await loadComments(list);
+        await loadComments(list, { force: true });
       }
     } catch (error) {
       if (status) status.textContent = commentFailureLabel(error);
@@ -610,6 +611,9 @@ function registerServiceWorker() {
 
 function trackPageView() {
   if (pageViewTracked || window.location.protocol === "file:") return;
+  // Automated browsers (headless crawlers, smoke tests) would otherwise write
+  // one D1 row per load; skip them client-side at zero server cost.
+  if (navigator.webdriver) return;
   pageViewTracked = true;
   const payload = JSON.stringify({
     type: "page_view",
@@ -635,18 +639,47 @@ function trackPageView() {
   }).catch(() => {});
 }
 
-async function loadComments(list) {
-  list.innerHTML = `<p class="comment-list__empty">${esc(commentLabel("loading"))}</p>`;
+// Homepage init intentionally binds comments twice: once for the static shell in
+// bindCommon(), once after /api/site re-renders the section in
+// applySiteSettings(). Both binds share one in-flight request plus a short
+// fresh cache below, so a normal visit costs a single GET /api/comments.
+let commentsRequest = null;
+let commentsCache = { comments: null, at: 0 };
+const COMMENTS_CACHE_MS = 30 * 1000;
+
+function liveCommentList(fallback) {
+  return fallback.isConnected ? fallback : document.getElementById("commentList") || fallback;
+}
+
+async function loadComments(list, options = {}) {
+  const target = liveCommentList(list);
+  target.innerHTML = `<p class="comment-list__empty">${esc(commentLabel("loading"))}</p>`;
   try {
-    const response = await fetch("/api/comments?limit=30", { headers: { accept: "application/json" } });
-    if (!response.ok) throw new Error("comments unavailable");
-    const data = await response.json();
-    const comments = Array.isArray(data.comments) ? data.comments : [];
-    renderComments(list, comments);
+    if (!options.force && commentsCache.comments && Date.now() - commentsCache.at < COMMENTS_CACHE_MS) {
+      renderComments(target, commentsCache.comments);
+      return;
+    }
+    if (!commentsRequest) {
+      commentsRequest = (async () => {
+        const response = await fetch("/api/comments?limit=30", { headers: { accept: "application/json" } });
+        if (!response.ok) throw new Error("comments unavailable");
+        const data = await response.json();
+        const comments = Array.isArray(data.comments) ? data.comments : [];
+        commentsCache = { comments, at: Date.now() };
+        return comments;
+      })().finally(() => {
+        commentsRequest = null;
+      });
+    }
+    // The list node may have been replaced by the site-settings re-render
+    // while the request was in flight; render into the live node instead of
+    // a detached one so a retry is never needed for that race.
+    renderComments(liveCommentList(list), await commentsRequest);
   } catch {
-    list.innerHTML = `<div class="comment-list__empty"><p>${esc(commentLabel("error"))}</p><button class="btn btn--compact js-retry-comments" type="button">${esc(label("retry"))}</button></div>`;
-    const retry = list.querySelector(".js-retry-comments");
-    retry?.addEventListener("click", () => loadComments(list), { once: true });
+    const retryTarget = liveCommentList(list);
+    retryTarget.innerHTML = `<div class="comment-list__empty"><p>${esc(commentLabel("error"))}</p><button class="btn btn--compact js-retry-comments" type="button">${esc(label("retry"))}</button></div>`;
+    const retry = retryTarget.querySelector(".js-retry-comments");
+    retry?.addEventListener("click", () => loadComments(retryTarget, { force: true }), { once: true });
   }
 }
 
