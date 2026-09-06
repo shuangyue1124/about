@@ -1,12 +1,12 @@
-const CACHE_NAME = "sfsy-static-v20260818-japan-travel";
+const CACHE_NAME = "sfsy-static-v20260906-ai-chat";
 const STATIC_ASSETS = [
   "/",
   "/travel/",
   "/manifest.webmanifest",
   "/contact.vcf",
   "/cities/japan-2026.html",
-  "/assets/css/styles.css?v=20260818-japan-travel",
-  "/assets/js/app.js?v=20260818-japan-travel",
+  "/assets/css/styles.css?v=20260906-ai-chat",
+  "/assets/js/app.js?v=20260906-ai-chat",
   "/assets/js/data.js",
   "/assets/js/schedule.js",
   "/assets/images/avatar.webp",

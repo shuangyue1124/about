@@ -1,5 +1,6 @@
 const app = document.getElementById("adminApp");
 const defaultAiModel = "@cf/meta/llama-3.2-3b-instruct";
+const AI_CHAT_TIMEOUT_MS = 60000;
 
 const emptyConfig = {
   commentsEnabled: true,
@@ -616,18 +617,32 @@ async function sendAiChat(event) {
   input.value = "";
   render();
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
   try {
     const response = await api("/api/admin/ai-chat", {
       method: "POST",
       body: JSON.stringify({ message }),
+      signal: controller.signal,
     });
     if (!response.ok) throw new Error(await responseText(response));
     const data = await response.json();
     state.chatMessages.push({ role: "assistant", content: data.reply || "没有得到回复。" });
     if (data.contextMeta?.generatedAt) state.chatDataAt = String(data.contextMeta.generatedAt);
   } catch (error) {
-    state.chatMessages.push({ role: "assistant", content: error.message || "AI 对话暂时不可用。" });
+    if (controller.signal.aborted) {
+      state.chatMessages.push({
+        role: "assistant",
+        content: `查询超时（超过 ${Math.round(AI_CHAT_TIMEOUT_MS / 1000)} 秒未收到回复）。请稍后重试；若总是超时，可在「系统配置 → AI 对话模型」换用更快的模型。`,
+      });
+    } else {
+      state.chatMessages.push({
+        role: "assistant",
+        content: error.message || "AI 对话暂时不可用。",
+      });
+    }
   } finally {
+    clearTimeout(timeoutId);
     state.chatLoading = false;
     render();
     document.getElementById("adminChatLog")?.lastElementChild?.scrollIntoView({ block: "nearest" });

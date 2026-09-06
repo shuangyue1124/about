@@ -5,7 +5,7 @@ import { cities, contacts, homeCards, japanPlan, languages, profile, ui } from "
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const assetVersion = "20260818-japan-travel";
+const assetVersion = "20260906-ai-chat";
 const siteOrigin = "https://about.shuangyue.space";
 const locales = [
   { code: "zh", prefix: "", html: "zh-CN" },
