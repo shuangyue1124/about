@@ -180,7 +180,7 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 - 使用 `ADMIN_PASSWORD` 登录
 - 审核、批准、驳回或删除留言
 - 管理运行时配置：评论开关、AI 模型、缓存 TTL、Turnstile site key、站点标题 / 副标题 / 公告
-- 查看 D1、KV、AI、Turnstile secret、管理员密码、Telegram 的只读健康状态
+- 查看后台依赖的 Cloudflare 绑定与环境变量清单状态（D1、KV、AI、Turnstile、管理员密码、Telegram 等）；缺少某项时逐项提示变量名、期望值与设置位置，只提醒不拦截，不影响页面访问与后台管理
 - 幂等迁移旧 KV `comments:index` 到 D1
 - 清理 90 天前的 `site_events` 统计事件
 - 发送 Telegram 通知测试（需先配置 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`）

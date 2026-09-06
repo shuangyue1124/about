@@ -6,7 +6,7 @@ export const languages = [
 
 export const profile = {
   nickname: "朔风霜月",
-  qq: "1970259391",
+  qq: "3238097745",
   avatar: "/assets/images/avatar.webp",
   homepage: "https://about.shuangyue.space/",
   // 可选：填写 "YYYY-MM-DD" 后，构建时自动计算并显示年龄；留空则只显示「学生 · 呼和浩特」。
