@@ -7,9 +7,8 @@
 // Only timed school periods carry subjects. Gaps between periods resolve to
 // break / meal / travel / free / sleep estimates, never to a stale subject.
 // Sunday is always a rest day. Saturday uses its own special timetable.
-// The 19:00-19:40 block is intentionally one combined "evening tutoring /
-// dinner" entry: the source description names two tutoring sessions but gives
-// only this single time range, so no finer split is invented here.
+// Dinner is 19:00-19:40 every weekday, followed by night self-study
+// 19:40-21:20 and 21:30-22:30.
 
 export const SUBJECTS = {
   chinese: { zh: "语文", ja: "中国語", en: "Chinese" },
@@ -34,45 +33,59 @@ export const SUBJECTS = {
 
 // Slot: { start, end, type, subject?, subjects? }
 // type: morning-reading | class | noon-reading | eye-exercise | big-break |
-//       activity | tutoring | self-study
+//       flag-ceremony | activity | tutoring | self-study
 // Undetermined noon reading uses subject: null.
-const WEEKDAY_TEMPLATE = [
-  { start: "06:50", end: "07:25", type: "morning-reading", key: "early" },
-  { start: "07:30", end: "08:10", type: "class", key: "p1" },
-  { start: "08:20", end: "09:00", type: "class", key: "p2" },
-  { start: "09:10", end: "09:50", type: "class", key: "p3" },
-  { start: "09:50", end: "09:55", type: "eye-exercise" },
-  { start: "09:55", end: "10:25", type: "big-break" },
-  { start: "10:30", end: "11:10", type: "class", key: "p4" },
-  { start: "11:20", end: "12:00", type: "class", key: "p5" },
-  { start: "14:20", end: "14:30", type: "noon-reading", key: "noon" },
-  { start: "14:30", end: "15:10", type: "class", key: "p6" },
-  { start: "15:20", end: "16:00", type: "class", key: "p7" },
-  { start: "16:00", end: "16:05", type: "eye-exercise" },
-  { start: "16:10", end: "16:50", type: "class", key: "p8" },
-  { start: "16:50", end: "17:40", type: "activity", key: "extra" },
-  // One combined block: the source names two tutoring sessions but only gives
-  // the single range 19:00-19:40 (with dinner in between), so both subjects
-  // share this entry instead of inventing a split.
-  { start: "19:00", end: "19:40", type: "tutoring", key: "tutoring" },
-  { start: "19:40", end: "21:20", type: "self-study", subject: "selfStudy" },
-  { start: "21:30", end: "22:30", type: "self-study", subject: "selfStudy" },
-];
+// Evening tutoring Mon-Thu is one combined 17:30-19:00 block carrying both
+// subjects: the source gives only that single range, so no finer split is
+// invented. Friday's two tutoring sessions do have exact times and are split.
+// Dinner (19:00-19:40) is a routine gap kind, not a timed slot.
+function morningSlots(subjects, flagCeremony) {
+  const slots = [
+    { start: "06:50", end: "07:25", type: "morning-reading", subject: subjects.early },
+    { start: "07:30", end: "08:10", type: "class", subject: subjects.p1 },
+    { start: "08:20", end: "09:00", type: "class", subject: subjects.p2 },
+    { start: "09:10", end: "09:50", type: "class", subject: subjects.p3 },
+    { start: "09:50", end: "09:55", type: "eye-exercise" },
+  ];
+  // Monday holds the half-hour flag-raising ceremony; other weekdays rest.
+  slots.push(flagCeremony
+    ? { start: "09:55", end: "10:25", type: "flag-ceremony" }
+    : { start: "09:55", end: "10:25", type: "big-break" });
+  slots.push(
+    { start: "10:30", end: "11:10", type: "class", subject: subjects.p4 },
+    { start: "11:20", end: "12:00", type: "class", subject: subjects.p5 },
+  );
+  return slots;
+}
 
-// Per weekday subjects for the template keys above.
-// Order: early, p1-p5, noon (null = undetermined), p6, p7, p8, extra,
-// tutoring: [session1, session2].
+function afternoonSlots(subjects) {
+  const slots = [];
+  if (subjects.noon) slots.push({ start: "14:20", end: "14:30", type: "noon-reading", subject: subjects.noon });
+  else slots.push({ start: "14:20", end: "14:30", type: "noon-reading" });
+  slots.push(
+    { start: "14:30", end: "15:10", type: "class", subject: subjects.p6 },
+    { start: "15:20", end: "16:00", type: "class", subject: subjects.p7 },
+    { start: "16:00", end: "16:05", type: "eye-exercise" },
+  );
+  return slots;
+}
+
+// Per weekday subjects.
+// Order: early, p1-p5, noon (null = undetermined), p6, p7, p8 (+p8type),
+// extra (+extratype), tutoring: [session1, session2].
+// Only Tuesday pins a noon-reading subject (physics); the other weekdays leave
+// noon reading undetermined, and only Friday splits tutoring into timed halves.
 const WEEKDAY_SUBJECTS = {
-  // Monday
-  1: { early: "english", p1: "chinese", p2: "math", p3: "english", p4: "chemistry", p5: "geography", noon: null, p6: "psychology", p7: "physics", p8: "classMeeting", extra: "activity", tutoring: ["chemistry", "politics"] },
+  // Monday (09:55-10:25 is the flag-raising ceremony, not a big break)
+  1: { early: "english", p1: "chinese", p2: "math", p3: "english", p4: "chemistry", p5: "geography", noon: null, p6: "psychology", p7: "physics", p8: "selfStudy", p8type: "self-study", extra: "classMeeting", extratype: "class", tutoring: ["chemistry", "politics"] },
   // Tuesday
-  2: { early: "chinese", p1: "english", p2: "chinese", p3: "history", p4: "biology", p5: "math", noon: "physics", p6: "physics", p7: "politics", p8: "selfStudy", extra: "activity", tutoring: ["math", "math"] },
+  2: { early: "chinese", p1: "english", p2: "chinese", p3: "history", p4: "biology", p5: "math", noon: "physics", p6: "physics", p7: "politics", p8: "selfStudy", p8type: "self-study", extra: "activity", extratype: "activity", tutoring: ["math", "math"] },
   // Wednesday
-  3: { early: "chinese", p1: "math", p2: "chemistry", p3: "math", p4: "english", p5: "physics", noon: "politics", p6: "art", p7: "biology", p8: "pe", extra: "cleaning", tutoring: ["physics", "history"] },
+  3: { early: "english", p1: "chinese", p2: "chemistry", p3: "math", p4: "english", p5: "physics", noon: null, p6: "art", p7: "music", p8: "selfStudy", p8type: "self-study", extra: "activity", extratype: "activity", tutoring: ["physics", "history"] },
   // Thursday
-  4: { early: "english", p1: "chinese", p2: "chinese", p3: "english", p4: "physics", p5: "chemistry", noon: null, p6: "politics", p7: "music", p8: "selfStudy", extra: "activity", tutoring: ["english", "chinese"] },
-  // Friday (afternoon activity ends 17:35 instead of 17:40)
-  5: { early: "english", p1: "english", p2: "history", p3: "chinese", p4: "math", p5: "geography", noon: null, p6: "pe", p7: "pe", p8: "schoolCourse", extra: "schoolCourse", tutoring: ["geography", "biology"] },
+  4: { early: "chinese", p1: "math", p2: "chinese", p3: "english", p4: "physics", p5: "chemistry", noon: null, p6: "politics", p7: "biology", p8: "pe", p8type: "class", extra: "cleaning", extratype: "activity", tutoring: ["english", "chinese"] },
+  // Friday (school course 2 and split tutoring have their own exact times)
+  5: { early: "english", p1: "english", p2: "history", p3: "chinese", p4: "math", p5: "geography", noon: null, p6: "pe", p7: "pe", p8: "schoolCourse" },
 };
 
 // Saturday special timetable (fully timed entries, no template).
@@ -134,23 +147,42 @@ export function chinaWeekdayName(date = new Date(), lang = "zh") {
   return names[chinaParts(date).weekday];
 }
 
+const NIGHT_SLOTS = [
+  { start: "19:40", end: "21:20", type: "self-study", subject: "selfStudy" },
+  { start: "21:30", end: "22:30", type: "self-study", subject: "selfStudy" },
+];
+
 function expandWeekday(weekday) {
+  // Friday has its own exact evening times (see below).
+  if (weekday === 5) return expandFriday();
   const subjects = WEEKDAY_SUBJECTS[weekday];
-  return WEEKDAY_TEMPLATE.map((slot) => {
-    const out = { ...slot };
-    if (slot.key === "tutoring") {
-      out.subjects = subjects.tutoring;
-      delete out.key;
-      return out;
-    }
-    if (slot.key) {
-      const subject = subjects[slot.key];
-      if (subject) out.subject = subject;
-      delete out.key;
-    }
-    if (weekday === 5 && slot.type === "activity") out.end = "17:35";
-    return out;
-  });
+  return [
+    ...morningSlots(subjects, weekday === 1),
+    ...afternoonSlots(subjects),
+    { start: "16:10", end: "16:50", type: subjects.p8type, subject: subjects.p8 },
+    { start: "16:50", end: "17:30", type: subjects.extratype, subject: subjects.extra },
+    // One combined block: the source names two tutoring sessions but only
+    // gives the single range 17:30-19:00, so both subjects share this entry
+    // instead of inventing a split.
+    { start: "17:30", end: "19:00", type: "tutoring", subjects: subjects.tutoring },
+    ...NIGHT_SLOTS.map((slot) => ({ ...slot })),
+  ];
+}
+
+// Friday: school course 1 at 16:10, school course 2 at the exact range
+// 17:00-17:40, then split tutoring 17:50-18:25 (geography) and 18:25-19:00
+// (biology). Dinner 19:00-19:40 and night self-study follow the normal plan.
+function expandFriday() {
+  const subjects = WEEKDAY_SUBJECTS[5];
+  return [
+    ...morningSlots(subjects, false),
+    ...afternoonSlots(subjects),
+    { start: "16:10", end: "16:50", type: "class", subject: "schoolCourse" },
+    { start: "17:00", end: "17:40", type: "class", subject: "schoolCourse" },
+    { start: "17:50", end: "18:25", type: "tutoring", subjects: ["geography"] },
+    { start: "18:25", end: "19:00", type: "tutoring", subjects: ["biology"] },
+    ...NIGHT_SLOTS.map((slot) => ({ ...slot })),
+  ];
 }
 
 function findSlot(slots, totalMinutes) {
@@ -161,7 +193,7 @@ function findSlot(slots, totalMinutes) {
 // { kind, slot?, subjects?, totalMinutes, weekday }
 // kind: rest | sleep | travel-to | travel-home | class | morning-reading |
 //       noon-reading | self-study | tutoring | activity | eye-exercise |
-//       big-break | break | lunch | dinner | free
+//       big-break | flag-ceremony | break | lunch | dinner | free
 export function resolveStatus(date = new Date()) {
   const parts = chinaParts(date);
   const { weekday, totalMinutes } = parts;
@@ -177,7 +209,7 @@ export function resolveStatus(date = new Date()) {
     if (slot.type === "tutoring") {
       return { kind: "tutoring", slot, subjects: slot.subjects, weekday, totalMinutes };
     }
-    const kinds = new Set(["morning-reading", "noon-reading", "class", "self-study", "activity", "eye-exercise", "big-break"]);
+    const kinds = new Set(["morning-reading", "noon-reading", "class", "self-study", "activity", "eye-exercise", "big-break", "flag-ceremony"]);
     if (kinds.has(slot.type)) {
       return { kind: slot.type, slot, weekday, totalMinutes };
     }
@@ -193,11 +225,10 @@ function weekdayRoutine(weekday, t) {
   if (t < 6 * 60 + 50) return { kind: "travel-to", ...at(weekday, t) };
   if (t < 12 * 60) return { kind: "break", ...at(weekday, t) };
   if (t < 14 * 60 + 20) return { kind: "lunch", ...at(weekday, t) };
-  if (t < 19 * 60) {
-    const dinnerStart = weekday === 5 ? 17 * 60 + 35 : 17 * 60 + 40;
-    if (t >= dinnerStart) return { kind: "dinner", ...at(weekday, t) };
-    return { kind: "break", ...at(weekday, t) };
-  }
+  // Dinner is uniformly 19:00-19:40; other daytime gaps are plain breaks.
+  // (Friday's last timed session also ends at 19:00.)
+  if (t < 19 * 60) return { kind: "break", ...at(weekday, t) };
+  if (t < 19 * 60 + 40) return { kind: "dinner", ...at(weekday, t) };
   if (t < 22 * 60 + 30) return { kind: "break", ...at(weekday, t) };
   // Night self-study ends at 22:30. Keep the exact boundary instant as free
   // time (spec test table), then a ~20 minute travel-home estimate.
@@ -262,6 +293,8 @@ export function statusText(status, lang = "zh") {
       }
       return l === "en" ? "Probably on a big break right now" : l === "ja" ? "今は大休憩中かも" : "现在大概在大课间休息";
     }
+    case "flag-ceremony":
+      return l === "en" ? "Probably at the flag-raising ceremony right now" : l === "ja" ? "今は国旗掲揚式に参加中かも" : "现在大概在参加升旗仪式";
     case "lunch":
       return l === "en" ? "Probably having lunch right now" : l === "ja" ? "今はお昼ごはん中かも" : "现在大概在吃午饭";
     case "dinner":
@@ -304,6 +337,7 @@ export function slotLabel(slot, lang = "zh") {
     "noon-reading": { zh: "午读", ja: "昼読書", en: "Noon reading" },
     "eye-exercise": { zh: "眼保健操", ja: "目の体操", en: "Eye exercise" },
     "big-break": { zh: "大课间", ja: "大休憩", en: "Morning break" },
+    "flag-ceremony": { zh: "升旗仪式", ja: "国旗掲揚式", en: "Flag-raising ceremony" },
     activity: { zh: "课外活动", ja: "課外活動", en: "Activity" },
     tutoring: { zh: "晚辅导", ja: "夜の補習", en: "Evening tutoring" },
     "self-study": { zh: "自习", ja: "自習", en: "Self-study" },

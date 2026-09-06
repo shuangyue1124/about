@@ -6,6 +6,8 @@ import { chinaParts, describeDay, resolveStatus, statusText } from "../assets/js
 const DAY = {
   monday: [2026, 8, 7],
   tuesday: [2026, 8, 8],
+  wednesday: [2026, 8, 9],
+  thursday: [2026, 8, 10],
   friday: [2026, 8, 11],
   saturday: [2026, 8, 5],
   sunday: [2026, 8, 6],
@@ -19,7 +21,8 @@ function at(day, hhmm) {
 }
 
 const cases = [
-  // Monday boundaries (Part 36 test table).
+  // Monday boundaries (new spec: flag ceremony 9:55-10:25, self-study 16:10,
+  // class meeting 16:50-17:30, combined tutoring 17:30-19:00, dinner 19:00).
   ["monday", "06:49", "travel-to", null],
   ["monday", "06:50", "morning-reading", "english"],
   ["monday", "07:25", "break", null],
@@ -27,7 +30,8 @@ const cases = [
   ["monday", "08:10", "break", null],
   ["monday", "08:20", "class", "math"],
   ["monday", "09:50", "eye-exercise", null],
-  ["monday", "09:55", "big-break", null],
+  ["monday", "09:55", "flag-ceremony", null],
+  ["monday", "10:25", "break", null],
   ["monday", "10:30", "class", "chemistry"],
   ["monday", "11:10", "break", null],
   ["monday", "11:20", "class", "geography"],
@@ -35,9 +39,10 @@ const cases = [
   ["monday", "14:20", "noon-reading", null],
   ["monday", "14:30", "class", "psychology"],
   ["monday", "16:00", "eye-exercise", null],
-  ["monday", "16:10", "class", "classMeeting"],
-  ["monday", "16:50", "activity", null],
-  ["monday", "19:00", "tutoring", null],
+  ["monday", "16:10", "self-study", null],
+  ["monday", "16:50", "class", "classMeeting"],
+  ["monday", "17:30", "tutoring", null],
+  ["monday", "19:00", "dinner", null],
   ["monday", "19:40", "self-study", null],
   ["monday", "21:20", "break", null],
   ["monday", "21:30", "self-study", null],
@@ -46,6 +51,41 @@ const cases = [
   // No stale subjects during gaps.
   ["monday", "08:15", "break", null],
   ["monday", "10:27", "break", null],
+  // Tuesday: physics noon reading, self-study 16:10, activity 16:50.
+  ["tuesday", "06:50", "morning-reading", "chinese"],
+  ["tuesday", "07:30", "class", "english"],
+  ["tuesday", "09:55", "big-break", null],
+  ["tuesday", "10:30", "class", "biology"],
+  ["tuesday", "14:20", "noon-reading", "physics"],
+  ["tuesday", "14:30", "class", "physics"],
+  ["tuesday", "15:20", "class", "politics"],
+  ["tuesday", "16:10", "self-study", null],
+  ["tuesday", "16:50", "activity", null],
+  ["tuesday", "17:30", "tutoring", null],
+  ["tuesday", "19:00", "dinner", null],
+  // Wednesday: English early reading, art + music afternoon.
+  ["wednesday", "06:50", "morning-reading", "english"],
+  ["wednesday", "07:30", "class", "chinese"],
+  ["wednesday", "08:20", "class", "chemistry"],
+  ["wednesday", "14:30", "class", "art"],
+  ["wednesday", "15:20", "class", "music"],
+  ["wednesday", "16:10", "self-study", null],
+  // Thursday: math first, PE 16:10, cleaning 16:50.
+  ["thursday", "06:50", "morning-reading", "chinese"],
+  ["thursday", "07:30", "class", "math"],
+  ["thursday", "14:30", "class", "politics"],
+  ["thursday", "15:20", "class", "biology"],
+  ["thursday", "16:10", "class", "pe"],
+  ["thursday", "16:50", "activity", "cleaning"],
+  ["thursday", "17:30", "tutoring", null],
+  // Friday: school courses then split tutoring 17:50/18:25.
+  ["friday", "16:10", "class", "schoolCourse"],
+  ["friday", "16:50", "break", null],
+  ["friday", "17:00", "class", "schoolCourse"],
+  ["friday", "17:40", "break", null],
+  ["friday", "17:50", "tutoring", null],
+  ["friday", "18:25", "tutoring", null],
+  ["friday", "19:00", "dinner", null],
   // Sunday is always rest, never a subject.
   ["sunday", "00:00", "rest", null],
   ["sunday", "10:30", "rest", null],
@@ -65,11 +105,10 @@ const cases = [
   ["saturday", "17:40", "class", "geography"],
   ["saturday", "18:30", "class", "biology"],
   ["saturday", "19:10", "free", null],
-  // Friday activity ends at 17:35, other weekdays at 17:40.
-  ["friday", "17:34", "activity", null],
-  ["friday", "17:35", "dinner", null],
-  ["monday", "17:39", "activity", null],
-  ["monday", "17:40", "dinner", null],
+  // Evening boundaries: tutoring ends 19:00 sharp, dinner 19:00-19:40.
+  ["monday", "18:59", "tutoring", null],
+  ["thursday", "18:59", "tutoring", null],
+  ["friday", "18:59", "tutoring", null],
   // Travel windows (~20 min each way).
   ["monday", "06:30", "travel-to", null],
   ["monday", "22:40", "travel-home", null],
@@ -96,12 +135,25 @@ for (const [day, time, kind, subject] of cases) {
   }
 }
 
-// Monday 19:00 tutoring must carry both evening subjects without inventing a split.
+// Monday 17:30-19:00 tutoring must carry both evening subjects without
+// inventing a split; Friday's sessions have exact times and are split.
 {
-  const status = resolveStatus(at("monday", "19:10"));
+  const status = resolveStatus(at("monday", "17:40"));
   const subjects = status.subjects || [];
   if (status.kind !== "tutoring" || subjects.join(",") !== "chemistry,politics") {
-    fail(`monday 19:10: expected combined tutoring [chemistry,politics], got ${JSON.stringify(status)}`);
+    fail(`monday 17:40: expected combined tutoring [chemistry,politics], got ${JSON.stringify(status)}`);
+  }
+  const thu = resolveStatus(at("thursday", "18:00"));
+  if (thu.kind !== "tutoring" || (thu.subjects || []).join(",") !== "english,chinese") {
+    fail(`thursday 18:00: expected combined tutoring [english,chinese], got ${JSON.stringify(thu)}`);
+  }
+  const fri1 = resolveStatus(at("friday", "18:00"));
+  if (fri1.kind !== "tutoring" || (fri1.subjects || []).join(",") !== "geography") {
+    fail(`friday 18:00: expected split tutoring [geography], got ${JSON.stringify(fri1)}`);
+  }
+  const fri2 = resolveStatus(at("friday", "18:30"));
+  if (fri2.kind !== "tutoring" || (fri2.subjects || []).join(",") !== "biology") {
+    fail(`friday 18:30: expected split tutoring [biology], got ${JSON.stringify(fri2)}`);
   }
 }
 
@@ -128,6 +180,8 @@ for (const [day, time, kind, subject] of cases) {
   if (zh !== "现在大概在上数学课") fail(`zh wording: got "${zh}"`);
   if (en !== "Probably in Mathematics class right now") fail(`en wording: got "${en}"`);
   if (ja !== "今は数学の授業中かも") fail(`ja wording: got "${ja}"`);
+  const flag = statusText(resolveStatus(at("monday", "10:00")), "zh");
+  if (flag !== "现在大概在参加升旗仪式") fail(`flag wording: got "${flag}"`);
   const rest = statusText(resolveStatus(at("sunday", "10:00")), "zh");
   if (rest.includes("数学") || rest.includes("课")) fail(`sunday wording leaks a subject: "${rest}"`);
 }

@@ -487,9 +487,9 @@ const nowStatusNotes = {
     en: "Midday is lunch and rest time.",
   },
   dinner: {
-    zh: "晚餐时间（约 17:40–19:00）。",
-    ja: "夕食の時間（17:40–19:00頃）。",
-    en: "Dinner time (around 17:40–19:00).",
+    zh: "晚餐时间（19:00–19:40）。",
+    ja: "夕食の時間（19:00–19:40）。",
+    en: "Dinner time (19:00–19:40).",
   },
   noonReading: {
     zh: "另有午读（数学），时间不固定。",
