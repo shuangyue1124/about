@@ -132,6 +132,21 @@ if (nowStatusNotes) {
   }
 }
 
+// --- site-profile 动态模块三语一致性（模板/模块/联系类型仅校验结构，内容三语由 D1 + fallback 保障） ---
+try {
+  const profileMod = await import("../assets/js/site-profile.js");
+  const { TEMPLATES, MODULE_IDS, CONTACT_TYPES } = profileMod;
+  for (const [tpl, mods] of Object.entries(TEMPLATES)) {
+    if (tpl === "custom") continue;
+    for (const m of mods) {
+      if (!MODULE_IDS.includes(m)) fail(`TEMPLATES.${tpl} 含非法模块 "${m}"`);
+    }
+  }
+  if (!CONTACT_TYPES.includes("wechat") || !CONTACT_TYPES.includes("qq")) fail("CONTACT_TYPES 缺少 wechat/qq");
+} catch (error) {
+  fail(`site-profile.js 解析失败: ${error?.message || error}`);
+}
+
 // --- report ---
 if (errors.length) {
   console.error(`check-i18n: ${errors.length} 个问题`);

@@ -34,8 +34,8 @@
     <meta name="twitter:image" content="https://about.shuangyue.space/assets/images/og-card.webp">
     <meta name="twitter:image:alt" content="朔風霜月のプロフィールカード">
     <title>朔風霜月｜プロフィールカード</title>
-    <link rel="stylesheet" href="../assets/css/styles.css?v=20260906-ai-chat">
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔風霜月｜プロフィールカード","mainEntity":{"@type":"Person","name":"朔風霜月","alternateName":"shuangyue1124","email":"hzq101116@163.com","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/ja/","sameAs":["https://github.com/shuangyue1124","https://t.me/sfsy1124","https://steamcommunity.com/profiles/76561199258450245/"]}}</script>
+    <link rel="stylesheet" href="../assets/css/styles.css?v=20260913-multisite">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔風霜月｜プロフィールカード","mainEntity":{"@type":"Person","name":"朔風霜月","alternateName":"shuangyue1124","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/ja/","sameAs":["https://github.com/shuangyue1124"]}}</script>
   </head>
   <body data-page="home" data-root=".." data-lang="ja">
     <div id="app">
@@ -43,7 +43,7 @@
     <header class="topbar">
       <a class="brand" href="/ja/">
         <span class="brand__mark brand__mark--avatar"><img src="/assets/images/avatar.webp" alt="朔風霜月のアバター" width="36" height="36" decoding="async"></span>
-        <span><span class="brand__name">朔風霜月</span><span class="brand__kicker">NFCカード</span></span>
+        <span><span class="brand__name">朔風霜月</span><span class="brand__kicker">プロフィール</span></span>
       </a>
       <nav class="topnav" aria-label="メインナビゲーション">
         <a href="/ja/" aria-current="page">ホーム</a>
@@ -51,18 +51,16 @@
         <a href="/ja/travel/#cities">都市</a>
         <a href="#contact">連絡</a>
       </nav>
-      <div class="lang-menu" aria-label="言語">
-        <a class="lang-menu__item " href="/" hreflang="zh-CN">中文</a><a class="lang-menu__item " href="/en/" hreflang="en-US">English</a><a class="lang-menu__item is-active" href="/ja/" hreflang="ja-JP" aria-current="page">日本語</a>
+      <div class="lang-menu" aria-hidden="true">
         <button class="lang-menu__item js-theme" type="button" aria-label="カラーテーマを切り替える">◐</button>
       </div>
     </header>
 
     <main id="main-content" tabindex="-1">
-      <section class="hero hero--home" id="top">
+      <section class="hero hero--home" id="top" data-module="profile">
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring"><img src="/assets/images/avatar.webp" alt="朔風霜月のアバター" width="112" height="112" fetchpriority="high" decoding="async"></div>
-          <p class="eyebrow">学生 · フフホト</p>
           <h1>朔風霜月</h1>
           <p class="hero__subtitle">ピクセルの世界、旅、コードのなかで、ひらめきを集めています。</p>
           <p class="hero__motto">私たちは自分の人生の監督であって、ただ演じるだけの役者ではありません。だから、周りの目を気にせず、思うままに大胆へ進んでください。人生は自分のためにあります。</p>
@@ -85,21 +83,21 @@
         <button class="btn btn--compact now-status__toggle" id="nowStatusToggle" type="button" aria-expanded="false" aria-controls="nowStatusPanel">今日の時間割</button>
         <div class="now-status__panel" id="nowStatusPanel" data-now-panel hidden></div>
       </section>
-      <section class="feature-section" aria-labelledby="home-sections">
+      <section class="feature-section" aria-labelledby="home-sections" data-module="about">
         <h2 id="home-sections">カード内容</h2>
         <div class="feature-list">
-    <article class="feature-card feature-card--image-left">
+    <article class="feature-card feature-card--image-left" data-module="about">
       <div class="ink-art ink-art--mountain" style="--ink-art-image: url(/assets/images/home/about.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/about-480.webp 480w, ../assets/images/generated/home/about-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/about.png" alt="高校生の「朔風霜月」です" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
         <p class="eyebrow">自己紹介</p>
         <h3>高校生の「朔風霜月」です</h3>
-        <p>ゲームやアニメの世界を歩き回るのが好きで、ひとり旅も大好きです。このNFCカードから、同じ趣味の仲間とつながれたら嬉しいです。</p>
-        <div class="tag-row"><span>フフホト</span><span>学生</span><span>NFCカード</span></div>
+        <p>ゲームやアニメの世界を歩き回るのが好きで、ひとり旅も大好きです。このカードから、同じ趣味の仲間とつながれたら嬉しいです。</p>
+        <div class="tag-row"><span>自己紹介</span><span>ピクセルの世界</span><span>遠方</span></div>
       </div>
     </article>
-    <article class="feature-card feature-card--image-right">
+    <article class="feature-card feature-card--image-right" data-module="anime">
       <div class="ink-art ink-art--japan" style="--ink-art-image: url(/assets/images/home/anime.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/anime-480.webp 480w, ../assets/images/generated/home/anime-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/anime.png" alt="新海誠の空と、戦争ものの鋭さが好きです" loading="lazy" width="960" height="530"></picture>
       </div>
@@ -110,18 +108,18 @@
         <div class="tag-row"><span>天気の子</span><span>86</span><span>ライトノベル</span></div>
       </div>
     </article>
-    <article class="feature-card feature-card--image-left">
+    <article class="feature-card feature-card--image-left" data-module="games">
       <div class="ink-art ink-art--river" style="--ink-art-image: url(/assets/images/home/games.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/games-480.webp 480w, ../assets/images/generated/home/games-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/games.png" alt="ゲームの世界でも旅を続けています" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
         <p class="eyebrow">ゲームの世界</p>
         <h3>ゲームの世界でも旅を続けています</h3>
-        <p>Minecraft ID は CN_YangYang、原神 UID は 847045298。CS2 も遊びます。同じ世界にいるなら一緒に遊びましょう。</p>
+        <p>ゲームの世界で旅を続けています。同じ世界にいるなら一緒に遊びましょう。連絡先は下の連絡先エリアをご覧ください。</p>
         <div class="tag-row"><span>Minecraft</span><span>原神</span><span>CS2</span></div>
       </div>
     </article>
-    <article class="feature-card feature-card--image-right">
+    <article class="feature-card feature-card--image-right" data-module="travel">
       <div class="ink-art ink-art--pagoda" style="--ink-art-image: url(/assets/images/home/travel.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/travel-480.webp 480w, ../assets/images/generated/home/travel-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/travel.png" alt="一つひとつの旅を、めくれる記録に" loading="lazy" width="960" height="530"></picture>
       </div>
@@ -132,7 +130,7 @@
         <div class="tag-row"><span>都市の足跡</span><span>15日間の日本</span><span>zineポスター</span></div>
       </div>
     </article>
-    <article class="feature-card feature-card--image-left">
+    <article class="feature-card feature-card--image-left" data-module="github">
       <div class="ink-art ink-art--seal" style="--ink-art-image: url(/assets/images/home/github.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/github-480.webp 480w, ../assets/images/generated/home/github-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/github.png" alt="アイデアを開けるページや小さなツールにします" loading="lazy" width="960" height="530"></picture>
       </div>
@@ -144,25 +142,36 @@
       </div>
     </article></div>
       </section>
-      <section class="contact-section" id="contact">
+      <section class="contact-section" id="contact" data-module="contacts">
         <div class="section-heading"><p class="eyebrow">連絡先</p><h2>shuangyue1124</h2></div>
-        <div class="contact-grid"><button class="contact-link js-copy" type="button" data-copy="3238097745"><span>QQ</span><strong>3238097745</strong><small>QQ番号をコピー</small></button><a class="contact-link" href="https://t.me/sfsy1124" target="_blank" rel="noopener noreferrer"><span>Telegram</span><strong>@sfsy1124</strong><small>Telegramを開く</small></a><a class="contact-link" href="mailto:hzq101116@163.com" target="_blank" rel="noopener noreferrer"><span>Email</span><strong>hzq101116@163.com</strong><small>メールを送る</small></a><a class="contact-link" href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer"><span>GitHub</span><strong>shuangyue1124</strong><small>コードとプロジェクトを見る</small></a><a class="contact-link" href="https://steamcommunity.com/profiles/76561199258450245/" target="_blank" rel="noopener noreferrer"><span>Steam</span><strong>CS2 Profile</strong><small>Steamプロフィールを開く</small></a>
+        <div class="contact-grid" data-contacts><p class="comment-list__empty">連絡先…</p>
           <a class="contact-link js-download-contact" href="/contact.vcf" download><span>vCard</span><strong>連絡先に保存</strong><small>.vcfカードをダウンロード</small></a>
         </div>
       </section>
-      <section class="comments-section" id="comments" data-comments>
+      <section class="comments-section" id="comments" data-comments data-module="comments">
         <div class="section-heading"><p class="eyebrow">Comments</p><h2>公開コメントを残す</h2></div>
         <div class="comment-list" id="commentList" aria-live="polite"><p class="comment-list__empty">评论会在防刷组件准备后加载。</p></div>
+      </section>
+      <section class="feature-section" aria-labelledby="content-anime" data-module="anime">
+        <h2 id="content-anime">アニメとライトノベル</h2>
+        <div class="feature-list" data-content-list="anime"><p class="comment-list__empty">…</p></div>
+      </section>
+      <section class="feature-section" aria-labelledby="content-games" data-module="games">
+        <h2 id="content-games">ゲームの世界</h2>
+        <div class="feature-list" data-content-list="games"><p class="comment-list__empty">…</p></div>
+      </section>
+      <section class="feature-section" aria-labelledby="content-github" data-module="github">
+        <h2 id="content-github">GitHubと制作</h2>
+        <div class="feature-list" data-content-list="github"><p class="comment-list__empty">…</p></div>
       </section>
     </main>
     <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
-      <span>NFCカードをかざすと、このページをもう一度開けます</span><span class="site-footer__sep">|</span>
-      <span>最終更新 · アバターと言語は自動切替</span><span class="site-footer__sep">|</span>
+      <span>© 朔風霜月</span><span class="site-footer__sep">|</span>
       <a href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer">GitHub shuangyue1124</a>
     </footer>
   </div>
     <noscript><p class="noscript-fallback">JavaScriptがなくても、上のプロフィールと連絡先は利用できます。コメントと共有機能のみ利用できません。</p></noscript>
-    <script type="module" src="../assets/js/app.js?v=20260906-ai-chat"></script>
+    <script type="module" src="../assets/js/app.js?v=20260913-multisite"></script>
   </body>
 </html>

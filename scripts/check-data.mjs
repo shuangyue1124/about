@@ -21,9 +21,12 @@ if (!Array.isArray(languages) || languages.length !== LANGS.length) {
 }
 
 // --- profile ---
-for (const field of ["nickname", "avatar", "githubUrl", "githubUser", "email"]) {
+// 联系敏感值已移至服务端 contact catalog（D1 + /api/site 按域名过滤），
+// 前端 data.js 仅保留公开骨架，因此 email/qq 等不再是必填。
+for (const field of ["nickname", "avatar", "githubUrl", "githubUser"]) {
   if (!String(profile[field] || "").trim()) fail(`profile.${field} 缺失`);
 }
+if ("email" in profile && profile.email && !String(profile.email).includes("@")) fail("profile.email 格式错误");
 if (profile.birthDate) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(profile.birthDate) || Number.isNaN(Date.parse(profile.birthDate))) {
     fail(`profile.birthDate 格式必须为 YYYY-MM-DD，当前 "${profile.birthDate}"`);
@@ -52,10 +55,16 @@ for (const card of homeCards) {
 }
 
 // --- contacts ---
+// 前端仅保留无敏感值的骨架（真实值由 /api/site 按域名返回），允许 value/href 为空。
 const contactKeys = contacts.map((item) => item.key);
 if (new Set(contactKeys).size !== contactKeys.length) fail("contacts.key 不唯一");
 for (const item of contacts) {
-  if (!item.label || !item.value) fail(`contacts[${item.key}] label/value 缺失`);
+  if (!item.label || !item.key) fail(`contacts[${item.key}] label/key 缺失`);
+  for (const secret of [item.value, item.href]) {
+    if (typeof secret === "string" && (secret.includes("163.com") || secret.includes("t.me/") || secret.includes("steamcommunity"))) {
+      fail(`contacts[${item.key}] 不应包含敏感直链（应由 /api/site 返回）`);
+    }
+  }
 }
 
 // --- cities ---

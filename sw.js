@@ -1,14 +1,17 @@
-const CACHE_NAME = "sfsy-static-v20260906-ai-chat";
+const CACHE_NAME = "sfsy-static-v20260913-multisite";
 const STATIC_ASSETS = [
   "/",
   "/travel/",
+  "/anime/",
+  "/games/",
+  "/github/",
   "/manifest.webmanifest",
   "/contact.vcf",
   "/cities/japan-2026.html",
-  "/assets/css/styles.css?v=20260906-ai-chat",
-  "/assets/js/app.js?v=20260906-ai-chat",
+  "/assets/css/styles.css?v=20260913-multisite",
+  "/assets/js/app.js?v=20260913-multisite",
   "/assets/js/data.js",
-  "/assets/js/schedule.js",
+  "/assets/js/site-profile.js",
   "/assets/images/avatar.webp",
   "/assets/images/generated/home-hero-ink-960.webp",
   "/assets/images/og-card.webp",
@@ -30,6 +33,10 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
+  // Never cache runtime profile/content APIs: each hostname gets its own
+  // filtered /api/site payload. Cache Storage is already per-origin, and
+  // HTML uses network-first below, so about/wx/github/travel cannot pollute
+  // each other through this worker.
   if (request.method !== "GET" || url.pathname.startsWith("/api/") || url.pathname.startsWith("/admin")) return;
 
   if (request.mode === "navigate") {

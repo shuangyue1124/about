@@ -34,8 +34,8 @@
     <meta name="twitter:image" content="https://about.shuangyue.space/assets/images/og-card.webp">
     <meta name="twitter:image:alt" content="Shuofeng Shuanyue's profile card">
     <title>Shuofeng Shuanyue | Profile Card</title>
-    <link rel="stylesheet" href="../assets/css/styles.css?v=20260906-ai-chat">
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"Shuofeng Shuanyue | Profile Card","mainEntity":{"@type":"Person","name":"Shuofeng Shuanyue","alternateName":"shuangyue1124","email":"hzq101116@163.com","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/en/","sameAs":["https://github.com/shuangyue1124","https://t.me/sfsy1124","https://steamcommunity.com/profiles/76561199258450245/"]}}</script>
+    <link rel="stylesheet" href="../assets/css/styles.css?v=20260913-multisite">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"Shuofeng Shuanyue | Profile Card","mainEntity":{"@type":"Person","name":"Shuofeng Shuanyue","alternateName":"shuangyue1124","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/en/","sameAs":["https://github.com/shuangyue1124"]}}</script>
   </head>
   <body data-page="home" data-root=".." data-lang="en">
     <div id="app">
@@ -43,7 +43,7 @@
     <header class="topbar">
       <a class="brand" href="/en/">
         <span class="brand__mark brand__mark--avatar"><img src="/assets/images/avatar.webp" alt="Shuofeng Shuanyue's avatar" width="36" height="36" decoding="async"></span>
-        <span><span class="brand__name">Shuofeng Shuanyue</span><span class="brand__kicker">NFC Card</span></span>
+        <span><span class="brand__name">Shuofeng Shuanyue</span><span class="brand__kicker">Profile</span></span>
       </a>
       <nav class="topnav" aria-label="Primary navigation">
         <a href="/en/" aria-current="page">Home</a>
@@ -51,18 +51,16 @@
         <a href="/en/travel/#cities">Cities</a>
         <a href="#contact">Contact</a>
       </nav>
-      <div class="lang-menu" aria-label="Language">
-        <a class="lang-menu__item " href="/" hreflang="zh-CN">中文</a><a class="lang-menu__item is-active" href="/en/" hreflang="en-US" aria-current="page">English</a><a class="lang-menu__item " href="/ja/" hreflang="ja-JP">日本語</a>
+      <div class="lang-menu" aria-hidden="true">
         <button class="lang-menu__item js-theme" type="button" aria-label="Toggle color theme">◐</button>
       </div>
     </header>
 
     <main id="main-content" tabindex="-1">
-      <section class="hero hero--home" id="top">
+      <section class="hero hero--home" id="top" data-module="profile">
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring"><img src="/assets/images/avatar.webp" alt="Shuofeng Shuanyue's avatar" width="112" height="112" fetchpriority="high" decoding="async"></div>
-          <p class="eyebrow">Student · Hohhot</p>
           <h1>Shuofeng Shuanyue</h1>
           <p class="hero__subtitle">Collecting sparks from pixel worlds, open roads, and code.</p>
           <p class="hero__motto">We are the directors of our own lives, not actors who only play a part. So go ahead boldly, without worrying about how others see you. Our lives are for ourselves.</p>
@@ -85,21 +83,21 @@
         <button class="btn btn--compact now-status__toggle" id="nowStatusToggle" type="button" aria-expanded="false" aria-controls="nowStatusPanel">Today's timetable</button>
         <div class="now-status__panel" id="nowStatusPanel" data-now-panel hidden></div>
       </section>
-      <section class="feature-section" aria-labelledby="home-sections">
+      <section class="feature-section" aria-labelledby="home-sections" data-module="about">
         <h2 id="home-sections">Card Notes</h2>
         <div class="feature-list">
-    <article class="feature-card feature-card--image-left">
+    <article class="feature-card feature-card--image-left" data-module="about">
       <div class="ink-art ink-art--mountain" style="--ink-art-image: url(/assets/images/home/about.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/about-480.webp 480w, ../assets/images/generated/home/about-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/about.png" alt="A student known as Shuofeng Shuanyue" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
         <p class="eyebrow">About</p>
         <h3>A student known as Shuofeng Shuanyue</h3>
-        <p>Loves wandering through pixel blocks and anime worlds, then packing a bag for solo trips. This NFC card is for meeting people who like games, anime, and faraway places too.</p>
-        <div class="tag-row"><span>Hohhot</span><span>Student</span><span>NFC Card</span></div>
+        <p>Loves wandering through pixel blocks and anime worlds, then packing a bag for solo trips. This card is for meeting people who like games, anime, and faraway places too.</p>
+        <div class="tag-row"><span>About</span><span>Pixel Worlds</span><span>Far Away</span></div>
       </div>
     </article>
-    <article class="feature-card feature-card--image-right">
+    <article class="feature-card feature-card--image-right" data-module="anime">
       <div class="ink-art ink-art--japan" style="--ink-art-image: url(/assets/images/home/anime.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/anime-480.webp 480w, ../assets/images/generated/home/anime-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/anime.png" alt="Blue skies, road stories, and sharp sci-fi wars" loading="lazy" width="960" height="530"></picture>
       </div>
@@ -110,18 +108,18 @@
         <div class="tag-row"><span>Weathering With You</span><span>86</span><span>Light Novels</span></div>
       </div>
     </article>
-    <article class="feature-card feature-card--image-left">
+    <article class="feature-card feature-card--image-left" data-module="games">
       <div class="ink-art ink-art--river" style="--ink-art-image: url(/assets/images/home/games.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/games-480.webp 480w, ../assets/images/generated/home/games-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/games.png" alt="Still traveling inside game worlds" loading="lazy" width="960" height="530"></picture>
       </div>
       <div class="feature-card__text">
         <p class="eyebrow">Game Worlds</p>
         <h3>Still traveling inside game worlds</h3>
-        <p>Minecraft ID: CN_YangYang, Genshin UID: 847045298, and a CS2 match now and then. Add me if you are in the same worlds.</p>
+        <p>Still traveling inside game worlds. Add me if you are in the same worlds — see the contact section below for details.</p>
         <div class="tag-row"><span>Minecraft</span><span>Genshin</span><span>CS2</span></div>
       </div>
     </article>
-    <article class="feature-card feature-card--image-right">
+    <article class="feature-card feature-card--image-right" data-module="travel">
       <div class="ink-art ink-art--pagoda" style="--ink-art-image: url(/assets/images/home/travel.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/travel-480.webp 480w, ../assets/images/generated/home/travel-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/travel.png" alt="Turning every journey into a travelogue" loading="lazy" width="960" height="530"></picture>
       </div>
@@ -132,7 +130,7 @@
         <div class="tag-row"><span>City Footprints</span><span>15 Days in Japan</span><span>Zine Posters</span></div>
       </div>
     </article>
-    <article class="feature-card feature-card--image-left">
+    <article class="feature-card feature-card--image-left" data-module="github">
       <div class="ink-art ink-art--seal" style="--ink-art-image: url(/assets/images/home/github.png);">
         <picture><source type="image/webp" srcset="../assets/images/generated/home/github-480.webp 480w, ../assets/images/generated/home/github-960.webp 960w" sizes="(max-width: 920px) 100vw, 50vw"><img src="../assets/images/home/github.png" alt="Turning ideas into pages and small tools" loading="lazy" width="960" height="530"></picture>
       </div>
@@ -144,25 +142,36 @@
       </div>
     </article></div>
       </section>
-      <section class="contact-section" id="contact">
+      <section class="contact-section" id="contact" data-module="contacts">
         <div class="section-heading"><p class="eyebrow">Contact</p><h2>shuangyue1124</h2></div>
-        <div class="contact-grid"><button class="contact-link js-copy" type="button" data-copy="3238097745"><span>QQ</span><strong>3238097745</strong><small>Click to copy QQ number</small></button><a class="contact-link" href="https://t.me/sfsy1124" target="_blank" rel="noopener noreferrer"><span>Telegram</span><strong>@sfsy1124</strong><small>Open a Telegram chat</small></a><a class="contact-link" href="mailto:hzq101116@163.com" target="_blank" rel="noopener noreferrer"><span>Email</span><strong>hzq101116@163.com</strong><small>Send an email</small></a><a class="contact-link" href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer"><span>GitHub</span><strong>shuangyue1124</strong><small>View code and projects</small></a><a class="contact-link" href="https://steamcommunity.com/profiles/76561199258450245/" target="_blank" rel="noopener noreferrer"><span>Steam</span><strong>CS2 Profile</strong><small>Open Steam profile</small></a>
+        <div class="contact-grid" data-contacts><p class="comment-list__empty">Contact…</p>
           <a class="contact-link js-download-contact" href="/contact.vcf" download><span>vCard</span><strong>Save Contact</strong><small>Download a .vcf contact card</small></a>
         </div>
       </section>
-      <section class="comments-section" id="comments" data-comments>
+      <section class="comments-section" id="comments" data-comments data-module="comments">
         <div class="section-heading"><p class="eyebrow">Comments</p><h2>Leave a public note</h2></div>
         <div class="comment-list" id="commentList" aria-live="polite"><p class="comment-list__empty">Comments load after the anti-spam check is ready.</p></div>
+      </section>
+      <section class="feature-section" aria-labelledby="content-anime" data-module="anime">
+        <h2 id="content-anime">Anime &amp; Light Novels</h2>
+        <div class="feature-list" data-content-list="anime"><p class="comment-list__empty">…</p></div>
+      </section>
+      <section class="feature-section" aria-labelledby="content-games" data-module="games">
+        <h2 id="content-games">Game Worlds</h2>
+        <div class="feature-list" data-content-list="games"><p class="comment-list__empty">…</p></div>
+      </section>
+      <section class="feature-section" aria-labelledby="content-github" data-module="github">
+        <h2 id="content-github">GitHub &amp; Making</h2>
+        <div class="feature-list" data-content-list="github"><p class="comment-list__empty">…</p></div>
       </section>
     </main>
     <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
-      <span>Tap the NFC card to open this page again</span><span class="site-footer__sep">|</span>
-      <span>Last updated · Auto avatar &amp; language</span><span class="site-footer__sep">|</span>
+      <span>© Shuofeng Shuanyue</span><span class="site-footer__sep">|</span>
       <a href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer">GitHub shuangyue1124</a>
     </footer>
   </div>
     <noscript><p class="noscript-fallback">The profile and contact links above remain available without JavaScript. Live comments and sharing enhancements are unavailable.</p></noscript>
-    <script type="module" src="../assets/js/app.js?v=20260906-ai-chat"></script>
+    <script type="module" src="../assets/js/app.js?v=20260913-multisite"></script>
   </body>
 </html>

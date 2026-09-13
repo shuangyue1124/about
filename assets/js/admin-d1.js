@@ -1,1 +1,1 @@
-import "./admin.js?v=20260906-ai-chat";
+import "./admin.js?v=20260913-multisite";

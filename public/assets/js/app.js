@@ -1,4 +1,10 @@
 import { languages, ui } from "./data.js";
+import {
+  MODULE_IDS,
+  filterTravelCities,
+  normalizeLangCode,
+  resolveAutoLanguage,
+} from "./site-profile.js";
 
 const page = document.body.dataset.page || "home";
 const root = document.body.dataset.root || ".";
@@ -22,18 +28,59 @@ function storageSet(key, value) {
 
 let lang = normalizeLang(document.body.dataset.lang) || langFromPath() || normalizeLang(storageGet(langKey)) || detectLang();
 let siteSettings = null;
+let siteProfile = null;
+let siteContacts = [];
+let siteGeo = { country: "", timezone: "", city: "" };
 let pageViewTracked = false;
 let toastTimer = 0;
 
 function normalizeLang(value) {
-  if (!value) return "";
-  if (value.startsWith("ja")) return "ja";
-  if (value.startsWith("en")) return "en";
-  return "zh";
+  return normalizeLangCode(value) || (value ? "zh" : "");
 }
 
 function detectLang() {
-  return normalizeLang(navigator.language || navigator.userLanguage || "zh");
+  // Single authority: weights live in site-profile.js resolveAutoLanguage
+  // (browser 5 + timezone 3 + server geo 3). Server only returns geo; the
+  // browser computes the final language here. Order: pinned profile >
+  // saved sfsy-lang > auto > zh fallback (see applyProfileLanguage).
+  let timezone = "";
+  try {
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch { timezone = ""; }
+  return resolveAutoLanguage({
+    browserLang: navigator.language || navigator.userLanguage || "zh",
+    timezone,
+    cfCountry: siteGeo.country,
+  });
+}
+
+function applyProfileLanguage() {
+  // Domain profile may pin language; otherwise auto-detect once and remember.
+  const pinned = siteProfile?.language;
+  if (pinned === "zh" || pinned === "ja" || pinned === "en") {
+    lang = pinned;
+    return;
+  }
+  const pathLang = langFromPath();
+  if (pathLang) {
+    // Static locale path (/en/, /ja/) remains authoritative for the shell;
+    // dynamic modules still use the same lang. Remember it for future root visits.
+    lang = pathLang;
+    storageSet(langKey, lang);
+    return;
+  }
+  const stored = normalizeLang(storageGet(langKey));
+  if (stored) {
+    lang = stored;
+    return;
+  }
+  lang = detectLang();
+  storageSet(langKey, lang);
+}
+
+function moduleEnabled(id) {
+  if (!siteProfile?.modules) return true;
+  return siteProfile.modules.includes(id);
 }
 
 function langFromPath() {
@@ -183,8 +230,14 @@ function renderCommentsSection() {
 }
 
 function bindCommon() {
-  document.querySelectorAll(".lang-menu__item").forEach((link) => {
-    link.addEventListener("click", () => storageSet(langKey, link.getAttribute("hreflang")?.slice(0, 2) || "zh"));
+  // Language UI is intentionally hidden: only remember explicit locale links
+  // when they exist (legacy cached HTML). Theme buttons carry no hreflang and
+  // must never overwrite the auto-detected sfsy-lang value.
+  document.querySelectorAll(".lang-menu__item[hreflang]").forEach((link) => {
+    link.addEventListener("click", () => {
+      const code = normalizeLang(link.getAttribute("hreflang"));
+      if (code) storageSet(langKey, code);
+    });
   });
   bindCopyButtons();
   bindShareButtons();
@@ -689,29 +742,215 @@ async function loadSiteSettings() {
     if (!response.ok) throw new Error("site settings unavailable");
     const data = await response.json();
     if (data.settings && typeof data.settings === "object") siteSettings = data.settings;
+    if (data.profile && typeof data.profile === "object") siteProfile = data.profile;
+    if (Array.isArray(data.contacts)) siteContacts = data.contacts;
+    if (data.geo && typeof data.geo === "object") siteGeo = { country: String(data.geo.country || ""), timezone: String(data.geo.timezone || ""), city: String(data.geo.city || "") };
   } catch {
-    siteSettings = null;
+    siteSettings = siteSettings || null;
   }
 }
 
+// Lightweight module registry: profile.modules decides what is visible.
+// No giant if/else chain; each renderer is a small function below.
+const siteModules = {
+  profile: applyProfileModule,
+  about: applyAboutModule,
+  contacts: applyContactsModule,
+  travel: applyTravelModule,
+  anime: () => applyContentModule("anime"),
+  games: () => applyContentModule("games"),
+  github: () => applyContentModule("github"),
+  comments: applyCommentsModule,
+};
+
 function applySiteSettings() {
-  if (!siteSettings) return;
+  // Language first: pinned profile language wins, otherwise weighted auto + memory.
+  if (siteProfile) applyProfileLanguage();
 
-  const title = settingText("title", label("heroTitle"));
-  document.querySelectorAll(".brand__name").forEach((element) => {
-    element.textContent = title;
+  if (siteSettings) {
+    const title = settingText("title", label("heroTitle"));
+    document.querySelectorAll(".brand__name").forEach((element) => {
+      element.textContent = profileTitleText(title);
+    });
+    if (page === "home") {
+      const heading = document.querySelector(".hero h1");
+      const subtitle = document.querySelector(".hero__subtitle");
+      if (heading) heading.textContent = profileTitleText(title);
+      if (subtitle) subtitle.textContent = profileSubtitleText(settingText("subtitle", label("heroSubtitle")));
+    }
+  }
+
+  // Per-hostname SEO: canonical/og:url always point at the current hostname,
+  // never at about.shuangyue.space from another domain.
+  applySeoForHostname();
+
+  if (siteProfile) {
+    for (const id of siteProfile.modules || MODULE_IDS) {
+      try { siteModules[id]?.(); } catch { /* one module must never break the page */ }
+    }
+    hideDisabledModules();
+  }
+
+  // Comments section re-render keeps existing behaviour (enabled flag + i18n).
+  if (siteSettings) {
+    const comments = document.querySelector("[data-comments]");
+    if (comments && siteProfile?.modules?.includes("comments") !== false) {
+      comments.outerHTML = renderCommentsSection();
+      bindComments();
+    }
+  }
+
+  if (siteContacts.length) renderContactsFromApi();
+  if (page === "travel" || page === "home") filterTravelDom();
+  if (page === "anime" || page === "games" || page === "github" || page === "home") loadContentSections();
+}
+
+function profileTitleText(fallback) {
+  const v = siteProfile?.title;
+  if (v && typeof v === "object") return v[lang] || v.zh || fallback;
+  return fallback;
+}
+
+function profileSubtitleText(fallback) {
+  const v = siteProfile?.subtitle;
+  if (v && typeof v === "object") return v[lang] || v.zh || fallback;
+  return fallback;
+}
+
+function applySeoForHostname() {
+  try {
+    const host = window.location.hostname.toLowerCase();
+    const path = window.location.pathname + window.location.search;
+    const canonicalUrl = `${window.location.protocol}//${host}${path}`;
+    const canonical = document.querySelector('link[rel="canonical"]');
+    if (canonical) canonical.setAttribute("href", canonicalUrl);
+    const ogUrl = document.querySelector('meta[property="og:url"]');
+    if (ogUrl) ogUrl.setAttribute("content", canonicalUrl);
+    document.documentElement.lang = languages.find((item) => item.code === lang)?.html || "zh-CN";
+  } catch { /* SEO enhancement is best-effort */ }
+}
+
+function hideDisabledModules() {
+  const mods = new Set(siteProfile?.modules || MODULE_IDS);
+  // Static shells carry data-module where available (build-pages); legacy nodes
+  // fall back to id/class matching below so old cached HTML still filters safely.
+  document.querySelectorAll("[data-module]").forEach((el) => {
+    if (!mods.has(el.getAttribute("data-module"))) el.remove();
   });
+  if (!mods.has("comments")) document.querySelector("[data-comments]")?.remove();
+  if (!mods.has("contacts")) document.getElementById("contact")?.remove();
+  if (!mods.has("travel")) {
+    // Home travel card is identified by its travel link; travel page keeps shell
+    // but shows an empty state (display control only, no 404 in phase one).
+    document.querySelectorAll(".feature-card").forEach((card) => {
+      if (card.querySelector('a[href*="travel"]') && card.querySelector(".eyebrow")?.textContent?.includes(label("travelTitle").slice(0, 2))) card.remove();
+    });
+  }
+}
 
-  if (page !== "home") return;
-  const heading = document.querySelector(".hero h1");
-  const subtitle = document.querySelector(".hero__subtitle");
-  if (heading) heading.textContent = title;
-  if (subtitle) subtitle.textContent = settingText("subtitle", label("heroSubtitle"));
+function applyProfileModule() { /* hero always visible when profile module present */ }
+function applyAboutModule() { /* about card stays; hidden only via data-module when custom template excludes it */ }
+function applyCommentsModule() { /* handled in applySiteSettings re-render */ }
+function applyContactsModule() { /* handled by renderContactsFromApi */ }
+function applyTravelModule() { /* handled by filterTravelDom */ }
+function applyContentModule() { /* handled by loadContentSections */ }
 
-  const comments = document.querySelector("[data-comments]");
-  if (comments) {
-    comments.outerHTML = renderCommentsSection();
-    bindComments();
+function contactDesc(item) {
+  const map = {
+    wechat: { zh: "微信联系", ja: "WeChatで連絡", en: "Contact via WeChat" },
+    qq: { zh: "点击复制 QQ 号", ja: "QQ番号をコピー", en: "Click to copy QQ number" },
+    telegram: { zh: "点击打开 Telegram 会话", ja: "Telegramを開く", en: "Open a Telegram chat" },
+    email: { zh: "点击发送电子邮件", ja: "メールを送る", en: "Send an email" },
+    github: { zh: "查看代码与项目", ja: "コードとプロジェクトを見る", en: "View code and projects" },
+    steam: { zh: "打开 Steam 个人资料", ja: "Steamプロフィールを開く", en: "Open Steam profile" },
+    minecraft: { zh: "Minecraft 联机", ja: "Minecraftで遊ぶ", en: "Play Minecraft together" },
+    genshin: { zh: "原神 UID", ja: "原神 UID", en: "Genshin UID" },
+  };
+  const key = String(item.type || "").toLowerCase();
+  return map[key]?.[lang] || map[key]?.zh || "";
+}
+
+function renderContactsFromApi() {
+  const grid = document.querySelector("[data-contacts]") || document.querySelector(".contact-grid");
+  if (!grid || !siteContacts.length) return;
+  // Only the API-provided (already filtered) contacts are rendered. Hidden
+  // contact values never touch the DOM on wx/qq/github/travel hosts.
+  const cards = siteContacts.map((item) => {
+    const desc = contactDesc(item);
+    const labelText = esc(item.label || item.type);
+    const valueText = esc(item.value || "");
+    if (item.url && item.url.startsWith("http")) {
+      return `<a class="contact-link" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer"><span>${labelText}</span><strong>${valueText}</strong><small>${esc(desc)}</small></a>`;
+    }
+    if (item.url && item.url.startsWith("mailto:")) {
+      return `<a class="contact-link" href="${esc(item.url)}"><span>${labelText}</span><strong>${valueText}</strong><small>${esc(desc)}</small></a>`;
+    }
+    return `<button class="contact-link js-copy" type="button" data-copy="${esc(item.value || "")}"><span>${labelText}</span><strong>${valueText}</strong><small>${esc(desc)}</small></button>`;
+  }).join("");
+  const vcard = `<a class="contact-link js-download-contact" href="/contact.vcf" download><span>vCard</span><strong>${esc(label("saveContact"))}</strong><small>${esc(label("saveContactHint"))}</small></a>`;
+  grid.innerHTML = cards + vcard;
+  bindCopyButtons();
+  bindContactDownloads();
+}
+
+function filterTravelDom() {
+  const travel = siteProfile?.travel;
+  if (!travel) return;
+  if (travel.mode === "disabled") {
+    document.querySelectorAll(".city-preview").forEach((el) => el.remove());
+    document.querySelectorAll(".timeline-group").forEach((el) => el.remove());
+    const empty = document.querySelector(".no-results");
+    if (empty) { empty.hidden = false; }
+    return;
+  }
+  const allSlugs = Array.from(document.querySelectorAll(".city-preview")).map((el) => {
+    const href = el.getAttribute("href") || "";
+    const m = href.match(/cities\/([^/.]+)/);
+    return m ? m[1].toLowerCase() : "";
+  }).filter(Boolean);
+  if (!allSlugs.length) return;
+  const allowed = new Set(filterTravelCities(allSlugs.length ? [...new Set([...allSlugs, "japan-2026"])] : [], travel).map((s) => String(s).toLowerCase()));
+  // japan-2026 is a trip page, not a .city-preview; gate its stat card separately.
+  const showJapan = allowed.has("japan-2026");
+  if (!showJapan) document.querySelector(".stat-card--seal")?.remove();
+  document.querySelectorAll(".city-preview").forEach((el) => {
+    const href = el.getAttribute("href") || "";
+    const m = href.match(/cities\/([^/.]+)/);
+    const slug = m ? m[1].toLowerCase() : "";
+    if (slug && !allowed.has(slug)) el.remove();
+  });
+  document.querySelectorAll(".timeline-group").forEach((group) => {
+    if (!group.querySelector(".city-preview")) group.remove();
+  });
+}
+
+async function loadContentSections() {
+  const lists = document.querySelectorAll("[data-content-list]");
+  if (!lists.length) return;
+  for (const list of lists) {
+    const type = list.getAttribute("data-content-list");
+    if (!type) continue;
+    // Respect profile gating client-side as well (server already gates).
+    const need = type === "anime" ? "anime" : type === "games" ? "games" : type === "github" ? "github" : "";
+    if (need && !moduleEnabled(need)) { list.innerHTML = ""; continue; }
+    try {
+      const apiType = type === "games" ? "game" : type;
+      const res = await fetch(`/api/content?type=${encodeURIComponent(apiType)}`, { headers: { accept: "application/json" } });
+      if (!res.ok) throw new Error("content unavailable");
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      if (!items.length) {
+        list.innerHTML = `<p class="comment-list__empty">${esc(label("noResults"))}</p>`;
+        continue;
+      }
+      list.innerHTML = items.slice(0, 12).map((item) => {
+        const title = item.title?.[lang] || item.title?.zh || "";
+        const summary = item.summary?.[lang] || item.summary?.zh || "";
+        return `<article class="feature-card"><div class="feature-card__text"><p class="eyebrow">${esc(type)}</p><h3>${esc(title)}</h3><p>${esc(summary)}</p>${item.url ? `<p><a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.url)}</a></p>` : ""}</div></article>`;
+      }).join("");
+    } catch {
+      list.innerHTML = `<p class="comment-list__empty">${esc(label("noResults"))}</p>`;
+    }
   }
 }
 
