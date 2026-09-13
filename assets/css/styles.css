@@ -2080,6 +2080,21 @@ button.contact-link {
   border-radius: 8px;
 }
 
+.admin-required {
+  color: var(--cinnabar);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+#citySelector {
+  display: grid;
+  gap: 14px;
+}
+
+#citySelector[hidden] {
+  display: none;
+}
+
 .admin-health {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

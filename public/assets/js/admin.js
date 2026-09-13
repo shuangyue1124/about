@@ -1,4 +1,5 @@
 import { cities } from "./data.js";
+import { defaultProfileFor } from "./site-profile.js";
 
 const app = document.getElementById("adminApp");
 const defaultAiModel = "@cf/meta/llama-3.2-3b-instruct";
@@ -244,7 +245,7 @@ function dashboard() {
         <div class="admin-comment-toolbar">
           <div>
             <h2 id="profiles-title">域名 / 页面管理</h2>
-            <p>同一 Pages 项目按 hostname 选择 Profile；一次公开请求只返回当前域名的允许数据。旅行支持 不开放 / 全部 / 仅展示所选 / 屏蔽所选。</p>
+            <p>同一 Pages 项目按 hostname 选择 Profile；一次公开请求只返回当前域名的允许数据。旅行支持 不开放 / 全部 / 仅展示所选 / 屏蔽所选。新增域名会自动填入主站配置，标 <b class="admin-required">*</b> 为必填。</p>
           </div>
           <div class="admin-actions">
             <button class="btn btn--primary" type="button" id="newProfileButton">新增域名</button>
@@ -533,33 +534,36 @@ function cityOptions(selected) {
 
 function profileEditor(p) {
   const travel = p.travel || { mode: "all", cities: [] };
+  const showCities = travel.mode === "include" || travel.mode === "exclude";
   return `
     <form class="admin-form" id="profileForm">
       <h3>${p.hostname ? `编辑 ${esc(p.hostname)}` : "新增域名"}</h3>
-      <label><span>域名（hostname，如 wx.shuangyue.space）</span><input name="hostname" value="${esc(p.hostname || "")}" ${p.hostname ? "readonly" : ""} required></label>
+      <label><span>域名（hostname，如 wx.shuangyue.space） <b class="admin-required">*必填</b></span><input name="hostname" value="${esc(p.hostname || "")}" ${p.hostname ? "readonly" : ""} required></label>
       <label><span>页面名称（标题 zh）</span><input name="title_zh" value="${esc(p.title?.zh || "")}"></label>
       <label><span>副标题（zh）</span><input name="subtitle_zh" value="${esc(p.subtitle?.zh || "")}"></label>
       <label><span>模板</span><select name="template">${TEMPLATE_OPTIONS.map((t) => `<option value="${t}" ${p.template === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label><span>语言：自动 / 中文 / 日文 / 英文</span><select name="language">${[["auto", "自动"], ["zh", "中文"], ["ja", "日文"], ["en", "英文"]].map(([v, n]) => `<option value="${v}" ${p.language === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <label><span>GitHub 用户名</span><input name="githubUser" value="${esc(p.githubUser || "shuangyue1124")}"></label>
-      <fieldset class="admin-fieldset"><legend>页面模块</legend>
+      <fieldset class="admin-fieldset"><legend>页面模块 <b class="admin-required">*必填，至少勾选一项</b></legend>
         ${MODULE_OPTIONS.map((m) => `<label class="admin-toggle"><input type="checkbox" name="modules" value="${m}" ${(p.modules || []).includes(m) ? "checked" : ""}><span>${m}</span></label>`).join("")}
       </fieldset>
-      <fieldset class="admin-fieldset"><legend>联系方式（仅勾选的会公开返回）</legend>
+      <fieldset class="admin-fieldset"><legend>联系方式（仅勾选的会公开返回，可全不选）</legend>
         ${CONTACT_OPTIONS.map((c) => `<label class="admin-toggle"><input type="checkbox" name="contacts" value="${c}" ${(p.contacts || []).includes(c) ? "checked" : ""}><span>${c}</span></label>`).join("")}
       </fieldset>
-      <fieldset class="admin-fieldset"><legend>旅行足迹</legend>
+      <fieldset class="admin-fieldset"><legend>旅行足迹（城市列表仅在「仅展示所选 / 屏蔽所选」时生效）</legend>
         <label class="admin-toggle"><input type="radio" name="travelMode" value="disabled" ${travel.mode === "disabled" ? "checked" : ""}><span>不开放</span></label>
         <label class="admin-toggle"><input type="radio" name="travelMode" value="all" ${travel.mode === "all" ? "checked" : ""}><span>全部开放</span></label>
         <label class="admin-toggle"><input type="radio" name="travelMode" value="include" ${travel.mode === "include" ? "checked" : ""}><span>仅展示所选</span></label>
         <label class="admin-toggle"><input type="radio" name="travelMode" value="exclude" ${travel.mode === "exclude" ? "checked" : ""}><span>屏蔽所选</span></label>
-        <div class="admin-actions">
-          <button class="btn" type="button" id="citySelectAll">全选</button>
-          <button class="btn" type="button" id="cityInvert">反选</button>
-          <button class="btn" type="button" id="cityClear">清空</button>
-          <label><span>搜索城市</span><input id="citySearchInput" value="${esc(state.citySearch)}" placeholder="如 beijing / 洛阳"></label>
+        <div id="citySelector" ${showCities ? "" : "hidden"}>
+          <div class="admin-actions">
+            <button class="btn" type="button" id="citySelectAll">全选</button>
+            <button class="btn" type="button" id="cityInvert">反选</button>
+            <button class="btn" type="button" id="cityClear">清空</button>
+            <label><span>搜索城市</span><input id="citySearchInput" value="${esc(state.citySearch)}" placeholder="如 beijing / 洛阳"></label>
+          </div>
+          <div class="admin-city-grid">${cityOptions(travel.cities)}</div>
         </div>
-        <div class="admin-city-grid">${cityOptions(travel.cities)}</div>
       </fieldset>
       <label class="admin-toggle"><input name="enabled" type="checkbox" ${p.enabled !== false ? "checked" : ""}><span>启用该域名</span></label>
       <div class="admin-actions">
@@ -615,7 +619,15 @@ function bind() {
     button.addEventListener("click", () => deleteComment(button.dataset.id));
   });
   document.getElementById("newProfileButton")?.addEventListener("click", () => {
-    state.editingProfile = { hostname: "", template: "full", language: "auto", modules: [...MODULE_OPTIONS], contacts: ["qq"], travel: { mode: "all", cities: [] }, githubUser: "shuangyue1124", enabled: true, title: {}, subtitle: {} };
+    // 新增域名时以主站（about.shuangyue.space）的已保存配置为底，便于修改；
+    // 主站尚未保存时用内置 full 默认。hostname 清空待填，其余照抄。
+    const main = state.profiles.find((p) => p.hostname === "about.shuangyue.space");
+    const base = main
+      ? JSON.parse(JSON.stringify(main))
+      : defaultProfileFor("about.shuangyue.space");
+    base.hostname = "";
+    state.editingProfile = base;
+    state.citySearch = "";
     render();
   });
   document.getElementById("cancelEditProfile")?.addEventListener("click", () => { state.editingProfile = null; render(); });
@@ -627,6 +639,11 @@ function bind() {
   }));
   document.querySelectorAll(".js-toggle-profile").forEach((b) => b.addEventListener("click", () => toggleProfile(b.dataset.hostname)));
   document.querySelectorAll(".js-delete-profile").forEach((b) => b.addEventListener("click", () => deleteProfile(b.dataset.hostname)));
+  // 旅行模式切换时显隐城市列表：仅 include / exclude 需要选城市。
+  document.querySelectorAll('input[name="travelMode"]').forEach((r) => r.addEventListener("change", () => {
+    const v = document.querySelector('input[name="travelMode"]:checked')?.value;
+    document.getElementById("citySelector")?.toggleAttribute("hidden", v !== "include" && v !== "exclude");
+  }));
   document.getElementById("citySelectAll")?.addEventListener("click", () => setAllCities(true));
   document.getElementById("cityInvert")?.addEventListener("click", invertCities);
   document.getElementById("cityClear")?.addEventListener("click", () => setAllCities(false));
@@ -935,7 +952,20 @@ async function saveProfile(event) {
     title: { zh: String(form.get("title_zh") || ""), ja: String(form.get("title_zh") || ""), en: String(form.get("title_zh") || "") },
     subtitle: { zh: String(form.get("subtitle_zh") || ""), ja: String(form.get("subtitle_zh") || ""), en: String(form.get("subtitle_zh") || "") },
   };
-  if (!payload.hostname) { state.status = "域名不能为空。"; render(); return; }
+  // 必填校验：逐项列出缺失，不满足不提交；同时把草稿写回 editingProfile，避免报错后清空已填内容。
+  const missing = [];
+  if (!payload.hostname) missing.push("域名");
+  else if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(payload.hostname)) missing.push("域名（格式不正确，如 wx.shuangyue.space）");
+  if (!modules.length) missing.push("页面模块（至少勾选一项）");
+  if ((payload.travel.mode === "include" || payload.travel.mode === "exclude") && !travelCities.length) {
+    missing.push(`旅行城市（「${payload.travel.mode === "include" ? "仅展示所选" : "屏蔽所选"}」需至少勾选一个城市）`);
+  }
+  if (missing.length) {
+    state.editingProfile = { ...(state.editingProfile || {}), ...payload, travel: payload.travel };
+    state.status = `以下必填项未完成：${missing.join("；")}。`;
+    render();
+    return;
+  }
   state.status = "正在保存域名...";
   render();
   try {
