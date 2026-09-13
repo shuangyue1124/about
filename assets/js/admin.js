@@ -73,7 +73,7 @@ function shell(content) {
     <header class="topbar">
       <a class="brand" href="./" aria-label="返回首页">
         <span class="brand__mark brand__mark--avatar">
-          <img src="https://q1.qlogo.cn/g?b=qq&nk=1970259391&s=640" alt="朔风霜月头像" loading="lazy">
+          <img src="assets/images/avatar.webp" alt="朔风霜月头像" loading="lazy">
         </span>
         <span>
           <span class="brand__name">朔风霜月</span>
@@ -374,8 +374,11 @@ function contentRow(item) {
         <div><strong>[${esc(item.type)}] ${esc(title)}</strong><span class="admin-badge admin-badge--${item.enabled ? "approved" : "rejected"}">${esc(item.enabled ? "启用" : "禁用")}</span><span> ${esc(item.slug)} · sort ${esc(item.sortOrder)}</span></div>
         <div class="admin-actions">
           <button class="btn js-edit-content" type="button" data-id="${esc(item.id)}">编辑</button>
+          ${item.enabled
+            ? `<button class="btn js-hide-content" type="button" data-id="${esc(item.id)}">隐藏</button>`
+            : `<button class="btn btn--primary js-show-content" type="button" data-id="${esc(item.id)}">显示</button>`}
           <button class="btn js-ai-review" type="button" data-id="${esc(item.id)}">生成 AI 短评</button>
-          <button class="btn btn--danger js-delete-content" type="button" data-id="${esc(item.id)}">删除</button>
+          <button class="btn btn--danger js-delete-content" type="button" data-id="${esc(item.id)}">永久删除</button>
         </div>
       </div>
       <p>${esc(item.summary?.zh || "")}</p>
@@ -551,7 +554,11 @@ function bind() {
     state.editingContent = state.contentItems.find((i) => i.id === b.dataset.id) || null;
     render();
   }));
-  document.querySelectorAll(".js-delete-content").forEach((b) => b.addEventListener("click", () => deleteContent(b.dataset.id)));
+  document.querySelectorAll(".js-delete-content").forEach((b) => b.addEventListener("click", () => {
+    if (window.confirm("永久删除后无法恢复。确定吗？")) deleteContent(b.dataset.id, true);
+  }));
+  document.querySelectorAll(".js-hide-content").forEach((b) => b.addEventListener("click", () => deleteContent(b.dataset.id, false)));
+  document.querySelectorAll(".js-show-content").forEach((b) => b.addEventListener("click", () => setContentVisibility(b.dataset.id, true)));
   document.querySelectorAll(".js-ai-review").forEach((b) => b.addEventListener("click", () => aiReview(b.dataset.id)));
   document.getElementById("githubScanForm")?.addEventListener("submit", scanGithub);
   document.getElementById("githubImportButton")?.addEventListener("click", importGithub);
@@ -840,14 +847,32 @@ async function saveContent(event) {
   }
 }
 
-async function deleteContent(id) {
+async function deleteContent(id, permanent = false) {
   try {
-    const res = await api(`/api/admin/content/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const res = await api(`/api/admin/content/${encodeURIComponent(id)}${permanent ? "?permanent=1" : ""}`, { method: "DELETE" });
     if (!res.ok) throw new Error(await responseText(res));
-    state.status = "内容已删除。";
+    state.status = permanent ? "内容已永久删除。" : "内容已隐藏，可随时恢复显示。";
     await loadDashboard();
   } catch (error) {
     state.status = error.message || "删除失败。";
+    render();
+  }
+}
+
+async function setContentVisibility(id, enabled) {
+  // Show/hide reuses the content save path (enabled flag only).
+  const item = state.contentItems.find((i) => i.id === id);
+  if (!item) return;
+  try {
+    const res = await api(`/api/admin/content/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ item: { ...item, enabled } }),
+    });
+    if (!res.ok) throw new Error(await responseText(res));
+    state.status = enabled ? "内容已恢复显示。" : "内容已隐藏。";
+    await loadDashboard();
+  } catch (error) {
+    state.status = error.message || "更新失败。";
     render();
   }
 }
@@ -877,7 +902,10 @@ async function importGithub() {
   try {
     const res = await api("/api/admin/github/import", { method: "POST", body: JSON.stringify({ repos: picks }) });
     if (!res.ok) throw new Error(await responseText(res));
-    state.status = `已导入 ${picks.length} 个项目。`;
+    const data = await res.json().catch(() => ({}));
+    const deduped = Number(data.deduped) || 0;
+    const fresh = picks.length - deduped;
+    state.status = `导入完成：新增 ${fresh} 个${deduped ? `，${deduped} 个已存在并同步更新（未覆盖手动短评与排序）` : ""}。`;
     state.githubCandidates = [];
     await loadDashboard();
   } catch (error) {

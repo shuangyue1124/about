@@ -65,6 +65,8 @@ assert(resolveAutoLanguage({ browserLang: "ja-JP", timezone: "Asia/Tokyo", cfCou
 assert(resolveAutoLanguage({ browserLang: "en-US", timezone: "America/New_York", cfCountry: "US" }) === "en", "en signals -> en");
 assert(resolveAutoLanguage({ browserLang: "zh-CN", timezone: "America/New_York", cfCountry: "US" }) === "zh", "browser language wins tie (zh vs en)");
 assert(resolveAutoLanguage({ browserLang: "en", timezone: "Asia/Tokyo", cfCountry: "JP" }) === "ja", "tz+geo (6) can outweigh single browser vote (5)");
+assert(resolveAutoLanguage({ browserLang: "zh-CN", timezone: "Asia/Tokyo", cfCountry: "JP" }) === "ja", "zh browser in JP follows local tz+geo (5 vs 6)");
+assert(resolveAutoLanguage({ browserLang: "en-US", timezone: "Asia/Shanghai", cfCountry: "CN" }) === "zh", "en browser in CN follows local tz+geo (5 vs 6)");
 
 // 7. sanitizeProfile never trusts arbitrary host input for config generation
 const evil = sanitizeProfile({ hostname: "EVIL.Example.COM.", template: "contact", language: "zh", modules: ["profile", "contacts", "hacker"], contacts: ["qq", "telegram", "evil"], travel: { mode: "include", cities: ["Beijing", "  "] } }, "about.shuangyue.space");
@@ -86,6 +88,19 @@ assert(wxSite.profile.travel.mode === "disabled", "/api/site wx travel disabled"
 const aboutSite = await siteFor("about.shuangyue.space");
 assert(aboutSite.profile.modules.includes("comments") && aboutSite.profile.modules.includes("travel"), "/api/site about keeps full modules");
 assert(aboutSite.hostname !== wxSite.hostname || JSON.stringify(aboutSite.contacts) !== JSON.stringify(wxSite.contacts), "different hostnames get different payloads (no cross-profile leak)");
+
+// 9. Profile isolation across all first-stage hostnames
+const qqSite = await siteFor("qq.shuangyue.space");
+assert(qqSite.contacts.length === 1 && qqSite.contacts[0].type === "qq", "qq domain returns only qq");
+const ghSite = await siteFor("github.shuangyue.space");
+assert(ghSite.contacts.length === 1 && ghSite.contacts[0].type === "github", "github domain returns only github");
+assert(ghSite.profile.modules.join(",") === "profile,github", "github domain modules are profile+github");
+const travelSite = await siteFor("travel.shuangyue.space");
+assert(travelSite.profile.modules.join(",") === "profile,travel", "travel domain modules are profile+travel");
+assert(travelSite.profile.travel.mode === "all", "travel domain opens all travel");
+const evilSite = await siteFor("evil.example.com");
+assert(evilSite.hostname === "evil.example.com", "unknown hostname echoes itself, never another profile");
+assert(!JSON.stringify(evilSite).includes("wx.shuangyue.space") && !JSON.stringify(evilSite).includes("qq.shuangyue.space"), "unknown hostname leaks no other hostname config");
 
 if (failures.length) {
   console.error(`\ncheck-site-profiles failed:\n- ${failures.join("\n- ")}`);

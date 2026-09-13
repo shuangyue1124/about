@@ -2,9 +2,8 @@ import { cities, homeCards, japanPlan, languages, profile, ui } from "./data.js"
 import {
   MODULE_IDS,
   filterTravelCities,
-  langFromCountry,
-  langFromTimezone,
   normalizeLangCode,
+  resolveAutoLanguage,
 } from "./site-profile.js";
 
 const app = document.getElementById("app");
@@ -44,42 +43,18 @@ function normalizeLang(value) {
 }
 
 function detectLang() {
-  // Weighted auto detection: browser language (5) + timezone (3) + cf geo (3).
-  // siteGeo is filled by /api/site; before that use browser + local timezone only.
-  const browser = normalizeLangCode(navigator.language || navigator.userLanguage || "zh") || "zh";
+  // Single source of truth for auto scoring lives in site-profile.js
+  // (browser language 5 + timezone 3 + server geo 3, ties prefer browser).
+  // siteGeo is filled by /api/site; before that only browser + local timezone apply.
   let timezone = "";
   try {
     timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
   } catch { timezone = ""; }
-  const scores = { zh: 0, ja: 0, en: 0 };
-  if (browser) scores[browser] += 5;
-  const tzLang = langFromTimezone(timezone);
-  if (tzLang) scores[tzLang] += 3;
-  const geoLang = langFromCountry(siteGeo.country);
-  if (geoLang) scores[geoLang] += 3;
-  let best = browser;
-  let bestScore = -1;
-  for (const code of ["zh", "ja", "en"]) {
-    if (scores[code] > bestScore) { bestScore = scores[code]; best = code; }
-  }
-  return best;
-}
-
-function applyProfileLanguage() {
-  // Domain profile may pin language; otherwise auto-detect once and remember.
-  const pinned = siteProfile?.language;
-  if (pinned === "zh" || pinned === "ja" || pinned === "en") {
-    lang = pinned;
-    return;
-  }
-  const stored = normalizeLang(storageGet(langKey));
-  if (stored) {
-    // A remembered auto result wins over re-detecting on every visit.
-    lang = stored;
-    return;
-  }
-  lang = detectLang();
-  storageSet(langKey, lang);
+  return resolveAutoLanguage({
+    browserLang: navigator.language || navigator.userLanguage || "zh",
+    timezone,
+    cfCountry: siteGeo.country,
+  });
 }
 
 function langFromPath() {
@@ -1195,7 +1170,8 @@ async function loadSiteSettings() {
     }
     if (Array.isArray(data.contacts)) siteContacts = data.contacts;
     if (data.geo && typeof data.geo === "object") siteGeo = { ...siteGeo, ...data.geo };
-    // Re-resolve language now that server geo + profile are known.
+    // Single authority for effective language (frontend decides; server only
+    // supplies geo hints): pinned profile > remembered sfsy-lang > auto score > zh.
     const pinned = siteProfile?.language;
     if (pinned === "zh" || pinned === "ja" || pinned === "en") {
       lang = pinned;

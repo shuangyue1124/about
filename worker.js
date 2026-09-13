@@ -21,6 +21,13 @@ export default {
       return handleContent(request, env);
     }
 
+    // Dynamic vCard: same URL (/contact.vcf) serves per-hostname filtered contacts.
+    // Intercepted before ASSETS so the static fallback file can never leak
+    // contacts that the current profile hides.
+    if (url.pathname === "/contact.vcf" || url.pathname === "/api/contact.vcf") {
+      return handleVcard(request, env);
+    }
+
     if (request.method !== "GET" && request.method !== "HEAD") {
       return env.ASSETS.fetch(request);
     }
@@ -93,6 +100,11 @@ const memory = {
   profiles: new Map(),
   contacts: null,
   contactsExpiresAt: 0,
+  // Public content cache. Keys ALWAYS embed hostname first:
+  //   content:{hostname}:{type}  /  content-detail:{hostname}:{type}:{slug}
+  // so wx/qq/about/github/travel can never read each other's filtered lists.
+  // Memory-only (no KV writes on visits); cleared on any content/profile write.
+  content: new Map(),
 };
 
 const DEFAULT_SITE_CONFIG = {
@@ -321,13 +333,96 @@ export async function handleContent(request, env) {
   const url = new URL(request.url);
   const type = cleanOneLine(url.searchParams.get("type"), 20).toLowerCase();
   const slug = cleanOneLine(url.searchParams.get("slug"), 120).toLowerCase();
-  const items = await listContentItems(env, type || "all", true);
+  // ---- Profile gate: permission lives on the server, not just in frontend routing.
+  // A hostname whose modules exclude e.g. github must not receive github items.
+  const profile = await loadSiteProfile(env, requestHostname(request));
+  const required = moduleForContentType(type);
+  if (required && required !== "all" && !profile.modules.includes(required)) {
+    if (slug) return json({ error: "not found" }, 404);
+    return json({ items: [] });
+  }
+  const cacheKey = slug
+    ? `content-detail:${profile.hostname}:${type || "all"}:${slug}`
+    : `content:${profile.hostname}:${type || "all"}`;
+  const cached = readContentMemory(cacheKey);
+  if (cached) return json(cached);
+  let items = await listContentItems(env, type || "all", true);
+  // type=all (or a future unmapped type): drop items whose module is closed.
+  items = items.filter((i) => {
+    const m = moduleForContentType(i.type);
+    return !m || profile.modules.includes(m);
+  });
   if (slug) {
     const found = items.find((i) => String(i.slug).toLowerCase() === slug && (!type || type === "all" || i.type === type));
     if (!found) return json({ error: "not found" }, 404);
-    return json({ item: publicContentItem(found) });
+    const body = { item: publicContentItem(found) };
+    writeContentMemory(cacheKey, body);
+    return json(body);
   }
-  return json({ items: items.map(publicContentItem) });
+  const body = { items: items.map(publicContentItem) };
+  writeContentMemory(cacheKey, body);
+  return json(body);
+}
+
+// Maps a content type to the profile module that gates it.
+// Returns "" for travel-ish types (served statically from data.js; no dynamic list)
+// and null for future unmapped types (allowed; no module claims them).
+function moduleForContentType(type) {
+  const t = String(type || "all").toLowerCase();
+  if (t === "anime") return "anime";
+  if (t === "game" || t === "games") return "games";
+  if (t === "github" || t === "project" || t === "software") return "github";
+  if (t === "travel" || t === "cities" || t === "city" || t === "japan") return "";
+  if (t === "all" || !t) return "all";
+  return null;
+}
+
+export async function handleVcard(request, env) {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+  if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method not allowed" }, 405);
+  const profile = await loadSiteProfile(env, requestHostname(request));
+  const contacts = filterContactsForProfile(await loadAllContacts(env), profile);
+  const body = buildVcard(contacts);
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "text/vcard; charset=utf-8",
+      "content-disposition": 'inline; filename="shuofeng-shuanyue.vcf"',
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*",
+    },
+  });
+}
+
+function escapeVcard(value) {
+  return String(value || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/;/g, "\\;").replace(/,/g, "\\,").slice(0, 300);
+}
+
+function buildVcard(contacts) {
+  const lines = [
+    "BEGIN:VCARD",
+    "VERSION:3.0",
+    "FN:朔风霜月",
+    "N:;朔风霜月;;;",
+    "NICKNAME:Shuofeng Shuanyue",
+    "URL:https://about.shuangyue.space/",
+  ];
+  for (const c of contacts || []) {
+    const type = String(c.type || "").toLowerCase();
+    const value = String(c.value || "");
+    const url = String(c.url || "");
+    if (!value && !url) continue;
+    if (type === "email" && value.includes("@")) {
+      lines.push(`EMAIL;TYPE=INTERNET:${escapeVcard(value)}`);
+    } else if (url) {
+      lines.push(`X-SOCIALPROFILE;TYPE=${escapeVcard(type)}:${escapeVcard(url)}`);
+    } else {
+      lines.push(`X-SOCIALPROFILE;TYPE=${escapeVcard(type)}:${escapeVcard(value)}`);
+    }
+  }
+  lines.push("NOTE:朔风霜月的个人主页");
+  lines.push("END:VCARD");
+  return lines.join("\r\n");
 }
 
 export async function handleEvents(request, env) {
@@ -497,9 +592,16 @@ export async function handleAdmin(request, env) {
         return json({ item: adminContentItem(item) });
       }
       if (request.method === "DELETE") {
-        await deleteContentItem(env, id);
+        // Default is soft delete (hide, enabled=0); ?permanent=1 destroys.
+        const permanent = url.searchParams.get("permanent") === "1";
+        if (permanent) {
+          await deleteContentItem(env, id);
+          await bustContentCache(env);
+          return json({ ok: true, permanent: true });
+        }
+        const item = await setContentEnabled(env, id, false);
         await bustContentCache(env);
-        return json({ ok: true });
+        return json({ ok: true, soft: true, item: adminContentItem(item) });
       }
     }
 
@@ -513,11 +615,14 @@ export async function handleAdmin(request, env) {
       const payload = await request.json().catch(() => ({}));
       const repos = Array.isArray(payload.repos) ? payload.repos : [];
       const imported = [];
+      let deduped = 0;
       for (const repo of repos.slice(0, 50)) {
-        imported.push(adminContentItem(await importGithubRepo(env, repo)));
+        const { item, deduped: wasDup } = await importGithubRepo(env, repo);
+        if (wasDup) deduped += 1;
+        imported.push(adminContentItem(item));
       }
       await bustContentCache(env);
-      return json({ imported });
+      return json({ imported, deduped });
     }
 
     // ---- Workers AI short review (admin-triggered, saved to D1; visitors read D1 only) ----
@@ -628,6 +733,16 @@ async function ensureSchema(env) {
   `).run();
   await env.COMMENTS_DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_items_type_slug ON content_items (type, slug)").run();
   await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_content_items_type_enabled ON content_items (type, enabled, sort_order)").run();
+  // Lightweight evolution for GitHub dedup (migration 0004). SQLite has no
+  // ADD COLUMN IF NOT EXISTS, so ignore "duplicate column" on older isolates.
+  for (const ddl of [
+    "ALTER TABLE content_items ADD COLUMN source_type TEXT NOT NULL DEFAULT 'manual'",
+    "ALTER TABLE content_items ADD COLUMN source_id TEXT NOT NULL DEFAULT ''",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_content_items_source ON content_items (source_type, source_id) WHERE source_id != ''",
+    "CREATE INDEX IF NOT EXISTS idx_content_items_source_lookup ON content_items (source_type, source_id)",
+  ]) {
+    try { await env.COMMENTS_DB.prepare(ddl).run(); } catch { /* column/index already exists */ }
+  }
   await env.COMMENTS_DB.prepare(`
     CREATE TABLE IF NOT EXISTS contact_items (
       id TEXT PRIMARY KEY,
@@ -706,6 +821,7 @@ async function saveSiteProfile(env, input) {
     `).bind(profile.hostname, profile.hostname, profile.enabled ? 1 : 0, JSON.stringify(profile), now).run();
   }
   memory.profiles.set(profile.hostname, { profile, expiresAt: Date.now() + PROFILE_CACHE_TTL_SECONDS * 1000 });
+  bustContentMemoryForHost(profile.hostname);
   if (env.COMMENTS_KV) {
     await env.COMMENTS_KV.put(PROFILE_KV_PREFIX + profile.hostname, JSON.stringify(profile), { expirationTtl: PROFILE_CACHE_TTL_SECONDS }).catch(() => {});
   }
@@ -719,6 +835,7 @@ async function deleteSiteProfile(env, hostname) {
     await env.COMMENTS_DB.prepare("DELETE FROM site_profiles WHERE hostname = ?").bind(host).run();
   }
   memory.profiles.delete(host);
+  bustContentMemoryForHost(host);
   if (env.COMMENTS_KV) await env.COMMENTS_KV.delete(PROFILE_KV_PREFIX + host).catch(() => {});
 }
 
@@ -791,6 +908,7 @@ function contentFromRow(row) {
     cover: row.cover || "", url: row.url || "",
     metadata: (() => { try { return JSON.parse(row.metadata_json || "{}"); } catch { return {}; } })(),
     enabled: Number(row.enabled) !== 0, sortOrder: Number(row.sort_order) || 0,
+    sourceType: String(row.source_type || "manual"), sourceId: String(row.source_id || ""),
     createdAt: row.created_at || "", updatedAt: row.updated_at || "",
   };
 }
@@ -804,7 +922,7 @@ function publicContentItem(item) {
 }
 
 function adminContentItem(item) {
-  return { ...publicContentItem(item), enabled: item.enabled, createdAt: item.createdAt };
+  return { ...publicContentItem(item), enabled: item.enabled, sourceType: item.sourceType, sourceId: item.sourceId, createdAt: item.createdAt };
 }
 
 async function listContentItems(env, type = "all", enabledOnly = true, includeDisabled = false) {
@@ -850,13 +968,38 @@ async function saveContentItem(env, input) {
     metadata_json: typeof input.metadata === "object" ? JSON.stringify(input.metadata) : cleanOneLine(input.metadata_json || input.metadata, 4000) || (existing?.metadata_json || "{}"),
     enabled: input.enabled !== false ? 1 : 0,
     sort_order: Number.isFinite(Number(input.sortOrder)) ? Number(input.sortOrder) : Number(existing?.sort_order) || 0,
+    source_type: cleanOneLine(input.sourceType || input.source_type, 20).toLowerCase() || String(existing?.source_type || "manual"),
+    source_id: cleanOneLine(input.sourceId || input.source_id, 160) || String(existing?.source_id || ""),
   };
   await env.COMMENTS_DB.prepare(`
-    INSERT INTO content_items (id, type, slug, title, subtitle, summary, cover, url, metadata_json, enabled, sort_order, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET type = excluded.type, slug = excluded.slug, title = excluded.title, subtitle = excluded.subtitle, summary = excluded.summary, cover = excluded.cover, url = excluded.url, metadata_json = excluded.metadata_json, enabled = excluded.enabled, sort_order = excluded.sort_order, updated_at = excluded.updated_at
-  `).bind(row.id, row.type, row.slug, row.title, row.subtitle, row.summary, row.cover, row.url, row.metadata_json, row.enabled, row.sort_order, existing?.created_at || now, now).run();
+    INSERT INTO content_items (id, type, slug, title, subtitle, summary, cover, url, metadata_json, enabled, sort_order, source_type, source_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET type = excluded.type, slug = excluded.slug, title = excluded.title, subtitle = excluded.subtitle, summary = excluded.summary, cover = excluded.cover, url = excluded.url, metadata_json = excluded.metadata_json, enabled = excluded.enabled, sort_order = excluded.sort_order, source_type = excluded.source_type, source_id = excluded.source_id, updated_at = excluded.updated_at
+  `).bind(row.id, row.type, row.slug, row.title, row.subtitle, row.summary, row.cover, row.url, row.metadata_json, row.enabled, row.sort_order, row.source_type, row.source_id, existing?.created_at || now, now).run();
   const saved = await env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE id = ?").bind(id).first();
+  return contentFromRow(saved);
+}
+
+async function findContentBySource(env, sourceType, sourceId) {
+  const st = cleanOneLine(sourceType, 20).toLowerCase();
+  const sid = cleanOneLine(sourceId, 160);
+  if (!st || !sid) return null;
+  await ensureSchema(env);
+  const row = await env.COMMENTS_DB.prepare(
+    "SELECT * FROM content_items WHERE source_type = ? AND source_id = ? LIMIT 1"
+  ).bind(st, sid).first().catch(() => null);
+  return row ? contentFromRow(row) : null;
+}
+
+// Soft delete: default hides (enabled=0) so mistakes are recoverable.
+// Permanent delete only when the admin explicitly asks for it.
+async function setContentEnabled(env, id, enabled) {
+  if (!env.COMMENTS_DB) throw new Error("D1 content storage is not configured");
+  await ensureSchema(env);
+  await env.COMMENTS_DB.prepare("UPDATE content_items SET enabled = ?, updated_at = ? WHERE id = ?")
+    .bind(enabled ? 1 : 0, new Date().toISOString(), String(id)).run();
+  const saved = await env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE id = ?").bind(String(id)).first();
+  if (!saved) throw new Error("content not found");
   return contentFromRow(saved);
 }
 
@@ -867,9 +1010,40 @@ async function deleteContentItem(env, id) {
 }
 
 async function bustContentCache(env) {
-  if (env.COMMENTS_KV) {
-    // Content lists are small; simplest invalidation is to skip KV for content and rely on D1.
-    // Keep hook for future TTL caching without per-visit KV writes.
+  // Drop all hostname-scoped content memory. No KV is used for content,
+  // so there are no per-visit KV writes and nothing to invalidate there.
+  memory.content.clear();
+  if (env && env.COMMENTS_KV) {
+    // Reserved: content KV (hostname-prefixed) if ever introduced.
+  }
+}
+
+// Bust only one hostname's content entries (used after that profile changes,
+// since module open/close changes what the hostname may see).
+function bustContentMemoryForHost(hostname) {
+  const host = normalizeHostname(hostname);
+  if (!host) return;
+  for (const key of [...memory.content.keys()]) {
+    if (key === `content:${host}` || key.startsWith(`content:${host}:`) || key.startsWith(`content-detail:${host}:`)) {
+      memory.content.delete(key);
+    }
+  }
+}
+
+function readContentMemory(key) {
+  const entry = memory.content.get(key);
+  if (!entry || entry.expiresAt <= Date.now()) {
+    if (entry) memory.content.delete(key);
+    return null;
+  }
+  return entry.body;
+}
+
+function writeContentMemory(key, body) {
+  memory.content.set(key, { body, expiresAt: Date.now() + PROFILE_CACHE_TTL_SECONDS * 1000 });
+  if (memory.content.size > 500) {
+    const oldest = memory.content.keys().next().value;
+    memory.content.delete(oldest);
   }
 }
 
@@ -891,11 +1065,57 @@ async function scanGithubRepos(username) {
   })).filter((r) => r.name);
 }
 
+// Derives a stable "owner/repo" id from a scan candidate (pure, unit-tested).
+export function githubSourceId(repo = {}) {
+  const explicit = cleanOneLine(repo.sourceId || repo.source_id, 160);
+  if (explicit && explicit.includes("/")) return explicit.toLowerCase();
+  const m = String(repo.html_url || repo.url || "").match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?(?:[#?].*)?$/i);
+  if (m) return m[1].toLowerCase();
+  const owner = cleanOneLine(repo.owner, 64).toLowerCase();
+  const name = cleanOneLine(repo.name, 120).toLowerCase();
+  if (owner && name) return `${owner}/${name}`;
+  return "";
+}
+
 async function importGithubRepo(env, repo) {
   const name = cleanOneLine(repo.name, 120);
   if (!name) throw new Error("repo name is required");
+  const sourceId = githubSourceId(repo);
+  // Re-import never duplicates: refresh upstream facts in place, but keep the
+  // admin's own title/cover/sort order and any manual/AI review.
+  if (sourceId) {
+    const dup = await findContentBySource(env, "github", sourceId);
+    if (dup) {
+      const meta = { ...(dup.metadata || {}) };
+      meta.language = cleanOneLine(repo.language, 64) || meta.language || "";
+      meta.topics = Array.isArray(repo.topics) ? repo.topics.slice(0, 10) : meta.topics || [];
+      meta.stars = Number(repo.stars ?? repo.stargazers_count) ?? meta.stars ?? 0;
+      meta.forks = Number(repo.forks ?? repo.forks_count) ?? meta.forks ?? 0;
+      meta.homepage = cleanOneLine(repo.homepage, 500) || meta.homepage || "";
+      meta.updatedAt = cleanOneLine(repo.updated_at || repo.updatedAt, 40) || meta.updatedAt || "";
+      meta.archived = repo.archived !== undefined ? Boolean(repo.archived) : meta.archived;
+      const hasReview = Boolean(meta.manualReview) || Boolean(meta.review?.zh || meta.review?.ja || meta.review?.en);
+      const desc = { zh: cleanOneLine(repo.description, 500), ja: cleanOneLine(repo.description, 500), en: cleanOneLine(repo.description, 500) };
+      const updated = await saveContentItem(env, {
+        id: dup.id,
+        type: dup.type,
+        slug: dup.slug,
+        title: dup.title,
+        subtitle: dup.subtitle,
+        summary: hasReview ? dup.summary : desc,
+        cover: dup.cover,
+        url: cleanOneLine(repo.html_url, 500) || dup.url,
+        metadata: meta,
+        enabled: dup.enabled,
+        sortOrder: dup.sortOrder,
+        sourceType: "github",
+        sourceId,
+      });
+      return { item: updated, deduped: true };
+    }
+  }
   const slug = slugify(name);
-  return saveContentItem(env, {
+  const item = await saveContentItem(env, {
     type: "github",
     slug,
     title: { zh: name, ja: name, en: name },
@@ -916,7 +1136,10 @@ async function importGithubRepo(env, repo) {
     },
     enabled: repo.enabled !== false,
     sortOrder: Number(repo.sortOrder) || 0,
+    sourceType: "github",
+    sourceId,
   });
+  return { item, deduped: false };
 }
 
 async function generateAiReview(env, id, repo = {}, overwrite = false) {
