@@ -7,8 +7,10 @@
     "build:pages": "node scripts/build-pages.mjs",
     "build": "npm run optimize:images && npm run build:pages && node scripts/prepare-worker-assets.mjs",
     "build:worker": "npm run build",
-    "check": "node --check assets/js/app.js && node --check assets/js/admin.js && node --check assets/js/admin-d1.js && node --check assets/js/data.js && node --check worker.js && npm run verify:images",
+    "check": "node --check assets/js/app.js && node --check assets/js/admin.js && node --check assets/js/admin-d1.js && node --check assets/js/data.js && node --check assets/js/site-profile.js && node --check worker.js && node --check scripts/build-pages.mjs && node --check scripts/check-site-profiles.mjs && node --check scripts/check-i18n.mjs && npm run verify:images && npm run test:profiles && npm run test:i18n",
     "verify:images": "node scripts/verify-image-assets.mjs",
+    "test:profiles": "node scripts/check-site-profiles.mjs",
+    "test:i18n": "node scripts/check-i18n.mjs",
     "serve": "npx serve ."
   },
   "dependencies": {

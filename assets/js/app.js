@@ -1,9 +1,17 @@
-import { cities, contacts, homeCards, japanPlan, languages, profile, ui } from "./data.js";
+import { cities, homeCards, japanPlan, languages, profile, ui } from "./data.js";
+import {
+  MODULE_IDS,
+  filterTravelCities,
+  langFromCountry,
+  langFromTimezone,
+  normalizeLangCode,
+} from "./site-profile.js";
 
 const app = document.getElementById("app");
 const page = document.body.dataset.page || "home";
 const root = document.body.dataset.root || ".";
 const currentCitySlug = document.body.dataset.city || citySlugFromPath();
+const contentSlug = document.body.dataset.contentSlug || contentSlugFromPath();
 const langKey = "sfsy-lang";
 
 function storageGet(key) {
@@ -24,18 +32,54 @@ function storageSet(key, value) {
 
 let lang = normalizeLang(document.body.dataset.lang) || langFromPath() || normalizeLang(storageGet(langKey)) || detectLang();
 let siteSettings = null;
+let siteProfile = null;
+let siteContacts = [];
+let siteGeo = { country: "", timezone: "", city: "" };
+let siteContent = { anime: [], game: [], github: [] };
 let pageViewTracked = false;
 let toastTimer = 0;
 
 function normalizeLang(value) {
-  if (!value) return "";
-  if (value.startsWith("ja")) return "ja";
-  if (value.startsWith("en")) return "en";
-  return "zh";
+  return normalizeLangCode(value) || "";
 }
 
 function detectLang() {
-  return normalizeLang(navigator.language || navigator.userLanguage || "zh");
+  // Weighted auto detection: browser language (5) + timezone (3) + cf geo (3).
+  // siteGeo is filled by /api/site; before that use browser + local timezone only.
+  const browser = normalizeLangCode(navigator.language || navigator.userLanguage || "zh") || "zh";
+  let timezone = "";
+  try {
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch { timezone = ""; }
+  const scores = { zh: 0, ja: 0, en: 0 };
+  if (browser) scores[browser] += 5;
+  const tzLang = langFromTimezone(timezone);
+  if (tzLang) scores[tzLang] += 3;
+  const geoLang = langFromCountry(siteGeo.country);
+  if (geoLang) scores[geoLang] += 3;
+  let best = browser;
+  let bestScore = -1;
+  for (const code of ["zh", "ja", "en"]) {
+    if (scores[code] > bestScore) { bestScore = scores[code]; best = code; }
+  }
+  return best;
+}
+
+function applyProfileLanguage() {
+  // Domain profile may pin language; otherwise auto-detect once and remember.
+  const pinned = siteProfile?.language;
+  if (pinned === "zh" || pinned === "ja" || pinned === "en") {
+    lang = pinned;
+    return;
+  }
+  const stored = normalizeLang(storageGet(langKey));
+  if (stored) {
+    // A remembered auto result wins over re-detecting on every visit.
+    lang = stored;
+    return;
+  }
+  lang = detectLang();
+  storageSet(langKey, lang);
 }
 
 function langFromPath() {
@@ -68,6 +112,36 @@ function citySlugFromPath() {
   return file.replace(/\.html$/, "");
 }
 
+function contentSlugFromPath() {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  // /anime/<slug>, /games/<slug>, /github/<slug> (also /en/anime/<slug>)
+  const idx = parts.findIndex((p) => p === "anime" || p === "games" || p === "github");
+  if (idx >= 0 && parts[idx + 1]) return parts[idx + 1].replace(/\.html$/, "");
+  return "";
+}
+
+function moduleEnabled(id) {
+  if (!siteProfile?.modules) return true;
+  return siteProfile.modules.includes(id);
+}
+
+function visibleCities() {
+  const all = cities.map((c) => c.slug);
+  const withJapan = [...all];
+  const travel = siteProfile?.travel;
+  if (!travel) return cities;
+  if (travel.mode === "disabled") return [];
+  const allowed = new Set(filterTravelCities([...withJapan, "japan-2026"], travel));
+  return cities.filter((c) => allowed.has(c.slug));
+}
+
+function shouldShowJapan() {
+  const travel = siteProfile?.travel;
+  if (!travel) return true;
+  if (travel.mode === "disabled") return false;
+  return filterTravelCities(["japan-2026"], travel).length > 0;
+}
+
 function siteUrl(path) {
   if (!path) return root === "." ? "./" : `${root}/`;
   return `${root}/${path}`.replace(/\/{2,}/g, "/").replace(/^\.\//, "");
@@ -91,13 +165,17 @@ function pagePathFor(code) {
 
 function contactDescription(item) {
   const descriptions = {
+    wechat: { zh: "微信联系", ja: "WeChatで連絡", en: "Contact via WeChat" },
     qq: { zh: "点击复制 QQ 号", ja: "QQ番号をコピー", en: "Click to copy QQ number" },
     telegram: { zh: "点击打开 Telegram 会话", ja: "Telegramを開く", en: "Open a Telegram chat" },
     email: { zh: "点击发送电子邮件", ja: "メールを送る", en: "Send an email" },
     github: { zh: "查看代码与项目", ja: "コードとプロジェクトを見る", en: "View code and projects" },
     steam: { zh: "打开 Steam 个人资料", ja: "Steamプロフィールを開く", en: "Open Steam profile" },
+    minecraft: { zh: " Minecraft 联机", ja: "Minecraftで遊ぶ", en: "Play Minecraft together" },
+    genshin: { zh: "原神 UID", ja: "原神 UID", en: "Genshin UID" },
   };
-  return descriptions[item.key]?.[lang] || descriptions[item.key]?.zh || "";
+  const key = item.type || item.key;
+  return descriptions[key]?.[lang] || descriptions[key]?.zh || "";
 }
 
 function imageSrcset(image) {
@@ -255,11 +333,42 @@ function render() {
     return;
   }
 
+  if (page === "anime" || page === "games" || page === "github") {
+    app.innerHTML = layout(renderContentSection(page));
+    bindCommon();
+    loadContentSection(page);
+    return;
+  }
+
   app.innerHTML = layout(renderHome());
   bindCommon();
 }
 
+// Lightweight module registry: profile.modules decides order, no giant if/else.
+const homeModules = {
+  profile: renderHero,
+  about: renderAboutCards,
+  contacts: renderContactsSection,
+  travel: renderTravelPreview,
+  anime: () => renderContentSection("anime"),
+  games: () => renderContentSection("games"),
+  github: () => renderContentSection("github"),
+  comments: renderCommentsSection,
+};
+
+function renderHomeSections() {
+  const modules = siteProfile?.modules || MODULE_IDS;
+  return modules.map((id) => {
+    try {
+      const fn = homeModules[id];
+      return fn ? fn() : "";
+    } catch { return ""; }
+  }).join("");
+}
+
 function layout(main) {
+  const showTravel = moduleEnabled("travel");
+  const showContact = moduleEnabled("contacts");
   return `
     <a class="skip-link" href="#main-content">${esc(label("skipToContent"))}</a>
     <header class="topbar">
@@ -268,79 +377,106 @@ function layout(main) {
           <img src="${esc(profile.avatar)}" alt="${esc(label("avatarAlt"))}" width="36" height="36" decoding="async">
         </span>
         <span>
-          <span class="brand__name">${esc(settingText("title", label("heroTitle")))}</span>
+          <span class="brand__name">${esc(profileTitle())}</span>
           <span class="brand__kicker">${esc(label("brandKicker"))}</span>
         </span>
       </a>
       <nav class="topnav" aria-label="${esc(label("primaryNavigation") || "Primary navigation")}">
         <a href="${esc(pageLink(""))}" ${page === "home" ? 'aria-current="page"' : ""}>${esc(label("navHome"))}</a>
-        <a href="${esc(pageLink("travel/"))}" ${page === "travel" ? 'aria-current="page"' : ""}>${esc(label("navTravel"))}</a>
-        <a href="${esc(pageLink("travel/#cities"))}">${esc(label("navCities"))}</a>
-        <a href="${esc(page === "home" ? "#contact" : rootUrl("#contact"))}">${esc(label("navContact"))}</a>
+        ${showTravel ? `<a href="${esc(pageLink("travel/"))}" ${page === "travel" ? 'aria-current="page"' : ""}>${esc(label("navTravel"))}</a>` : ""}
+        ${showTravel ? `<a href="${esc(pageLink("travel/#cities"))}">${esc(label("navCities"))}</a>` : ""}
+        ${showContact ? `<a href="${esc(page === "home" ? "#contact" : rootUrl("#contact"))}">${esc(label("navContact"))}</a>` : ""}
       </nav>
-      <div class="lang-menu" aria-label="${esc(label("language"))}">
-        ${languages
-          .map(
-            (item) => `
-              <a class="lang-menu__item ${item.code === lang ? "is-active" : ""}" href="${esc(pagePathFor(item.code))}" hreflang="${esc(item.html)}" ${item.code === lang ? 'aria-current="page"' : ""}>
-                ${esc(item.label)}
-              </a>
-            `
-          )
-          .join("")}
+      <div class="lang-menu" aria-hidden="true">
         <button class="lang-menu__item js-theme" type="button" aria-label="${esc(label("toggleTheme") || "Toggle theme")}">◐</button>
       </div>
     </header>
     ${main}
     <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
-      <span>${esc(label("footerLeft"))}</span>
-      <span class="site-footer__sep">|</span>
-      <span>${esc(label("footerRight"))}</span>
+      <span>© ${esc(profileTitle())}</span>
       <span class="site-footer__sep">|</span>
       <a href="${esc(profile.githubUrl)}" target="_blank" rel="noopener noreferrer">GitHub ${esc(profile.githubUser)}</a>
     </footer>
   `;
 }
 
+function profileTitle() {
+  const v = siteProfile?.title;
+  if (v && typeof v === "object") return v[lang] || v.zh || label("heroTitle");
+  return settingText("title", label("heroTitle"));
+}
+
+function profileSubtitle() {
+  const v = siteProfile?.subtitle;
+  if (v && typeof v === "object") return v[lang] || v.zh || label("heroSubtitle");
+  return settingText("subtitle", label("heroSubtitle"));
+}
+
 function renderHome() {
   return `
     <main id="main-content" tabindex="-1">
+      ${renderHomeSections()}
+    </main>
+  `;
+}
+
+function renderHero() {
+  const showGithub = siteContacts.some((c) => c.type === "github") || moduleEnabled("github");
+  return `
       <section class="hero hero--home" id="top">
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring">
             <img src="${esc(profile.avatar)}" alt="${esc(label("avatarAlt"))}" width="112" height="112" fetchpriority="high" decoding="async">
           </div>
-          <p class="eyebrow">${esc(label("heroMeta"))}</p>
-          <h1>${esc(settingText("title", label("heroTitle")))}</h1>
-          <p class="hero__subtitle">${esc(settingText("subtitle", label("heroSubtitle")))}</p>
+          <h1>${esc(profileTitle())}</h1>
+          <p class="hero__subtitle">${esc(profileSubtitle())}</p>
           <p class="hero__motto">${esc(label("homeMotto"))}</p>
-          ${terminal(profile.githubUrl, `${label("terminalPrompt")} open github.com/${profile.githubUser}`)}
+          ${showGithub ? terminal(profile.githubUrl, `${label("terminalPrompt")} open github.com/${profile.githubUser}`) : ""}
           <div class="hero__actions">
             <a class="btn btn--primary js-download-contact" href="/contact.vcf" download>${esc(label("saveContact"))}<span aria-hidden="true">↓</span></a>
             <button class="btn js-share" type="button">${esc(label("shareCard"))}<span aria-hidden="true">↗</span></button>
-            <a class="btn" href="${esc(pageLink("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a>
+            ${moduleEnabled("travel") ? `<a class="btn" href="${esc(pageLink("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a>` : ""}
           </div>
         </div>
       </section>
+  `;
+}
 
+function renderAboutCards() {
+  const cards = homeCards.filter((card) => {
+    if (card.key === "travel" && !moduleEnabled("travel")) return false;
+    if (card.key === "github" && !moduleEnabled("github")) return false;
+    if ((card.key === "anime" && !moduleEnabled("anime")) || (card.key === "games" && !moduleEnabled("games"))) {
+      // Keep card only if its module is enabled; about card always shows.
+    }
+    if (card.key === "anime") return moduleEnabled("anime");
+    if (card.key === "games") return moduleEnabled("games");
+    return true;
+  });
+  if (!cards.length) return "";
+  return `
       <section class="feature-section" aria-labelledby="home-sections">
         <h2 id="home-sections">${esc(label("sectionHome"))}</h2>
         <div class="feature-list">
-          ${homeCards.map((card, index) => homeCard(card, index)).join("")}
+          ${cards.map((card, index) => homeCard(card, index)).join("")}
         </div>
       </section>
+  `;
+}
 
-      ${renderCommentsSection()}
-
+function renderContactsSection() {
+  if (!moduleEnabled("contacts")) return "";
+  const items = siteContacts.length ? siteContacts : [];
+  return `
       <section class="contact-section" id="contact">
         <div class="section-heading">
           <p class="eyebrow">${esc(label("contactTitle"))}</p>
           <h2>${esc(profile.githubUser)}</h2>
         </div>
-        <div class="contact-grid">
-          ${contacts.map(contactItem).join("")}
+        <div class="contact-grid" data-contacts>
+          ${items.map(contactItem).join("") || `<p class="comment-list__empty">${esc(label("noResults"))}</p>`}
           <a class="contact-link js-download-contact" href="/contact.vcf" download>
             <span>vCard</span>
             <strong>${esc(label("saveContact") || "Save Contact")}</strong>
@@ -348,11 +484,105 @@ function renderHome() {
           </a>
         </div>
       </section>
-    </main>
   `;
 }
 
+function renderTravelPreview() {
+  if (!moduleEnabled("travel")) return "";
+  const list = visibleCities();
+  if (!list.length && !shouldShowJapan()) return "";
+  const preview = list.slice(0, 3);
+  return `
+      <section class="feature-section" aria-labelledby="travel-preview">
+        <h2 id="travel-preview">${esc(label("travelTitle"))}</h2>
+        <p>${esc(label("travelIntro"))}</p>
+        <div class="city-list">
+          ${preview.map(cityPreview).join("")}
+        </div>
+        <p><a class="btn" href="${esc(pageLink("travel/"))}">${esc(label("primaryCta"))}<span aria-hidden="true">→</span></a></p>
+      </section>
+  `;
+}
+
+function renderContentSection(type) {
+  const titles = { anime: label("animeTitle"), games: label("gamesTitle"), github: label("githubTitle") };
+  const title = titles[type] || type;
+  if (contentSlug) {
+    return `
+    <main id="main-content" tabindex="-1">
+      <section class="feature-section" aria-labelledby="content-detail">
+        <a class="back-link" href="${esc(pageLink(`${type}/`))}">← ${esc(label("backTravel"))}</a>
+        <h2 id="content-detail">${esc(title)}</h2>
+        <div class="feature-list" data-content-detail="${esc(type)}" data-slug="${esc(contentSlug)}">
+          <p class="comment-list__empty">${esc(commentLabel("loading"))}</p>
+        </div>
+      </section>
+    </main>`;
+  }
+  return `
+    <main id="main-content" tabindex="-1">
+      <section class="feature-section" aria-labelledby="content-${esc(type)}">
+        <h2 id="content-${esc(type)}">${esc(title)}</h2>
+        <div class="feature-list" data-content-list="${esc(type)}">
+          <p class="comment-list__empty">${esc(commentLabel("loading"))}</p>
+        </div>
+      </section>
+      ${type === "github" && page === "home" ? "" : ""}
+    </main>`;
+}
+
+async function loadContentSection(type) {
+  const list = document.querySelector(`[data-content-list="${type}"]`);
+  const detail = document.querySelector(`[data-content-detail="${type}"]`);
+  try {
+    if (detail) {
+      const res = await fetch(`/api/content?type=${encodeURIComponent(type === "games" ? "game" : type)}&slug=${encodeURIComponent(contentSlug)}`, { headers: { accept: "application/json" } });
+      if (!res.ok) throw new Error("not found");
+      const data = await res.json();
+      detail.innerHTML = data.item ? contentDetailCard(data.item) : `<p class="comment-list__empty">${esc(label("noResults"))}</p>`;
+      bindCopyButtons();
+      return;
+    }
+    if (!list) return;
+    const apiType = type === "games" ? "game" : type;
+    const res = await fetch(`/api/content?type=${encodeURIComponent(apiType)}`, { headers: { accept: "application/json" } });
+    const data = await res.json().catch(() => ({}));
+    const items = Array.isArray(data.items) ? data.items : [];
+    siteContent[type] = items;
+    if (!items.length) {
+      list.innerHTML = `<p class="comment-list__empty">${esc(label("noResults"))}</p>`;
+      return;
+    }
+    list.innerHTML = items.map(contentCard).join("");
+  } catch {
+    if (list) list.innerHTML = `<p class="comment-list__empty">${esc(label("noResults"))}</p>`;
+    if (detail) detail.innerHTML = `<p class="comment-list__empty">${esc(label("noResults"))}</p>`;
+  }
+}
+
+function contentCard(item) {
+  const title = item.title?.[lang] || item.title?.zh || item.slug;
+  const summary = item.summary?.[lang] || item.summary?.zh || "";
+  const tags = Array.isArray(item.metadata?.tags) ? item.metadata.tags : [];
+  const detailHref = `/${item.type === "game" ? "games" : item.type}/${item.slug}.html`;
+  return `
+    <article class="feature-card feature-card--image-left">
+      <div class="feature-card__text">
+        <p class="eyebrow">${esc(item.type)}</p>
+        <h3>${esc(title)}</h3>
+        <p>${esc(summary)}</p>
+        ${tags.length ? `<div class="tag-row">${tags.map((t) => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
+        <p><a class="btn btn--compact" href="${esc(detailHref)}">${esc(label("secondaryCta"))} →</a></p>
+      </div>
+    </article>`;
+}
+
+function contentDetailCard(item) {
+  return contentCard(item);
+}
+
 function renderCommentsSection() {
+  if (siteProfile && !moduleEnabled("comments")) return "";
   const notice = settingText("notice", "");
   const form = commentsEnabled()
     ? `
@@ -426,42 +656,52 @@ function homeCard(card, index) {
 }
 
 function contactItem(item) {
-  const attrs = item.type === "copy"
-    ? `button type="button" data-copy="${esc(item.value)}"`
-    : `a href="${esc(item.href)}" target="_blank" rel="noopener noreferrer"`;
-  const close = item.type === "copy" ? "button" : "a";
-  const copyClass = item.type === "copy" ? " js-copy" : "";
+  const type = item.type || item.key || "";
+  const value = item.value || "";
+  const url = item.url || item.href || "";
+  const labelText = item.label || type;
+  // Copy-type contacts (wechat/qq/minecraft/genshin) copy value; link contacts open URL.
+  const isCopy = !url && (type === "wechat" || type === "qq" || type === "minecraft" || type === "genshin" || item.type === "copy");
+  const attrs = isCopy
+    ? `button type="button" data-copy="${esc(value)}"`
+    : `a href="${esc(url)}" target="_blank" rel="noopener noreferrer"`;
+  const close = isCopy ? "button" : "a";
+  const copyClass = isCopy ? " js-copy" : "";
   return `
     <${attrs} class="contact-link${copyClass}">
-      <span>${esc(item.label)}</span>
-      <strong>${esc(item.value)}</strong>
-      <small>${esc(contactDescription(item))}</small>
+      <span>${esc(labelText)}</span>
+      <strong>${esc(value)}</strong>
+      <small>${esc(contactDescription({ ...item, type }))}</small>
     </${close}>
   `;
 }
 
 function renderTravel() {
-  const groups = groupByMonth(cities);
-  const latestCity = cities[0];
+  const list = visibleCities();
+  const groups = groupByMonth(list);
+  const latestCity = list[0] || cities[0];
+  const showJapan = shouldShowJapan();
   return `
     <main id="main-content" tabindex="-1">
       <section class="travel-hero">
         <div class="travel-hero__text">
           <p class="eyebrow">${esc(label("travelTitle"))}</p>
-          <h1>${esc(label("totalCities"))} <span>${cities.length}</span> ${esc(label("cityUnit"))}</h1>
+          <h1>${esc(label("totalCities"))} <span>${list.length + (showJapan ? 1 : 0)}</span> ${esc(label("cityUnit"))}</h1>
           <p>${esc(label("travelIntro"))}</p>
         </div>
         <div class="travel-stats">
+          ${latestCity ? `
           <a class="stat-card" href="${esc(pageLink(`cities/${latestCity.slug}.html`))}">
             <span>${esc(label("latest"))}</span>
             <strong>${esc(text(latestCity.name))}</strong>
             <small>${esc(stopDate(latestCity))}</small>
-          </a>
+          </a>` : ""}
+          ${showJapan ? `
           <a class="stat-card stat-card--seal" href="${esc(pageLink("cities/japan-2026.html"))}">
             <span>${esc(label("upcoming"))}</span>
             <strong>${esc(text(japanPlan.name))}</strong>
             <small>${esc(stopDate(japanPlan))} · ${esc(label("posterCount"))}</small>
-          </a>
+          </a>` : ""}
         </div>
       </section>
 
@@ -484,7 +724,7 @@ function renderTravel() {
               </div>
             `
           )
-          .join("")}
+          .join("") || `<p class="comment-list__empty">${esc(label("noResults"))}</p>`}
         <p class="no-results" hidden>${esc(label("noResults"))}</p>
       </section>
     </main>
@@ -677,9 +917,7 @@ function pagerLink(city, labelText) {
 }
 
 function bindCommon() {
-  document.querySelectorAll(".lang-menu__item").forEach((link) => {
-    link.addEventListener("click", () => storageSet(langKey, link.getAttribute("hreflang")?.slice(0, 2) || "zh"));
-  });
+  // Language UI is intentionally hidden; language is auto-resolved + remembered.
   bindCopyButtons();
   bindShareButtons();
   bindContactDownloads();
@@ -942,30 +1180,75 @@ async function loadSiteSettings() {
     if (!response.ok) throw new Error("site settings unavailable");
     const data = await response.json();
     if (data.settings && typeof data.settings === "object") siteSettings = data.settings;
+    if (data.profile && typeof data.profile === "object") {
+      siteProfile = {
+        hostname: data.hostname || window.location.hostname,
+        template: data.profile.template || "full",
+        language: data.profile.language || "auto",
+        modules: Array.isArray(data.profile.modules) ? data.profile.modules : [...MODULE_IDS],
+        travel: data.profile.travel || { mode: "all", cities: [] },
+        githubUser: data.profile.githubUser || profile.githubUser,
+        title: data.profile.title || null,
+        subtitle: data.profile.subtitle || null,
+        enabled: data.profile.enabled !== false,
+      };
+    }
+    if (Array.isArray(data.contacts)) siteContacts = data.contacts;
+    if (data.geo && typeof data.geo === "object") siteGeo = { ...siteGeo, ...data.geo };
+    // Re-resolve language now that server geo + profile are known.
+    const pinned = siteProfile?.language;
+    if (pinned === "zh" || pinned === "ja" || pinned === "en") {
+      lang = pinned;
+    } else if (!storageGet(langKey)) {
+      lang = detectLang();
+      storageSet(langKey, lang);
+    }
   } catch {
-    siteSettings = null;
+    siteSettings = siteSettings || null;
   }
 }
 
 function applySiteSettings() {
-  if (!siteSettings) return;
-
-  const title = settingText("title", label("heroTitle"));
-  document.querySelectorAll(".brand__name").forEach((element) => {
-    element.textContent = title;
-  });
-
-  if (page !== "home") return;
-  const heading = document.querySelector(".hero h1");
-  const subtitle = document.querySelector(".hero__subtitle");
-  if (heading) heading.textContent = title;
-  if (subtitle) subtitle.textContent = settingText("subtitle", label("heroSubtitle"));
-
+  updateSeoForProfile();
+  // Re-render with profile-driven modules so hidden modules never stay in DOM.
+  try {
+    render();
+    if (page === "anime" || page === "games" || page === "github") {
+      // loadContentSection is triggered inside render(); nothing extra needed.
+    }
+  } catch { /* keep static shell on failure */ }
+  if (!siteProfile && !siteSettings) return;
   const comments = document.querySelector("[data-comments]");
-  if (comments) {
-    comments.outerHTML = renderCommentsSection();
-    bindComments();
+  if (comments && !moduleEnabled("comments")) {
+    comments.remove();
   }
+}
+
+function updateSeoForProfile() {
+  try {
+    const origin = window.location.origin;
+    const path = window.location.pathname;
+    const canonicalUrl = `${origin}${path}`;
+    let canonical = document.querySelector('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.rel = "canonical";
+      document.head.appendChild(canonical);
+    }
+    // Each hostname keeps its own canonical (never point wx -> about).
+    canonical.href = canonicalUrl;
+    const ogUrl = document.querySelector('meta[property="og:url"]');
+    if (ogUrl) ogUrl.content = canonicalUrl;
+    const title = page === "home"
+      ? (siteProfile?.title?.[lang] || siteProfile?.title?.zh || settingText("documentTitle", label("siteTitle")))
+      : `${label("travelTitle")} | ${profileTitle()}`;
+    if (title) {
+      document.title = title;
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle) ogTitle.content = title;
+    }
+    document.documentElement.lang = languages.find((item) => item.code === lang)?.html || "zh-CN";
+  } catch { /* SEO enhancement is best-effort */ }
 }
 
 function renderComments(list, comments) {

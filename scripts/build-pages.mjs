@@ -1,11 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cities, contacts, homeCards, japanPlan, languages, profile, ui } from "../assets/js/data.js";
+import { cities, homeCards, japanPlan, languages, profile, ui } from "../assets/js/data.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const assetVersion = "20260818-japan-travel";
+const assetVersion = "20260913-multisite";
 const siteOrigin = "https://about.shuangyue.space";
 const locales = [
   { code: "zh", prefix: "", html: "zh-CN" },
@@ -173,16 +173,14 @@ function layout(locale, depth, page, content, currentPath = "") {
         <a href="${attr(localePath(locale, "travel/#cities"))}">${esc(l(lang, "navCities"))}</a>
         <a href="${attr(page === "home" ? "#contact" : localePath(locale, "#contact"))}">${esc(l(lang, "navContact"))}</a>
       </nav>
-      <div class="lang-menu" aria-label="${attr(l(lang, "language"))}">
-        ${locales.map((item) => `<a class="lang-menu__item ${item.code === lang ? "is-active" : ""}" href="${attr(localePath(item, currentPath))}" hreflang="${attr(item.html)}"${item.code === lang ? ' aria-current="page"' : ""}>${esc(languages.find((candidate) => candidate.code === item.code)?.label || item.code)}</a>`).join("")}
+      <div class="lang-menu" aria-hidden="true">
         <button class="lang-menu__item js-theme" type="button" aria-label="${attr(l(lang, "toggleTheme"))}">◐</button>
       </div>
     </header>
     ${content}
     <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
-      <span>${esc(l(lang, "footerLeft"))}</span><span class="site-footer__sep">|</span>
-      <span>${esc(l(lang, "footerRight"))}</span><span class="site-footer__sep">|</span>
+      <span>© ${esc(l(lang, "heroTitle"))}</span><span class="site-footer__sep">|</span>
       <a href="${attr(profile.githubUrl)}" target="_blank" rel="noopener noreferrer">GitHub ${esc(profile.githubUser)}</a>
     </footer>
   `;
@@ -197,7 +195,6 @@ function homePage(locale) {
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="112" height="112" fetchpriority="high" decoding="async"></div>
-          <p class="eyebrow">${esc(l(lang, "heroMeta"))}</p>
           <h1>${esc(l(lang, "heroTitle"))}</h1>
           <p class="hero__subtitle">${esc(l(lang, "heroSubtitle"))}</p>
           <p class="hero__motto">${esc(l(lang, "homeMotto"))}</p>
@@ -214,7 +211,7 @@ function homePage(locale) {
       </section>
       <section class="contact-section" id="contact">
         <div class="section-heading"><p class="eyebrow">${esc(l(lang, "contactTitle"))}</p><h2>${esc(profile.githubUser)}</h2></div>
-        <div class="contact-grid">${contacts.map((item) => contactItem(lang, depth, item)).join("")}
+        <div class="contact-grid" data-contacts><p class="comment-list__empty">${esc(l(lang, "contactTitle"))}…</p>
           <a class="contact-link js-download-contact" href="/contact.vcf" download><span>vCard</span><strong>${esc(l(lang, "saveContact"))}</strong><small>${esc(l(lang, "saveContactHint"))}</small></a>
         </div>
       </section>
@@ -465,12 +462,40 @@ function personJson(locale) {
       "@type": "Person",
       name: l(lang, "heroTitle"),
       alternateName: profile.githubUser,
-      email: profile.email,
       image: `${siteOrigin}${profile.avatar}`,
       url: `${siteOrigin}${localePath(locale, "")}`,
-      sameAs: [profile.githubUrl, profile.telegram, profile.steam],
+      sameAs: [profile.githubUrl],
     },
   };
+}
+
+function contentIndexPage(locale, type) {
+  const lang = locale.code;
+  const depth = locale.prefix ? 2 : 1;
+  const titles = { anime: l(lang, "animeTitle"), games: l(lang, "gamesTitle"), github: l(lang, "githubTitle") };
+  const title = titles[type] || type;
+  const main = layout(locale, depth, type, `
+    <main id="main-content" tabindex="-1">
+      <section class="feature-section" aria-labelledby="content-${attr(type)}">
+        <h2 id="content-${attr(type)}">${esc(title)}</h2>
+        <div class="feature-list" data-content-list="${attr(type)}"><p class="comment-list__empty">…</p></div>
+      </section>
+    </main>`, `${type}/`);
+  return pageFrame({
+    locale,
+    depth,
+    page: type,
+    title: `${title} | ${l(lang, "heroTitle")}`,
+    description: title,
+    path: `${type}/`,
+    main,
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: title,
+      url: `${siteOrigin}${localePath(locale, `${type}/`)}`,
+    },
+  });
 }
 
 function travelJson(locale) {
@@ -542,6 +567,9 @@ async function writePage(path, html) {
 for (const locale of locales) {
   await writePage(locale.prefix ? `${locale.prefix}/index.html` : "index.html", homePage(locale));
   await writePage(locale.prefix ? `${locale.prefix}/travel/index.html` : "travel/index.html", travelPage(locale));
+  for (const type of ["anime", "games", "github"]) {
+    await writePage(locale.prefix ? `${locale.prefix}/${type}/index.html` : `${type}/index.html`, contentIndexPage(locale, type));
+  }
   for (const stop of allStops) {
     await writePage(locale.prefix ? `${locale.prefix}/cities/${stop.slug}.html` : `cities/${stop.slug}.html`, cityPage(locale, stop));
   }
@@ -550,6 +578,9 @@ for (const locale of locales) {
 const sitemapUrls = locales.flatMap((locale) => [
   `${siteOrigin}${localePath(locale, "")}`,
   `${siteOrigin}${localePath(locale, "travel/")}`,
+  `${siteOrigin}${localePath(locale, "anime/")}`,
+  `${siteOrigin}${localePath(locale, "games/")}`,
+  `${siteOrigin}${localePath(locale, "github/")}`,
   ...allStops.map((stop) => `${siteOrigin}${localePath(locale, `cities/${stop.slug}.html`)}`),
 ]);
 await writePage("sitemap.xml", `<?xml version="1.0" encoding="UTF-8"?>
@@ -557,4 +588,4 @@ await writePage("sitemap.xml", `<?xml version="1.0" encoding="UTF-8"?>
 ${sitemapUrls.map((url) => `  <url><loc>${esc(url)}</loc></url>`).join("\n")}
 </urlset>`);
 
-console.log(`Generated ${locales.length * (allStops.length + 2)} localized pages`);
+console.log(`Generated ${locales.length * (allStops.length + 5)} localized pages`);

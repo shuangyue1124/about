@@ -6,23 +6,16 @@ export const languages = [
 
 export const profile = {
   nickname: "朔风霜月",
-  qq: "1970259391",
   avatar: "/assets/images/avatar.webp",
   homepage: "https://about.shuangyue.space/",
   githubUser: "shuangyue1124",
   githubUrl: "https://github.com/shuangyue1124",
-  telegram: "https://t.me/sfsy1124",
-  telegramHandle: "@sfsy1124",
-  email: "hzq101116@163.com",
-  steam: "https://steamcommunity.com/profiles/76561199258450245/",
-  minecraft: "CN_YangYang",
-  genshin: "847045298",
 };
 
 export const ui = {
   zh: {
     siteTitle: "朔风霜月｜个人名片",
-    brandKicker: "NFC 名片",
+    brandKicker: "个人主页",
     navHome: "首页",
     navTravel: "旅行",
     navCities: "城市",
@@ -34,7 +27,7 @@ export const ui = {
     avatarAlt: "朔风霜月的头像",
     heroSubtitle: "在像素世界、旅途与代码里收集灵感。",
     homeMotto: "我们是自己生活的导演，而不是只负责出演的演员。所以，放心大胆地去做吧，不必在意他人的目光，人生只为自己而活。",
-    heroMeta: "16 岁 · 学生 · 呼和浩特",
+    heroMeta: "",
     terminalPrompt: ">_",
     terminalLabel: "复制 GitHub",
     copied: "已复制",
@@ -87,12 +80,12 @@ export const ui = {
     posterArchive: "海报旅记",
     posterCount: "15 张海报",
     dayLabel: "行程日",
-    footerLeft: "轻触 NFC 卡即可再次打开本页",
-    footerRight: "Last updated · Auto avatar & language",
+    footerLeft: "",
+    footerRight: "© 朔风霜月",
   },
   ja: {
     siteTitle: "朔風霜月｜プロフィールカード",
-    brandKicker: "NFCカード",
+    brandKicker: "プロフィール",
     navHome: "ホーム",
     navTravel: "旅",
     navCities: "都市",
@@ -104,7 +97,7 @@ export const ui = {
     avatarAlt: "朔風霜月のアバター",
     heroSubtitle: "ピクセルの世界、旅、コードの中でひらめきを集めています。",
     homeMotto: "私たちは自分の人生の監督であり、ただ演じるだけの役者ではありません。だから、周りの目を気にせず、安心して大胆に進んでください。人生は自分自身のためにあります。",
-    heroMeta: "16歳 · 学生 · フフホト",
+    heroMeta: "",
     terminalPrompt: ">_",
     terminalLabel: "GitHubをコピー",
     copied: "コピーしました",
@@ -157,12 +150,12 @@ export const ui = {
     posterArchive: "ポスター旅日記",
     posterCount: "15枚のポスター",
     dayLabel: "旅の日",
-    footerLeft: "NFCカードをかざすと、このページをもう一度開けます",
-    footerRight: "Last updated · Auto avatar & language",
+    footerLeft: "",
+    footerRight: "© 朔风霜月",
   },
   en: {
     siteTitle: "Shuofeng Shuanyue | Profile Card",
-    brandKicker: "NFC Card",
+    brandKicker: "Profile",
     navHome: "Home",
     navTravel: "Travel",
     navCities: "Cities",
@@ -176,7 +169,7 @@ export const ui = {
       "Collecting sparks from pixel worlds, open roads, and code.",
     homeMotto:
       "We are the directors of our own lives, not actors who only play a part. So go ahead boldly, without worrying about how others see you. Our lives are for ourselves.",
-    heroMeta: "16 · Student · Hohhot",
+    heroMeta: "",
     terminalPrompt: ">_",
     terminalLabel: "Copy GitHub",
     copied: "Copied",
@@ -229,8 +222,8 @@ export const ui = {
     posterArchive: "Poster Journal",
     posterCount: "15 Posters",
     dayLabel: "Trip Day",
-    footerLeft: "Tap the NFC card to open this page again",
-    footerRight: "Last updated · Auto avatar & language",
+    footerLeft: "",
+    footerRight: "© 朔风霜月",
   },
 };
 
@@ -245,14 +238,14 @@ export const homeCards = [
       en: "A student known as Shuofeng Shuanyue",
     },
     body: {
-      zh: "喜欢在像素方块和二次元世界里乱逛，也喜欢一个人背上包就出门旅行。希望通过这张 NFC 名片，认识同样热爱游戏、动漫与远方的你。",
-      ja: "ゲームやアニメの世界を歩き回るのが好きで、ひとり旅も大好きです。このNFCカードから、同じ趣味の仲間とつながれたら嬉しいです。",
-      en: "Loves wandering through pixel blocks and anime worlds, then packing a bag for solo trips. This NFC card is for meeting people who like games, anime, and faraway places too.",
+      zh: "喜欢在像素方块和二次元世界里乱逛，也喜欢一个人背上包就出门旅行。希望通过这张名片，认识同样热爱游戏、动漫与远方的你。",
+      ja: "ゲームやアニメの世界を歩き回るのが好きで、ひとり旅も大好きです。このカードから、同じ趣味の仲間とつながれたら嬉しいです。",
+      en: "Loves wandering through pixel blocks and anime worlds, then packing a bag for solo trips. This card is for meeting people who like games, anime, and faraway places too.",
     },
     tags: {
-      zh: ["呼和浩特", "学生", "NFC 名片"],
-      ja: ["フフホト", "学生", "NFCカード"],
-      en: ["Hohhot", "Student", "NFC Card"],
+      zh: ["自我介绍", "像素世界", "远方"],
+      ja: ["自己紹介", "ピクセルの世界", "遠方"],
+      en: ["About", "Pixel Worlds", "Far Away"],
     },
   },
   {
@@ -285,9 +278,9 @@ export const homeCards = [
       en: "Still traveling inside game worlds",
     },
     body: {
-      zh: "Minecraft ID: CN_YangYang，原神 UID: 847045298，也会在 CS2 里开一局。若你也在这些世界里，欢迎一起玩。",
-      ja: "Minecraft ID は CN_YangYang、原神 UID は 847045298。CS2 も遊びます。同じ世界にいるなら一緒に遊びましょう。",
-      en: "Minecraft ID: CN_YangYang, Genshin UID: 847045298, and a CS2 match now and then. Add me if you are in the same worlds.",
+      zh: "喜欢在方块世界和二次元里乱逛，也会在射击游戏里开一局。若你也在这些世界里，欢迎一起玩，具体联系方式见下方联系方式区。",
+      ja: "ゲームの世界で旅を続けています。同じ世界にいるなら一緒に遊びましょう。連絡先は下の連絡先エリアをご覧ください。",
+      en: "Still traveling inside game worlds. Add me if you are in the same worlds — see the contact section below for details.",
     },
     tags: {
       zh: ["Minecraft", "原神", "CS2"],
@@ -337,37 +330,16 @@ export const homeCards = [
   },
 ];
 
+// Static contact skeleton only (no sensitive values).
+// Real values are served per-hostname by GET /api/site and rendered dynamically.
+// Keeping this export avoids breaking imports; values must stay empty here.
 export const contacts = [
-  {
-    key: "qq",
-    label: "QQ",
-    value: profile.qq,
-    type: "copy",
-  },
-  {
-    key: "telegram",
-    label: "Telegram",
-    value: profile.telegramHandle,
-    href: profile.telegram,
-  },
-  {
-    key: "email",
-    label: "Email",
-    value: profile.email,
-    href: `mailto:${profile.email}`,
-  },
-  {
-    key: "github",
-    label: "GitHub",
-    value: profile.githubUser,
-    href: profile.githubUrl,
-  },
-  {
-    key: "steam",
-    label: "Steam",
-    value: "CS2 Profile",
-    href: profile.steam,
-  },
+  { key: "wechat", label: "微信", value: "", type: "copy" },
+  { key: "qq", label: "QQ", value: "", type: "copy" },
+  { key: "telegram", label: "Telegram", value: "", href: "" },
+  { key: "email", label: "Email", value: "", href: "" },
+  { key: "github", label: "GitHub", value: profile.githubUser, href: profile.githubUrl },
+  { key: "steam", label: "Steam", value: "", href: "" },
 ];
 
 const c = (zh, ja, en) => ({ zh, ja, en });
