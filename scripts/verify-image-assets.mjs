@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { cities, homeCards, japanPlan, ui } from "../assets/js/data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const assetVersion = "20260913-multisite";
+const assetVersion = "20260906-ai-chat";
 const origin = readArg("--origin");
 const remoteTimeoutMs = 30000;
 

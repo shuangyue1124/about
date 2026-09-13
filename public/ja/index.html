@@ -15,7 +15,8 @@
     <link rel="manifest" href="../manifest.webmanifest">
     <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png">
     <link rel="apple-touch-icon" sizes="192x192" href="../assets/images/icon-192.png">
-    <link rel="preload" as="image" href="../assets/images/generated/home-hero-ink-960.webp" type="image/webp" media="(max-width: 920px)" fetchpriority="high">
+    <link rel="preload" as="image" href="../assets/images/generated/home-hero-ink-480.webp" type="image/webp" media="(max-width: 640px)" fetchpriority="high">
+    <link rel="preload" as="image" href="../assets/images/generated/home-hero-ink-960.webp" type="image/webp" media="(min-width: 641px) and (max-width: 920px)" fetchpriority="high">
     <link rel="preload" as="image" href="../assets/images/generated/home-hero-ink-1600.webp" type="image/webp" media="(min-width: 921px)" fetchpriority="high">
     <meta property="og:type" content="profile">
     <meta property="og:site_name" content="朔风霜月">
@@ -33,8 +34,8 @@
     <meta name="twitter:image" content="https://about.shuangyue.space/assets/images/og-card.webp">
     <meta name="twitter:image:alt" content="朔風霜月のプロフィールカード">
     <title>朔風霜月｜プロフィールカード</title>
-    <link rel="stylesheet" href="../assets/css/styles.css?v=20260913-multisite">
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔風霜月｜プロフィールカード","mainEntity":{"@type":"Person","name":"朔風霜月","alternateName":"shuangyue1124","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/ja/","sameAs":["https://github.com/shuangyue1124"]}}</script>
+    <link rel="stylesheet" href="../assets/css/styles.css?v=20260906-ai-chat">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔風霜月｜プロフィールカード","mainEntity":{"@type":"Person","name":"朔風霜月","alternateName":"shuangyue1124","email":"hzq101116@163.com","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/ja/","sameAs":["https://github.com/shuangyue1124","https://t.me/sfsy1124","https://steamcommunity.com/profiles/76561199258450245/"]}}</script>
   </head>
   <body data-page="home" data-root=".." data-lang="ja">
     <div id="app">
@@ -42,7 +43,7 @@
     <header class="topbar">
       <a class="brand" href="/ja/">
         <span class="brand__mark brand__mark--avatar"><img src="/assets/images/avatar.webp" alt="朔風霜月のアバター" width="36" height="36" decoding="async"></span>
-        <span><span class="brand__name">朔風霜月</span><span class="brand__kicker">プロフィール</span></span>
+        <span><span class="brand__name">朔風霜月</span><span class="brand__kicker">NFCカード</span></span>
       </a>
       <nav class="topnav" aria-label="メインナビゲーション">
         <a href="/ja/" aria-current="page">ホーム</a>
@@ -50,7 +51,8 @@
         <a href="/ja/travel/#cities">都市</a>
         <a href="#contact">連絡</a>
       </nav>
-      <div class="lang-menu" aria-hidden="true">
+      <div class="lang-menu" aria-label="言語">
+        <a class="lang-menu__item " href="/" hreflang="zh-CN">中文</a><a class="lang-menu__item " href="/en/" hreflang="en-US">English</a><a class="lang-menu__item is-active" href="/ja/" hreflang="ja-JP" aria-current="page">日本語</a>
         <button class="lang-menu__item js-theme" type="button" aria-label="カラーテーマを切り替える">◐</button>
       </div>
     </header>
@@ -60,15 +62,28 @@
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring"><img src="/assets/images/avatar.webp" alt="朔風霜月のアバター" width="112" height="112" fetchpriority="high" decoding="async"></div>
+          <p class="eyebrow">学生 · フフホト</p>
           <h1>朔風霜月</h1>
-          <p class="hero__subtitle">ピクセルの世界、旅、コードの中でひらめきを集めています。</p>
-          <p class="hero__motto">私たちは自分の人生の監督であり、ただ演じるだけの役者ではありません。だから、周りの目を気にせず、安心して大胆に進んでください。人生は自分自身のためにあります。</p>
+          <p class="hero__subtitle">ピクセルの世界、旅、コードのなかで、ひらめきを集めています。</p>
+          <p class="hero__motto">私たちは自分の人生の監督であって、ただ演じるだけの役者ではありません。だから、周りの目を気にせず、思うままに大胆へ進んでください。人生は自分のためにあります。</p>
           <div class="hero__actions">
             <a class="btn btn--primary js-download-contact" href="/contact.vcf" download>連絡先に保存<span aria-hidden="true">↓</span></a>
             <button class="btn js-share" type="button">カードを共有<span aria-hidden="true">↗</span></button>
             <a class="btn" href="/ja/travel/">旅の足跡を見る<span aria-hidden="true">→</span></a>
           </div>
         </div>
+      </section>
+
+      <section class="now-status" id="nowStatus" data-now-status hidden aria-labelledby="nowStatusTitle">
+        <div class="now-status__head">
+          <span class="now-status__dot" aria-hidden="true"></span>
+          <h2 id="nowStatusTitle">今の様子</h2>
+          <span class="now-status__time"><span class="now-status__timelabel">中国時間</span> <time id="nowStatusTime" data-now-time>--:--</time></span>
+        </div>
+        <p class="now-status__text" id="nowStatusText" data-now-text role="status"></p>
+        <p class="now-status__disclaimer">公開時間割からの目安であり、リアルタイムの位置情報ではありません</p>
+        <button class="btn btn--compact now-status__toggle" id="nowStatusToggle" type="button" aria-expanded="false" aria-controls="nowStatusPanel">今日の時間割</button>
+        <div class="now-status__panel" id="nowStatusPanel" data-now-panel hidden></div>
       </section>
       <section class="feature-section" aria-labelledby="home-sections">
         <h2 id="home-sections">カード内容</h2>
@@ -80,8 +95,8 @@
       <div class="feature-card__text">
         <p class="eyebrow">自己紹介</p>
         <h3>高校生の「朔風霜月」です</h3>
-        <p>ゲームやアニメの世界を歩き回るのが好きで、ひとり旅も大好きです。このカードから、同じ趣味の仲間とつながれたら嬉しいです。</p>
-        <div class="tag-row"><span>自己紹介</span><span>ピクセルの世界</span><span>遠方</span></div>
+        <p>ゲームやアニメの世界を歩き回るのが好きで、ひとり旅も大好きです。このNFCカードから、同じ趣味の仲間とつながれたら嬉しいです。</p>
+        <div class="tag-row"><span>フフホト</span><span>学生</span><span>NFCカード</span></div>
       </div>
     </article>
     <article class="feature-card feature-card--image-right">
@@ -102,7 +117,7 @@
       <div class="feature-card__text">
         <p class="eyebrow">ゲームの世界</p>
         <h3>ゲームの世界でも旅を続けています</h3>
-        <p>ゲームの世界で旅を続けています。同じ世界にいるなら一緒に遊びましょう。連絡先は下の連絡先エリアをご覧ください。</p>
+        <p>Minecraft ID は CN_YangYang、原神 UID は 847045298。CS2 も遊びます。同じ世界にいるなら一緒に遊びましょう。</p>
         <div class="tag-row"><span>Minecraft</span><span>原神</span><span>CS2</span></div>
       </div>
     </article>
@@ -131,7 +146,7 @@
       </section>
       <section class="contact-section" id="contact">
         <div class="section-heading"><p class="eyebrow">連絡先</p><h2>shuangyue1124</h2></div>
-        <div class="contact-grid" data-contacts><p class="comment-list__empty">連絡先…</p>
+        <div class="contact-grid"><button class="contact-link js-copy" type="button" data-copy="3238097745"><span>QQ</span><strong>3238097745</strong><small>QQ番号をコピー</small></button><a class="contact-link" href="https://t.me/sfsy1124" target="_blank" rel="noopener noreferrer"><span>Telegram</span><strong>@sfsy1124</strong><small>Telegramを開く</small></a><a class="contact-link" href="mailto:hzq101116@163.com" target="_blank" rel="noopener noreferrer"><span>Email</span><strong>hzq101116@163.com</strong><small>メールを送る</small></a><a class="contact-link" href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer"><span>GitHub</span><strong>shuangyue1124</strong><small>コードとプロジェクトを見る</small></a><a class="contact-link" href="https://steamcommunity.com/profiles/76561199258450245/" target="_blank" rel="noopener noreferrer"><span>Steam</span><strong>CS2 Profile</strong><small>Steamプロフィールを開く</small></a>
           <a class="contact-link js-download-contact" href="/contact.vcf" download><span>vCard</span><strong>連絡先に保存</strong><small>.vcfカードをダウンロード</small></a>
         </div>
       </section>
@@ -142,11 +157,12 @@
     </main>
     <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
-      <span>© 朔風霜月</span><span class="site-footer__sep">|</span>
+      <span>NFCカードをかざすと、このページをもう一度開けます</span><span class="site-footer__sep">|</span>
+      <span>最終更新 · アバターと言語は自動切替</span><span class="site-footer__sep">|</span>
       <a href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer">GitHub shuangyue1124</a>
     </footer>
   </div>
     <noscript><p class="noscript-fallback">JavaScriptがなくても、上のプロフィールと連絡先は利用できます。コメントと共有機能のみ利用できません。</p></noscript>
-    <script type="module" src="../assets/js/app.js?v=20260913-multisite"></script>
+    <script type="module" src="../assets/js/app.js?v=20260906-ai-chat"></script>
   </body>
 </html>

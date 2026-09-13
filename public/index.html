@@ -15,7 +15,8 @@
     <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" type="image/png" sizes="32x32" href="./assets/images/favicon-32.png">
     <link rel="apple-touch-icon" sizes="192x192" href="./assets/images/icon-192.png">
-    <link rel="preload" as="image" href="./assets/images/generated/home-hero-ink-960.webp" type="image/webp" media="(max-width: 920px)" fetchpriority="high">
+    <link rel="preload" as="image" href="./assets/images/generated/home-hero-ink-480.webp" type="image/webp" media="(max-width: 640px)" fetchpriority="high">
+    <link rel="preload" as="image" href="./assets/images/generated/home-hero-ink-960.webp" type="image/webp" media="(min-width: 641px) and (max-width: 920px)" fetchpriority="high">
     <link rel="preload" as="image" href="./assets/images/generated/home-hero-ink-1600.webp" type="image/webp" media="(min-width: 921px)" fetchpriority="high">
     <meta property="og:type" content="profile">
     <meta property="og:site_name" content="朔风霜月">
@@ -33,8 +34,8 @@
     <meta name="twitter:image" content="https://about.shuangyue.space/assets/images/og-card.webp">
     <meta name="twitter:image:alt" content="朔风霜月的个人名片">
     <title>朔风霜月｜个人名片</title>
-    <link rel="stylesheet" href="./assets/css/styles.css?v=20260913-multisite">
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔风霜月｜个人名片","mainEntity":{"@type":"Person","name":"朔风霜月","alternateName":"shuangyue1124","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/","sameAs":["https://github.com/shuangyue1124"]}}</script>
+    <link rel="stylesheet" href="./assets/css/styles.css?v=20260906-ai-chat">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔风霜月｜个人名片","mainEntity":{"@type":"Person","name":"朔风霜月","alternateName":"shuangyue1124","email":"hzq101116@163.com","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/","sameAs":["https://github.com/shuangyue1124","https://t.me/sfsy1124","https://steamcommunity.com/profiles/76561199258450245/"]}}</script>
   </head>
   <body data-page="home" data-root="." data-lang="zh">
     <div id="app">
@@ -42,7 +43,7 @@
     <header class="topbar">
       <a class="brand" href="/">
         <span class="brand__mark brand__mark--avatar"><img src="/assets/images/avatar.webp" alt="朔风霜月的头像" width="36" height="36" decoding="async"></span>
-        <span><span class="brand__name">朔风霜月</span><span class="brand__kicker">个人主页</span></span>
+        <span><span class="brand__name">朔风霜月</span><span class="brand__kicker">NFC 名片</span></span>
       </a>
       <nav class="topnav" aria-label="主导航">
         <a href="/" aria-current="page">首页</a>
@@ -50,7 +51,8 @@
         <a href="/travel/#cities">城市</a>
         <a href="#contact">联系</a>
       </nav>
-      <div class="lang-menu" aria-hidden="true">
+      <div class="lang-menu" aria-label="语言">
+        <a class="lang-menu__item is-active" href="/" hreflang="zh-CN" aria-current="page">中文</a><a class="lang-menu__item " href="/en/" hreflang="en-US">English</a><a class="lang-menu__item " href="/ja/" hreflang="ja-JP">日本語</a>
         <button class="lang-menu__item js-theme" type="button" aria-label="切换明暗主题">◐</button>
       </div>
     </header>
@@ -60,6 +62,7 @@
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
           <div class="avatar-ring"><img src="/assets/images/avatar.webp" alt="朔风霜月的头像" width="112" height="112" fetchpriority="high" decoding="async"></div>
+          <p class="eyebrow">学生 · 呼和浩特</p>
           <h1>朔风霜月</h1>
           <p class="hero__subtitle">在像素世界、旅途与代码里收集灵感。</p>
           <p class="hero__motto">我们是自己生活的导演，而不是只负责出演的演员。所以，放心大胆地去做吧，不必在意他人的目光，人生只为自己而活。</p>
@@ -69,6 +72,18 @@
             <a class="btn" href="/travel/">看旅行足迹<span aria-hidden="true">→</span></a>
           </div>
         </div>
+      </section>
+
+      <section class="now-status" id="nowStatus" data-now-status hidden aria-labelledby="nowStatusTitle">
+        <div class="now-status__head">
+          <span class="now-status__dot" aria-hidden="true"></span>
+          <h2 id="nowStatusTitle">现在的状态</h2>
+          <span class="now-status__time"><span class="now-status__timelabel">中国时间</span> <time id="nowStatusTime" data-now-time>--:--</time></span>
+        </div>
+        <p class="now-status__text" id="nowStatusText" data-now-text role="status"></p>
+        <p class="now-status__disclaimer">根据公开课表估算，仅供参考，非实时定位</p>
+        <button class="btn btn--compact now-status__toggle" id="nowStatusToggle" type="button" aria-expanded="false" aria-controls="nowStatusPanel">今日课表</button>
+        <div class="now-status__panel" id="nowStatusPanel" data-now-panel hidden></div>
       </section>
       <section class="feature-section" aria-labelledby="home-sections">
         <h2 id="home-sections">名片内容</h2>
@@ -80,8 +95,8 @@
       <div class="feature-card__text">
         <p class="eyebrow">关于我</p>
         <h3>高中生一枚，网名「朔风霜月」</h3>
-        <p>喜欢在像素方块和二次元世界里乱逛，也喜欢一个人背上包就出门旅行。希望通过这张名片，认识同样热爱游戏、动漫与远方的你。</p>
-        <div class="tag-row"><span>自我介绍</span><span>像素世界</span><span>远方</span></div>
+        <p>喜欢在像素方块和二次元世界里乱逛，也喜欢一个人背上包就出门旅行。希望通过这张 NFC 名片，认识同样热爱游戏、动漫与远方的你。</p>
+        <div class="tag-row"><span>呼和浩特</span><span>学生</span><span>NFC 名片</span></div>
       </div>
     </article>
     <article class="feature-card feature-card--image-right">
@@ -102,7 +117,7 @@
       <div class="feature-card__text">
         <p class="eyebrow">游戏世界</p>
         <h3>游戏里也在到处旅行</h3>
-        <p>喜欢在方块世界和二次元里乱逛，也会在射击游戏里开一局。若你也在这些世界里，欢迎一起玩，具体联系方式见下方联系方式区。</p>
+        <p>Minecraft ID: CN_YangYang，原神 UID: 847045298，也会在 CS2 里开一局。若你也在这些世界里，欢迎一起玩。</p>
         <div class="tag-row"><span>Minecraft</span><span>原神</span><span>CS2</span></div>
       </div>
     </article>
@@ -131,7 +146,7 @@
       </section>
       <section class="contact-section" id="contact">
         <div class="section-heading"><p class="eyebrow">联系方式</p><h2>shuangyue1124</h2></div>
-        <div class="contact-grid" data-contacts><p class="comment-list__empty">联系方式…</p>
+        <div class="contact-grid"><button class="contact-link js-copy" type="button" data-copy="3238097745"><span>QQ</span><strong>3238097745</strong><small>点击复制 QQ 号</small></button><a class="contact-link" href="https://t.me/sfsy1124" target="_blank" rel="noopener noreferrer"><span>Telegram</span><strong>@sfsy1124</strong><small>点击打开 Telegram 会话</small></a><a class="contact-link" href="mailto:hzq101116@163.com" target="_blank" rel="noopener noreferrer"><span>Email</span><strong>hzq101116@163.com</strong><small>点击发送电子邮件</small></a><a class="contact-link" href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer"><span>GitHub</span><strong>shuangyue1124</strong><small>查看代码与项目</small></a><a class="contact-link" href="https://steamcommunity.com/profiles/76561199258450245/" target="_blank" rel="noopener noreferrer"><span>Steam</span><strong>CS2 Profile</strong><small>打开 Steam 个人资料</small></a>
           <a class="contact-link js-download-contact" href="/contact.vcf" download><span>vCard</span><strong>保存到通讯录</strong><small>下载 .vcf 电子名片</small></a>
         </div>
       </section>
@@ -142,11 +157,12 @@
     </main>
     <div class="toast" id="pageToast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
     <footer class="site-footer">
-      <span>© 朔风霜月</span><span class="site-footer__sep">|</span>
+      <span>轻触 NFC 卡即可再次打开本页</span><span class="site-footer__sep">|</span>
+      <span>最近更新 · 头像与语言自动适配</span><span class="site-footer__sep">|</span>
       <a href="https://github.com/shuangyue1124" target="_blank" rel="noopener noreferrer">GitHub shuangyue1124</a>
     </footer>
   </div>
     <noscript><p class="noscript-fallback">即使 JavaScript 未加载，上方个人资料、社交链接和通讯录下载仍可使用；仅实时留言与分享增强不可用。</p></noscript>
-    <script type="module" src="./assets/js/app.js?v=20260913-multisite"></script>
+    <script type="module" src="./assets/js/app.js?v=20260906-ai-chat"></script>
   </body>
 </html>

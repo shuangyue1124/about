@@ -1,7 +1,6 @@
-import { cities } from "./data.js";
-
 const app = document.getElementById("adminApp");
 const defaultAiModel = "@cf/meta/llama-3.2-3b-instruct";
+const AI_CHAT_TIMEOUT_MS = 60000;
 
 const emptyConfig = {
   commentsEnabled: true,
@@ -30,15 +29,7 @@ const state = {
     { role: "assistant", content: "可以问我访问量、热门页面、最近事件、评论审核状态等。数据来自 D1，只读查询。" },
   ],
   chatLoading: false,
-  profiles: [],
-  editingProfile: null,
-  editingContent: null,
-  contactsCatalog: [],
-  contentItems: [],
-  contentFilter: "all",
-  githubUsername: "shuangyue1124",
-  githubCandidates: [],
-  citySearch: "",
+  chatDataAt: "",
 };
 
 function esc(value) {
@@ -73,7 +64,7 @@ function shell(content) {
     <header class="topbar">
       <a class="brand" href="./" aria-label="返回首页">
         <span class="brand__mark brand__mark--avatar">
-          <img src="assets/images/avatar.webp" alt="朔风霜月头像" loading="lazy">
+          <img src="/assets/images/avatar.webp" alt="朔风霜月头像" loading="lazy">
         </span>
         <span>
           <span class="brand__name">朔风霜月</span>
@@ -138,15 +129,17 @@ function dashboard() {
     <section class="admin-hero">
       <p class="eyebrow">Dashboard</p>
       <h1>评论审核与系统配置</h1>
-      <p>D1 是主库，KV 与单实例内存用于公开评论缓存。Cloudflare 绑定和 secret 只做健康检查，真实配置仍在 Wrangler 或 Cloudflare Dashboard 中维护。</p>
+      <p>D1 是主库，KV 与单实例内存用于公开评论缓存。下方清单逐项检查后台依赖的 Cloudflare 绑定与环境变量，缺少时只提示变量名和期望值，不会拦截访问或管理；真实配置仍在 Cloudflare Dashboard 中维护。</p>
     </section>
     <div class="admin-layout">
       <section class="admin-panel" aria-labelledby="health-title">
-        <h2 id="health-title">绑定健康检查</h2>
+        <h2 id="health-title">环境变量与绑定检查（仅提醒）</h2>
         ${healthView()}
         <div class="admin-actions">
           <button class="btn" type="button" id="refreshButton" aria-label="刷新后台数据">刷新数据</button>
           <button class="btn" type="button" id="migrateButton" aria-label="从旧 KV 迁移评论到 D1" ${config.migrationEnabled ? "" : "disabled"}>迁移旧评论</button>
+          <button class="btn" type="button" id="cleanupEventsButton" aria-label="清理 90 天前的统计事件">清理统计事件</button>
+          <button class="btn" type="button" id="telegramTestButton" aria-label="发送一条 Telegram 通知测试">测试 Telegram</button>
         </div>
         <p class="admin-status" role="status">${esc(state.status)}</p>
       </section>
@@ -208,6 +201,7 @@ function dashboard() {
           ${state.chatMessages.map(chatMessage).join("")}
           ${state.chatLoading ? '<p class="admin-chat-message admin-chat-message--assistant">正在查询 D1 并生成回复...</p>' : ""}
         </div>
+        ${state.chatDataAt ? `<p class="admin-chat-meta">数据生成时间：${esc(formatTime(state.chatDataAt))} · 统计窗口：过去 24 小时 / 7 天 / 30 天</p>` : ""}
         <form class="admin-chat-form" id="aiChatForm">
           <label>
             <span>向 AI 提问</span>
@@ -234,175 +228,92 @@ function dashboard() {
           ${state.comments.length ? state.comments.map(commentItem).join("") : '<p class="comment-list__empty">暂无匹配留言。</p>'}
         </div>
       </section>
-
-      <section class="admin-panel admin-panel--wide" aria-labelledby="profiles-title">
-        <div class="admin-comment-toolbar">
-          <div>
-            <h2 id="profiles-title">域名 / 页面管理</h2>
-            <p>同一 Pages 项目按 hostname 选择 Profile；一次公开请求只返回当前域名的允许数据。</p>
-          </div>
-          <div class="admin-actions">
-            <button class="btn btn--primary" type="button" id="newProfileButton">新增域名</button>
-          </div>
-        </div>
-        <div class="admin-list">
-          ${state.profiles.length ? state.profiles.map(profileRow).join("") : '<p class="comment-list__empty">暂无域名配置（将使用内置默认）。</p>'}
-        </div>
-        ${state.editingProfile ? profileEditor(state.editingProfile) : ""}
-      </section>
-
-      <section class="admin-panel admin-panel--wide" aria-labelledby="content-title">
-        <div class="admin-comment-toolbar">
-          <div>
-            <h2 id="content-title">内容管理（动漫 / 游戏 / GitHub 共用 content_items）</h2>
-            <p>三语缺失会自动 fallback；禁用后前台不再出现。</p>
-          </div>
-          <label>
-            <span>类型筛选</span>
-            <select id="contentFilter">
-              ${["all", "anime", "game", "github", "project"].map((t) => `<option value="${t}" ${state.contentFilter === t ? "selected" : ""}>${t}</option>`).join("")}
-            </select>
-          </label>
-        </div>
-        <div class="admin-list">
-          ${state.contentItems.length ? state.contentItems.map(contentRow).join("") : '<p class="comment-list__empty">暂无内容，可手动添加或从 GitHub 导入。</p>'}
-        </div>
-        <form class="admin-form" id="contentForm">
-          <h3>手动添加 / 编辑项目</h3>
-          <input name="id" type="hidden" value="${esc(state.editingContent?.id || "")}">
-          <label><span>类型（anime / game / github / project）</span><input name="type" value="${esc(state.editingContent?.type || "github")}"></label>
-          <label><span>Slug</span><input name="slug" value="${esc(state.editingContent?.slug || "")}" placeholder="my-project"></label>
-          <label><span>标题（中文）</span><input name="title_zh" value="${esc(state.editingContent?.title?.zh || "")}"></label>
-          <label><span>标题（日文）</span><input name="title_ja" value="${esc(state.editingContent?.title?.ja || "")}"></label>
-          <label><span>标题（英文）</span><input name="title_en" value="${esc(state.editingContent?.title?.en || "")}"></label>
-          <label><span>简介（中文）</span><textarea name="summary_zh">${esc(state.editingContent?.summary?.zh || "")}</textarea></label>
-          <label><span>简介（日文）</span><textarea name="summary_ja">${esc(state.editingContent?.summary?.ja || "")}</textarea></label>
-          <label><span>简介（英文）</span><textarea name="summary_en">${esc(state.editingContent?.summary?.en || "")}</textarea></label>
-          <label><span>链接 URL</span><input name="url" value="${esc(state.editingContent?.url || "")}"></label>
-          <label><span>封面</span><input name="cover" value="${esc(state.editingContent?.cover || "")}"></label>
-          <label><span>排序</span><input name="sortOrder" type="number" value="${esc(state.editingContent?.sortOrder ?? 0)}"></label>
-          <label class="admin-toggle"><input name="enabled" type="checkbox" ${state.editingContent?.enabled !== false ? "checked" : ""}><span>启用</span></label>
-          <div class="admin-actions"><button class="btn btn--primary" type="submit">保存项目</button></div>
-        </form>
-        <form class="admin-form" id="githubScanForm">
-          <h3>GitHub 自动扫描</h3>
-          <label><span>GitHub 用户名</span><input name="username" value="${esc(state.githubUsername)}"></label>
-          <div class="admin-actions"><button class="btn" type="submit">扫描 GitHub</button></div>
-        </form>
-        ${state.githubCandidates.length ? `
-        <div class="admin-list">
-          ${state.githubCandidates.map((r, i) => `
-            <article class="admin-comment">
-              <div class="admin-comment__head">
-                <div><strong>${esc(r.name)}</strong><span> ★${esc(r.stargazers_count)} · ${esc(r.language || "")}</span></div>
-                <label class="admin-toggle"><input type="checkbox" data-github-pick="${i}" checked><span>展示</span></label>
-              </div>
-              <p>${esc(r.description || "")}</p>
-              <small>${esc(r.html_url)}</small>
-            </article>`).join("")}
-        </div>
-        <div class="admin-actions"><button class="btn btn--primary" type="button" id="githubImportButton">导入选中仓库</button></div>` : ""}
-      </section>
     </div>
   `;
 }
 
-const MODULE_LABELS = { profile: "个人资料", about: "关于", contacts: "联系方式", travel: "旅行", anime: "动漫", games: "游戏", github: "GitHub", comments: "评论" };
-const CONTACT_LABELS = { wechat: "微信", qq: "QQ", telegram: "Telegram", github: "GitHub", email: "Email", steam: "Steam", minecraft: "Minecraft", genshin: "原神", website: "网站", bilibili: "B站", x: "X", instagram: "Instagram", discord: "Discord", custom: "自定义" };
-
-function profileRow(p) {
-  return `
-    <article class="admin-comment" data-hostname="${esc(p.hostname)}">
-      <div class="admin-comment__head">
-        <div><strong>${esc(p.hostname)}</strong><span class="admin-badge admin-badge--${p.enabled ? "approved" : "rejected"}">${esc(p.enabled ? "启用" : "禁用")}</span>
-        <span>模板 ${esc(p.template)} · 语言 ${esc(p.language)} · 模块 ${(p.modules || []).length} · 联系 ${(p.contacts || []).length} · 旅行 ${esc(p.travel?.mode)}</span></div>
-        <div class="admin-actions">
-          <button class="btn js-edit-profile" type="button" data-hostname="${esc(p.hostname)}">编辑</button>
-          <button class="btn btn--danger js-delete-profile" type="button" data-hostname="${esc(p.hostname)}">删除</button>
-        </div>
-      </div>
-    </article>`;
-}
-
-function profileEditor(p) {
-  const q = (state.citySearch || "").toLowerCase();
-  const list = cities.filter((c) => {
-    if (!q) return true;
-    const hay = `${c.slug} ${c.name?.zh || ""} ${c.name?.ja || ""} ${c.name?.en || ""} ${c.region?.zh || ""}`.toLowerCase();
-    return hay.includes(q);
-  });
-  const selected = new Set((p.travel?.cities || []).map((s) => String(s).toLowerCase()));
-  return `
-    <form class="admin-form" id="profileForm">
-      <h3>编辑 ${esc(p.hostname || "新域名")}</h3>
-      <label><span>域名 hostname</span><input name="hostname" value="${esc(p.hostname || "")}" placeholder="wx.shuangyue.space"></label>
-      <label><span>页面名称（可空，三语标题覆盖在下方）</span><input name="githubUser" value="${esc(p.githubUser || "")}" placeholder="shuangyue1124"></label>
-      <label><span>模板</span><select name="template">${["full", "contact", "social", "travel", "projects", "minimal", "custom"].map((t) => `<option value="${t}" ${p.template === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-      <label><span>语言</span><select name="language">${[["auto", "自动"], ["zh", "中文"], ["ja", "日文"], ["en", "英文"]].map(([v, l]) => `<option value="${v}" ${p.language === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-      <label class="admin-toggle"><input name="enabled" type="checkbox" ${p.enabled !== false ? "checked" : ""}><span>启用该域名</span></label>
-      <fieldset class="admin-fieldset"><legend>页面模块</legend>
-        ${Object.entries(MODULE_LABELS).map(([id, name]) => `<label class="admin-toggle"><input name="module_${id}" type="checkbox" ${(p.modules || []).includes(id) ? "checked" : ""}><span>${name}</span></label>`).join("")}
-      </fieldset>
-      <fieldset class="admin-fieldset"><legend>联系方式（公开 API 只返回勾选项）</legend>
-        ${Object.entries(CONTACT_LABELS).map(([id, name]) => `<label class="admin-toggle"><input name="contact_${id}" type="checkbox" ${(p.contacts || []).includes(id) ? "checked" : ""}><span>${name}</span></label>`).join("")}
-      </fieldset>
-      <fieldset class="admin-fieldset"><legend>旅行足迹</legend>
-        ${[["disabled", "不开放"], ["all", "全部开放"], ["include", "仅展示所选"], ["exclude", "屏蔽所选"]].map(([v, l]) => `<label class="admin-toggle"><input name="travelMode" type="radio" value="${v}" ${p.travel?.mode === v ? "checked" : ""}><span>${l}</span></label>`).join("")}
-        <div class="admin-actions">
-          <button class="btn" type="button" id="citySelectAll">全选</button>
-          <button class="btn" type="button" id="cityInvert">反选</button>
-          <button class="btn" type="button" id="cityClear">清空</button>
-        </div>
-        <label><span>搜索城市</span><input id="citySearch" value="${esc(state.citySearch || "")}" placeholder="搜索城市、省份、slug"></label>
-        <div class="admin-list" style="max-height:240px;overflow:auto">
-          ${list.map((c) => `<label class="admin-toggle"><input name="city_${c.slug}" type="checkbox" ${selected.has(c.slug) ? "checked" : ""}><span>${esc(c.name?.zh || c.slug)} (${esc(c.slug)})</span></label>`).join("")}
-          <label class="admin-toggle"><input name="city_japan-2026" type="checkbox" ${selected.has("japan-2026") ? "checked" : ""}><span>日本旅记 (japan-2026)</span></label>
-        </div>
-      </fieldset>
-      <div class="admin-actions">
-        <button class="btn btn--primary" type="submit">保存域名配置</button>
-        <button class="btn" type="button" id="cancelProfileEdit">取消</button>
-      </div>
-    </form>`;
-}
-
-function contentRow(item) {
-  const title = item.title?.zh || item.slug;
-  return `
-    <article class="admin-comment" data-id="${esc(item.id)}">
-      <div class="admin-comment__head">
-        <div><strong>[${esc(item.type)}] ${esc(title)}</strong><span class="admin-badge admin-badge--${item.enabled ? "approved" : "rejected"}">${esc(item.enabled ? "启用" : "禁用")}</span><span> ${esc(item.slug)} · sort ${esc(item.sortOrder)}</span></div>
-        <div class="admin-actions">
-          <button class="btn js-edit-content" type="button" data-id="${esc(item.id)}">编辑</button>
-          ${item.enabled
-            ? `<button class="btn js-hide-content" type="button" data-id="${esc(item.id)}">隐藏</button>`
-            : `<button class="btn btn--primary js-show-content" type="button" data-id="${esc(item.id)}">显示</button>`}
-          <button class="btn js-ai-review" type="button" data-id="${esc(item.id)}">生成 AI 短评</button>
-          <button class="btn btn--danger js-delete-content" type="button" data-id="${esc(item.id)}">永久删除</button>
-        </div>
-      </div>
-      <p>${esc(item.summary?.zh || "")}</p>
-      ${item.metadata?.review?.zh ? `<p><strong>AI 短评：</strong>${esc(item.metadata.review.zh)}</p>` : ""}
-    </article>`;
-}
+const envCheckGuide = {
+  COMMENTS_DB: {
+    kind: "D1 数据库绑定",
+    badge: "必需",
+    hint: "期望值：新建或选择 D1 数据库（如 about-comments），并把 database_id 配置到 Pages 项目；缺少时留言无法入库，留言审核与 AI 数据对话不可用。设置位置：Cloudflare Pages → Settings → Functions → D1 Database Bindings（变量名保持 COMMENTS_DB）。",
+  },
+  COMMENTS_KV: {
+    kind: "KV 命名空间绑定",
+    badge: "必需",
+    hint: "期望值：KV namespace（绑定名 COMMENTS_KV），用于公开评论缓存与限流计数；缺少时公开评论读取与提交限流不可用。设置位置：Settings → Functions → KV Namespace Bindings。",
+  },
+  AI: {
+    kind: "Workers AI 绑定",
+    badge: "建议",
+    hint: "期望值：创建 Workers AI binding（无需密钥，绑定名 AI）；缺少时留言自动进入待审、AI 数据对话不可用，但页面访问与后台管理不受影响。设置位置：Settings → Functions → Workers AI Bindings。",
+  },
+  ADMIN_PASSWORD: {
+    kind: "管理员登录密码（Secret）",
+    badge: "必需",
+    hint: "期望值：你自己设置的管理员登录密码（建议足够长的随机串）。兼容变量名：ADMIN_SECRET、SFSY_ADMIN_PASSWORD、SITE_ADMIN_PASSWORD；或 Secrets Store 绑定 SECRETS / SECRET_STORE / ADMIN_SECRETS 中的同名密钥。缺少时无法登录后台，公开页面不受影响。设置位置：Settings → Functions → Environment Variables（Secret）。",
+  },
+  TURNSTILE_SECRET_KEY: {
+    kind: "Turnstile 私钥（Secret）",
+    badge: "必需",
+    hint: "期望值：Turnstile 控制台对应站点的 Secret Key（0x 开头），与公开 site key 成对；缺少时访客发布留言会被拒绝，页面浏览不受影响。设置位置：Settings → Functions → Environment Variables（Secret）。",
+  },
+  TURNSTILE_SITE_KEY: {
+    kind: "Turnstile 公钥（环境变量）",
+    badge: "可选",
+    hint: "期望值：Turnstile 控制台的 Site Key（0x 开头）。它只是环境变量级默认值，在后台「系统配置 → 公开 Turnstile site key」保存过时可以留空。设置位置：Settings → Functions → Environment Variables。",
+  },
+  TELEGRAM_BOT_TOKEN: {
+    kind: "Telegram Bot Token（Secret）",
+    badge: "可选",
+    hint: "期望值：@BotFather 创建的 bot token，形如 1234567890:AAF…，用于新留言通知与「测试 Telegram」按钮。缺少时只有该通知功能不可用，其余留言流程正常。设置位置：Settings → Functions → Environment Variables（Secret）。",
+  },
+  TELEGRAM_CHAT_ID: {
+    kind: "Telegram 接收 chat（Secret）",
+    badge: "可选",
+    hint: "期望值：站长自己的 chat id（先给 bot 发一句话，再用 getUpdates 查询），通常是一串数字或 @频道名，需与 TELEGRAM_BOT_TOKEN 成对设置。设置位置：Settings → Functions → Environment Variables（Secret）。",
+  },
+  COMMENT_MODERATION_MODEL: {
+    kind: "AI 审核模型（环境变量）",
+    badge: "可选",
+    hint: "期望值：Workers AI 模型名，如 @cf/meta/llama-guard-3-8b。不设置时用内置默认模型，后台「系统配置 → AI 审核模型」保存后以此为准。设置位置：Settings → Functions → Environment Variables。",
+  },
+  AI_CHAT_MODEL: {
+    kind: "AI 对话模型（环境变量）",
+    badge: "可选",
+    hint: "期望值：模型名，默认 @cf/meta/llama-3.2-3b-instruct；兼容旧名 ADMIN_AI_CHAT_MODEL。后台「AI 对话模型」已保存时可忽略此项。设置位置：Settings → Functions → Environment Variables。",
+  },
+  RUNTIME_SCHEMA_BOOTSTRAP: {
+    kind: "运行时装表（环境变量）",
+    badge: "可选",
+    hint: "期望值：设为 1 时 Worker 首次启动会自动在 D1 建表；生产若已用 migrations/0001_comments_d1.sql 建过表则不必设置（本地 wrangler.jsonc 默认已有）。设置位置：Settings → Functions → Environment Variables。",
+  },
+};
 
 function healthView() {
   const health = state.health || {};
-  const items = [
-    ["COMMENTS_DB / D1", health.d1],
-    ["COMMENTS_KV / KV", health.kv],
-    ["AI binding", health.ai],
-    ["TURNSTILE_SECRET_KEY", health.turnstileSecret],
-    ["ADMIN_PASSWORD", health.adminPassword],
-  ];
+  const checks = Array.isArray(health.checks) ? health.checks : [];
   return `
-    <div class="admin-health">
-      ${items.map(([label, ok]) => `
-        <span class="admin-health__item ${ok ? "is-ok" : "is-missing"}">
-          <strong>${esc(label)}</strong>
-          <em>${ok ? "已配置" : "未配置"}</em>
-        </span>
-      `).join("")}
+    <p>以下清单只做提醒、不拦截任何功能：缺少某项时页面访问、留言区和后台管理仍然可用，只是对应功能不可用。逐项查看变量名、期望值与设置位置即可。</p>
+    <div class="admin-health admin-health--envs">
+      ${checks.length
+        ? checks.map(healthItem).join("")
+        : '<p class="comment-list__empty">暂无环境变量状态数据，请点击「刷新数据」。</p>'}
+    </div>
+  `;
+}
+
+function healthItem(check) {
+  const meta = envCheckGuide[check.name] || {};
+  const ok = Boolean(check.ok);
+  return `
+    <div class="admin-health__item ${ok ? "is-ok" : "is-missing"}">
+      <div class="admin-health__head">
+        <strong><code>${esc(check.name)}</code></strong>
+        <em class="admin-health__state">${ok ? "已配置" : "未配置"}</em>
+      </div>
+      <p class="admin-health__meta">${esc(meta.kind || "环境变量")}${meta.badge ? ` · ${esc(meta.badge)}` : ""}</p>
+      ${ok ? "" : meta.hint ? `<p class="admin-health__hint">${esc(meta.hint)}</p>` : ""}
     </div>
   `;
 }
@@ -512,6 +423,8 @@ function bind() {
   document.getElementById("configForm")?.addEventListener("submit", saveConfig);
   document.getElementById("refreshButton")?.addEventListener("click", loadDashboard);
   document.getElementById("migrateButton")?.addEventListener("click", migrateComments);
+  document.getElementById("cleanupEventsButton")?.addEventListener("click", cleanupEvents);
+  document.getElementById("telegramTestButton")?.addEventListener("click", testTelegram);
   document.getElementById("logoutButton")?.addEventListener("click", logout);
   document.getElementById("aiChatForm")?.addEventListener("submit", sendAiChat);
   document.getElementById("statusFilter")?.addEventListener("change", (event) => {
@@ -524,53 +437,6 @@ function bind() {
   document.querySelectorAll(".js-delete-comment").forEach((button) => {
     button.addEventListener("click", () => deleteComment(button.dataset.id));
   });
-  document.getElementById("newProfileButton")?.addEventListener("click", () => {
-    state.editingProfile = { hostname: "", enabled: true, template: "contact", language: "auto", modules: ["profile", "contacts"], contacts: ["wechat", "qq"], travel: { mode: "disabled", cities: [] }, githubUser: "shuangyue1124" };
-    render();
-  });
-  document.getElementById("cancelProfileEdit")?.addEventListener("click", () => {
-    state.editingProfile = null;
-    render();
-  });
-  document.querySelectorAll(".js-edit-profile").forEach((b) => b.addEventListener("click", () => {
-    state.editingProfile = state.profiles.find((p) => p.hostname === b.dataset.hostname) || null;
-    render();
-  }));
-  document.querySelectorAll(".js-delete-profile").forEach((b) => b.addEventListener("click", () => deleteProfile(b.dataset.hostname)));
-  document.getElementById("profileForm")?.addEventListener("submit", saveProfile);
-  document.getElementById("citySearch")?.addEventListener("input", (e) => {
-    state.citySearch = e.currentTarget.value;
-    render();
-  });
-  document.getElementById("citySelectAll")?.addEventListener("click", () => setAllCities(true));
-  document.getElementById("cityInvert")?.addEventListener("click", invertCities);
-  document.getElementById("cityClear")?.addEventListener("click", () => setAllCities(false));
-  document.getElementById("contentFilter")?.addEventListener("change", (e) => {
-    state.contentFilter = e.currentTarget.value;
-    loadDashboard();
-  });
-  document.getElementById("contentForm")?.addEventListener("submit", saveContent);
-  document.querySelectorAll(".js-edit-content").forEach((b) => b.addEventListener("click", () => {
-    state.editingContent = state.contentItems.find((i) => i.id === b.dataset.id) || null;
-    render();
-  }));
-  document.querySelectorAll(".js-delete-content").forEach((b) => b.addEventListener("click", () => {
-    if (window.confirm("永久删除后无法恢复。确定吗？")) deleteContent(b.dataset.id, true);
-  }));
-  document.querySelectorAll(".js-hide-content").forEach((b) => b.addEventListener("click", () => deleteContent(b.dataset.id, false)));
-  document.querySelectorAll(".js-show-content").forEach((b) => b.addEventListener("click", () => setContentVisibility(b.dataset.id, true)));
-  document.querySelectorAll(".js-ai-review").forEach((b) => b.addEventListener("click", () => aiReview(b.dataset.id)));
-  document.getElementById("githubScanForm")?.addEventListener("submit", scanGithub);
-  document.getElementById("githubImportButton")?.addEventListener("click", importGithub);
-}
-
-function setAllCities(on) {
-  const boxes = document.querySelectorAll('#profileForm input[name^="city_"]');
-  boxes.forEach((b) => { b.checked = on; });
-}
-function invertCities() {
-  const boxes = document.querySelectorAll('#profileForm input[name^="city_"]');
-  boxes.forEach((b) => { b.checked = !b.checked; });
 }
 
 async function login(event) {
@@ -697,6 +563,48 @@ async function migrateComments() {
   }
 }
 
+async function cleanupEvents() {
+  if (!window.confirm("将删除 90 天前的 site_events 统计事件（后台接口支持 7~365 天）。确定继续吗？")) return;
+  const button = document.getElementById("cleanupEventsButton");
+  if (button) button.disabled = true;
+  state.status = "正在清理过期统计事件...";
+  render();
+  try {
+    const response = await api("/api/admin/cleanup-events", {
+      method: "POST",
+      body: JSON.stringify({ days: 90 }),
+    });
+    if (!response.ok) throw new Error(await responseText(response));
+    const data = await response.json();
+    state.status = `统计事件已清理：删除 ${data.deleted ?? 0} 条（早于 ${data.cutoff || "90 天前"}）。`;
+    render();
+  } catch (error) {
+    state.status = error.message || "清理失败。";
+    render();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function testTelegram() {
+  if (!window.confirm("将向配置的 Telegram 聊天发送一条测试通知。确定继续吗？")) return;
+  const button = document.getElementById("telegramTestButton");
+  if (button) button.disabled = true;
+  state.status = "正在发送 Telegram 测试通知...";
+  render();
+  try {
+    const response = await api("/api/admin/test-telegram", { method: "POST", body: JSON.stringify({}) });
+    if (!response.ok) throw new Error(await responseText(response));
+    state.status = "Telegram 测试通知已发送，请查看聊天。";
+    render();
+  } catch (error) {
+    state.status = error.message || "Telegram 测试失败。";
+    render();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function sendAiChat(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -709,17 +617,32 @@ async function sendAiChat(event) {
   input.value = "";
   render();
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
   try {
     const response = await api("/api/admin/ai-chat", {
       method: "POST",
       body: JSON.stringify({ message }),
+      signal: controller.signal,
     });
     if (!response.ok) throw new Error(await responseText(response));
     const data = await response.json();
     state.chatMessages.push({ role: "assistant", content: data.reply || "没有得到回复。" });
+    if (data.contextMeta?.generatedAt) state.chatDataAt = String(data.contextMeta.generatedAt);
   } catch (error) {
-    state.chatMessages.push({ role: "assistant", content: error.message || "AI 对话暂时不可用。" });
+    if (controller.signal.aborted) {
+      state.chatMessages.push({
+        role: "assistant",
+        content: `查询超时（超过 ${Math.round(AI_CHAT_TIMEOUT_MS / 1000)} 秒未收到回复）。请稍后重试；若总是超时，可在「系统配置 → AI 对话模型」换用更快的模型。`,
+      });
+    } else {
+      state.chatMessages.push({
+        role: "assistant",
+        content: error.message || "AI 对话暂时不可用。",
+      });
+    }
   } finally {
+    clearTimeout(timeoutId);
     state.chatLoading = false;
     render();
     document.getElementById("adminChatLog")?.lastElementChild?.scrollIntoView({ block: "nearest" });
@@ -730,16 +653,14 @@ async function loadDashboard() {
   state.loading = true;
   render();
   try {
-    const [configResponse, commentsResponse, healthResponse, profilesResponse, contentResponse] = await Promise.all([
+    const [configResponse, commentsResponse, healthResponse] = await Promise.all([
       api("/api/admin/config"),
       api(`/api/admin/comments?limit=100&status=${encodeURIComponent(state.statusFilter)}`),
       api("/api/admin/health"),
-      api("/api/admin/profiles").catch(() => null),
-      api(`/api/admin/content?type=${encodeURIComponent(state.contentFilter)}&all=1`).catch(() => null),
     ]);
-    if (!configResponse.ok) throw new Error(await responseText(configResponse));
-    if (!commentsResponse.ok) throw new Error(await responseText(commentsResponse));
-    if (!healthResponse.ok) throw new Error(await responseText(healthResponse));
+    if (!configResponse.ok) throw await apiError(configResponse);
+    if (!commentsResponse.ok) throw await apiError(commentsResponse);
+    if (!healthResponse.ok) throw await apiError(healthResponse);
     const configData = await configResponse.json();
     const commentsData = await commentsResponse.json();
     const healthData = await healthResponse.json();
@@ -747,186 +668,23 @@ async function loadDashboard() {
     state.config = configData.config || configData.settings || emptyConfig;
     state.comments = Array.isArray(commentsData.comments) ? commentsData.comments : [];
     state.health = healthData.health || null;
-    try {
-      if (profilesResponse?.ok) {
-        const pd = await profilesResponse.json();
-        state.profiles = Array.isArray(pd.profiles) ? pd.profiles : [];
-      }
-    } catch { /* profiles optional before migration */ }
-    try {
-      if (contentResponse?.ok) {
-        const cd = await contentResponse.json();
-        state.contentItems = Array.isArray(cd.items) ? cd.items : [];
-      }
-    } catch { /* content optional */ }
     state.loading = false;
     render();
   } catch (error) {
-    state.authed = false;
     state.loading = false;
-    state.status = error.message || "需要重新登录。";
+    state.status = error.message || "加载失败，请点击「刷新数据」重试。";
+    if (error.status === 401 || error.status === 403) {
+      state.authed = false;
+      state.health = null;
+    }
     render();
   }
 }
 
-async function saveProfile(event) {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  const modules = Object.keys(MODULE_LABELS).filter((id) => form.get(`module_${id}`) === "on");
-  const contacts = Object.keys(CONTACT_LABELS).filter((id) => form.get(`contact_${id}`) === "on");
-  const travelCities = [...form.keys()].filter((k) => k.startsWith("city_") && form.get(k) === "on").map((k) => k.slice(5));
-  const payload = {
-    hostname: String(form.get("hostname") || "").trim().toLowerCase(),
-    enabled: form.get("enabled") === "on",
-    template: String(form.get("template") || "full"),
-    language: String(form.get("language") || "auto"),
-    modules, contacts,
-    travel: { mode: String(form.get("travelMode") || "all"), cities: travelCities },
-    githubUser: String(form.get("githubUser") || "shuangyue1124"),
-  };
-  if (!payload.hostname) { state.status = "请填写域名。"; render(); return; }
-  try {
-    const isNew = !state.profiles.some((p) => p.hostname === payload.hostname);
-    const res = await api(isNew ? "/api/admin/profiles" : `/api/admin/profiles/${encodeURIComponent(payload.hostname)}`, {
-      method: isNew ? "POST" : "PUT",
-      body: JSON.stringify({ profile: payload }),
-    });
-    if (!res.ok) throw new Error(await responseText(res));
-    state.status = "域名配置已保存，60 秒内生效。";
-    state.editingProfile = null;
-    await loadDashboard();
-  } catch (error) {
-    state.status = error.message || "保存失败。";
-    render();
-  }
-}
-
-async function deleteProfile(hostname) {
-  try {
-    const res = await api(`/api/admin/profiles/${encodeURIComponent(hostname)}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(await responseText(res));
-    state.status = `已删除 ${hostname}（回退到内置默认）。`;
-    await loadDashboard();
-  } catch (error) {
-    state.status = error.message || "删除失败。";
-    render();
-  }
-}
-
-async function saveContent(event) {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  const payload = {
-    id: String(form.get("id") || "") || undefined,
-    type: String(form.get("type") || "github"),
-    slug: String(form.get("slug") || ""),
-    title: { zh: String(form.get("title_zh") || ""), ja: String(form.get("title_ja") || ""), en: String(form.get("title_en") || "") },
-    summary: { zh: String(form.get("summary_zh") || ""), ja: String(form.get("summary_ja") || ""), en: String(form.get("summary_en") || "") },
-    url: String(form.get("url") || ""),
-    cover: String(form.get("cover") || ""),
-    sortOrder: Number(form.get("sortOrder") || 0),
-    enabled: form.get("enabled") === "on",
-  };
-  // Fallback: empty ja/en reuse zh so frontend never shows blank.
-  for (const k of ["title", "summary"]) {
-    payload[k].ja = payload[k].ja || payload[k].zh;
-    payload[k].en = payload[k].en || payload[k].zh;
-  }
-  try {
-    const res = await api(payload.id ? `/api/admin/content/${encodeURIComponent(payload.id)}` : "/api/admin/content", {
-      method: payload.id ? "PUT" : "POST",
-      body: JSON.stringify({ item: payload }),
-    });
-    if (!res.ok) throw new Error(await responseText(res));
-    state.status = "内容已保存。";
-    state.editingContent = null;
-    await loadDashboard();
-  } catch (error) {
-    state.status = error.message || "保存失败。";
-    render();
-  }
-}
-
-async function deleteContent(id, permanent = false) {
-  try {
-    const res = await api(`/api/admin/content/${encodeURIComponent(id)}${permanent ? "?permanent=1" : ""}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(await responseText(res));
-    state.status = permanent ? "内容已永久删除。" : "内容已隐藏，可随时恢复显示。";
-    await loadDashboard();
-  } catch (error) {
-    state.status = error.message || "删除失败。";
-    render();
-  }
-}
-
-async function setContentVisibility(id, enabled) {
-  // Show/hide reuses the content save path (enabled flag only).
-  const item = state.contentItems.find((i) => i.id === id);
-  if (!item) return;
-  try {
-    const res = await api(`/api/admin/content/${encodeURIComponent(id)}`, {
-      method: "PUT",
-      body: JSON.stringify({ item: { ...item, enabled } }),
-    });
-    if (!res.ok) throw new Error(await responseText(res));
-    state.status = enabled ? "内容已恢复显示。" : "内容已隐藏。";
-    await loadDashboard();
-  } catch (error) {
-    state.status = error.message || "更新失败。";
-    render();
-  }
-}
-
-async function scanGithub(event) {
-  event.preventDefault();
-  const username = String(new FormData(event.currentTarget).get("username") || "").trim() || "shuangyue1124";
-  state.githubUsername = username;
-  state.status = "正在扫描 GitHub…";
-  render();
-  try {
-    const res = await api("/api/admin/github/scan", { method: "POST", body: JSON.stringify({ username }) });
-    if (!res.ok) throw new Error(await responseText(res));
-    const data = await res.json();
-    state.githubCandidates = Array.isArray(data.repos) ? data.repos : [];
-    state.status = `扫描完成：${state.githubCandidates.length} 个候选仓库，勾选后导入。`;
-    render();
-  } catch (error) {
-    state.status = error.message || "扫描失败，页面仍可正常使用。";
-    render();
-  }
-}
-
-async function importGithub() {
-  const picks = [...document.querySelectorAll("[data-github-pick]:checked")].map((el) => state.githubCandidates[Number(el.dataset.githubPick)]).filter(Boolean);
-  if (!picks.length) { state.status = "请先勾选要导入的仓库。"; render(); return; }
-  try {
-    const res = await api("/api/admin/github/import", { method: "POST", body: JSON.stringify({ repos: picks }) });
-    if (!res.ok) throw new Error(await responseText(res));
-    const data = await res.json().catch(() => ({}));
-    const deduped = Number(data.deduped) || 0;
-    const fresh = picks.length - deduped;
-    state.status = `导入完成：新增 ${fresh} 个${deduped ? `，${deduped} 个已存在并同步更新（未覆盖手动短评与排序）` : ""}。`;
-    state.githubCandidates = [];
-    await loadDashboard();
-  } catch (error) {
-    state.status = error.message || "导入失败。";
-    render();
-  }
-}
-
-async function aiReview(id) {
-  state.status = "正在调用 Workers AI 生成三语短评（失败不影响已保存内容）…";
-  render();
-  try {
-    const item = state.contentItems.find((i) => i.id === id);
-    const res = await api("/api/admin/ai-review", { method: "POST", body: JSON.stringify({ id, repo: { name: item?.title?.zh, description: item?.summary?.zh, language: item?.metadata?.language }, overwrite: false }) });
-    if (!res.ok) throw new Error(await responseText(res));
-    state.status = "AI 短评已生成并保存，可继续手动修改。";
-    await loadDashboard();
-  } catch (error) {
-    state.status = error.message || "AI 生成失败，已保留原内容。";
-    render();
-  }
+async function apiError(response) {
+  const error = new Error(await responseText(response));
+  error.status = response.status;
+  return error;
 }
 
 async function responseText(response) {

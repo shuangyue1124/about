@@ -1,5 +1,5 @@
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/api/site" || url.pathname === "/api/site/") {
       return handleSite(request, env);
@@ -10,22 +10,15 @@ export default {
     }
 
     if (url.pathname.startsWith("/api/admin")) {
-      return handleAdmin(request, env);
+      return handleAdmin(request, env, ctx);
     }
 
     if (url.pathname === "/api/comments" || url.pathname === "/api/comments/") {
-      return handleComments(request, env);
+      return handleComments(request, env, ctx);
     }
 
-    if (url.pathname === "/api/content" || url.pathname === "/api/content/") {
-      return handleContent(request, env);
-    }
-
-    // Dynamic vCard: same URL (/contact.vcf) serves per-hostname filtered contacts.
-    // Intercepted before ASSETS so the static fallback file can never leak
-    // contacts that the current profile hides.
-    if (url.pathname === "/contact.vcf" || url.pathname === "/api/contact.vcf") {
-      return handleVcard(request, env);
+    if (url.pathname === "/api/csp-report" || url.pathname === "/api/csp-report/") {
+      return handleCspReport(request);
     }
 
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -41,18 +34,27 @@ export default {
       if (response.status !== 404) return response;
     }
 
-    // Secondary content detail fallback: /anime/<slug>, /games/<slug>, /github/<slug>
-    // serve a lightweight shell (no SSR) so new slugs work without pre-generated HTML.
-    // Static skeletons from build-pages remain canonical for index pages.
-    const contentFallback = contentShellFor(url.pathname);
-    if (contentFallback) {
-      return new Response(contentFallback, {
-        status: 200,
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
-      });
-    }
-
     return env.ASSETS.fetch(request);
+  },
+
+  // Cron maintenance for Worker runtimes only (wrangler dev / wrangler deploy).
+  // It does NOT run on the production Cloudflare Pages deployment: Pages Git
+  // integration serves public/ plus the file-routed functions/ handlers, and
+  // Pages Functions have no scheduled-event wiring, so wrangler.jsonc triggers
+  // are ignored there. Production cleanup relies on the authenticated admin
+  // button (POST /api/admin/cleanup-events). Cloudflare Cron runs in UTC; the
+  // cutoff below is an absolute instant, so no CST/UTC confusion is possible.
+  // The school timetable is client-side only and is never touched by this.
+  async scheduled(event, env, ctx) {
+    if (!env.COMMENTS_DB) return;
+    const days = EVENT_RETENTION_DAYS_DEFAULT;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    try {
+      const result = await env.COMMENTS_DB.prepare("DELETE FROM site_events WHERE created_at < ?").bind(cutoff).run();
+      console.log(`[scheduled cleanup] deleted ${result.meta?.changes || 0} site_events older than ${cutoff}`);
+    } catch (error) {
+      console.error("[scheduled cleanup] failed", error?.message || error);
+    }
   },
 };
 
@@ -87,9 +89,29 @@ const ADMIN_SESSION_SECONDS = 60 * 60 * 24;
 const DEFAULT_CACHE_TTL_SECONDS = 60;
 const DEFAULT_MEMORY_TTL_SECONDS = 15;
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
-const PROFILE_CACHE_TTL_SECONDS = 60;
-const PROFILE_KV_PREFIX = "profile:v1:";
-const CONTENT_KV_PREFIX = "content:v1:";
+
+const RATE_LIMIT_PREFIX = "rl";
+const EVENTS_RATE_LIMITS = [
+  { limit: 60, windowSeconds: 60 },
+  { limit: 240, windowSeconds: 600 },
+];
+const COMMENTS_RATE_LIMITS = [
+  { limit: 5, windowSeconds: 60 },
+  { limit: 20, windowSeconds: 600 },
+];
+const LOGIN_FAILURE_LIMIT = { max: 5, windowSeconds: 300 };
+const AI_CHAT_RATE_LIMITS = [{ limit: 30, windowSeconds: 60 }];
+const ALLOWED_EVENT_TYPES = new Set(["page_view"]);
+const ALLOWED_EVENT_PAGES = new Set(["home", "travel", "city", "trip"]);
+const ALLOWED_EVENT_LANGS = new Set(["zh", "ja", "en"]);
+const MAX_EVENT_BODY_BYTES = 4096;
+const MAX_COMMENT_BODY_BYTES = 8192;
+const TELEGRAM_API_TIMEOUT_MS = 8000;
+const TELEGRAM_TEST_LIMIT = { limit: 3, windowSeconds: 60 };
+const AI_CHAT_TIMEOUT_MS = 24000;
+const EVENT_RETENTION_DAYS_DEFAULT = 90;
+const EVENT_RETENTION_DAYS_MIN = 7;
+const EVENT_RETENTION_DAYS_MAX = 365;
 
 const memory = {
   comments: null,
@@ -97,14 +119,13 @@ const memory = {
   config: null,
   configExpiresAt: 0,
   schemaReady: false,
-  profiles: new Map(),
-  contacts: null,
-  contactsExpiresAt: 0,
-  // Public content cache. Keys ALWAYS embed hostname first:
-  //   content:{hostname}:{type}  /  content-detail:{hostname}:{type}:{slug}
-  // so wx/qq/about/github/travel can never read each other's filtered lists.
-  // Memory-only (no KV writes on visits); cleared on any content/profile write.
-  content: new Map(),
+  // Per-isolate fixed-window counters for high-frequency endpoints.
+  // /api/events fires on every page view, so it must never touch KV per
+  // request: KV Free allows only 1,000 writes/day (reset 00:00 UTC, hard fail),
+  // and 500 page views would already exhaust that with 2 KV writes each.
+  // Memory-only limiting costs 0 KV ops on the hot path; KV is retained only
+  // for low-volume scopes (comments/login/ai-chat/telegram-test).
+  rateLimits: new Map(),
 };
 
 const DEFAULT_SITE_CONFIG = {
@@ -138,106 +159,8 @@ const DEFAULT_SITE_CONFIG = {
   },
 };
 
-// ---- Multi-hostname site profiles (incremental, mirrors assets/js/site-profile.js) ----
-const TEMPLATE_MODULES = {
-  full: ["profile", "about", "contacts", "travel", "anime", "games", "github", "comments"],
-  contact: ["profile", "contacts"],
-  social: ["profile", "contacts", "comments"],
-  travel: ["profile", "travel"],
-  projects: ["profile", "github"],
-  minimal: ["profile"],
-  custom: [],
-};
-const MODULE_IDS = ["profile", "about", "contacts", "travel", "anime", "games", "github", "comments"];
-const CONTACT_TYPES = ["wechat", "qq", "telegram", "github", "email", "steam", "minecraft", "genshin", "website", "bilibili", "x", "instagram", "discord", "custom"];
-const CONTENT_TYPES = ["anime", "game", "github", "movie", "book", "music", "software", "project"];
-
-// Server-side contact catalog defaults (single source for sensitive values).
-// Public /api/site only returns the subset allowed by the current hostname profile.
-const DEFAULT_CONTACTS = [
-  { type: "wechat", label: "微信", value: "sfsy1124", url: "", enabled: true, sortOrder: 10 },
-  { type: "qq", label: "QQ", value: "1970259391", url: "", enabled: true, sortOrder: 20 },
-  { type: "telegram", label: "Telegram", value: "@sfsy1124", url: "https://t.me/sfsy1124", enabled: true, sortOrder: 30 },
-  { type: "github", label: "GitHub", value: "shuangyue1124", url: "https://github.com/shuangyue1124", enabled: true, sortOrder: 40 },
-  { type: "email", label: "Email", value: "hzq101116@163.com", url: "mailto:hzq101116@163.com", enabled: true, sortOrder: 50 },
-  { type: "steam", label: "Steam", value: "CS2 Profile", url: "https://steamcommunity.com/profiles/76561199258450245/", enabled: true, sortOrder: 60 },
-  { type: "minecraft", label: "Minecraft", value: "CN_YangYang", url: "", enabled: true, sortOrder: 70 },
-  { type: "genshin", label: "原神", value: "847045298", url: "", enabled: true, sortOrder: 80 },
-];
-
-function normalizeHostname(value) {
-  return String(value || "").trim().toLowerCase().replace(/\.$/, "");
-}
-
-function requestHostname(request) {
-  try {
-    return normalizeHostname(new URL(request.url).hostname);
-  } catch {
-    return "";
-  }
-}
-
-function defaultProfileFor(hostname) {
-  const host = normalizeHostname(hostname) || "about.shuangyue.space";
-  const base = {
-    hostname: host, enabled: true, template: "full", language: "auto",
-    modules: [...TEMPLATE_MODULES.full],
-    contacts: ["qq", "telegram", "email", "github", "steam"],
-    travel: { mode: "all", cities: [] },
-    githubUser: "shuangyue1124", title: null, subtitle: null,
-  };
-  if (host === "wx.shuangyue.space") {
-    return { ...base, hostname: host, template: "contact", modules: [...TEMPLATE_MODULES.contact], contacts: ["wechat", "qq"], travel: { mode: "disabled", cities: [] } };
-  }
-  if (host === "qq.shuangyue.space") {
-    return { ...base, hostname: host, template: "contact", modules: [...TEMPLATE_MODULES.contact], contacts: ["qq"], travel: { mode: "disabled", cities: [] } };
-  }
-  if (host === "github.shuangyue.space") {
-    return { ...base, hostname: host, template: "projects", modules: [...TEMPLATE_MODULES.projects], contacts: ["github"], travel: { mode: "disabled", cities: [] } };
-  }
-  if (host === "travel.shuangyue.space") {
-    return { ...base, hostname: host, template: "travel", modules: [...TEMPLATE_MODULES.travel], contacts: [], travel: { mode: "all", cities: [] } };
-  }
-  return base;
-}
-
-function sanitizeProfile(input, fallbackHostname) {
-  const fallback = defaultProfileFor(fallbackHostname || input?.hostname);
-  const hostname = normalizeHostname(input?.hostname || fallback.hostname);
-  const template = typeof input?.template === "string" && (TEMPLATE_MODULES[input.template] || input.template === "custom") ? input.template : "full";
-  const language = ["auto", "zh", "ja", "en"].includes(input?.language) ? input.language : "auto";
-  const modules = Array.isArray(input?.modules) && input.modules.length
-    ? input.modules.filter((m) => MODULE_IDS.includes(m))
-    : [...(TEMPLATE_MODULES[template] || TEMPLATE_MODULES.full)];
-  const contacts = Array.isArray(input?.contacts)
-    ? [...new Set(input.contacts.map((c) => String(c).toLowerCase()).filter((c) => CONTACT_TYPES.includes(c)))]
-    : [...fallback.contacts];
-  const travelRaw = input?.travel && typeof input.travel === "object" ? input.travel : {};
-  const mode = ["disabled", "all", "include", "exclude"].includes(travelRaw.mode) ? travelRaw.mode : "all";
-  const cities = Array.isArray(travelRaw.cities)
-    ? [...new Set(travelRaw.cities.map((s) => String(s).toLowerCase().trim()).filter(Boolean))].slice(0, 200)
-    : [];
-  return {
-    hostname, enabled: input?.enabled !== false, template, language, modules, contacts,
-    travel: { mode, cities },
-    githubUser: String(input?.githubUser || fallback.githubUser || "shuangyue1124").slice(0, 64) || "shuangyue1124",
-    title: input?.title && typeof input.title === "object" ? input.title : null,
-    subtitle: input?.subtitle && typeof input.subtitle === "object" ? input.subtitle : null,
-    updatedAt: input?.updatedAt || "",
-  };
-}
-
-function contentShellFor(pathname) {
-  const m = String(pathname || "").match(/^\/(anime|games|github)(?:\/([^/]+)\/?)?$/);
-  if (!m) return null;
-  const section = m[1];
-  const slug = m[2] || "";
-  const title = section === "anime" ? "动漫" : section === "games" ? "游戏" : "GitHub 项目";
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title} | 朔风霜月</title><link rel="stylesheet" href="/assets/css/styles.css"><link rel="canonical" href="/${section}/${slug ? slug + "/" : ""}"></head><body data-page="${section}" data-root=".." data-content-slug="${slug}"><div id="app"><main id="main-content"><p style="padding:48px;text-align:center">正在加载${title}…</p></main></div><script type="module" src="/assets/js/app.js"></script></body></html>`;
-}
-
-export async function handleComments(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+export async function handleComments(request, env, ctx) {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
 
   try {
     if (request.method === "GET") {
@@ -250,12 +173,19 @@ export async function handleComments(request, env) {
       const config = await loadSiteConfig(env);
       if (!config.commentsEnabled) return json({ error: "comments are closed" }, 403);
 
+      // Cheap abuse guard before parsing: reject oversized bodies early.
+      const contentLength = Number.parseInt(request.headers.get("content-length") || "0", 10) || 0;
+      if (contentLength > MAX_COMMENT_BODY_BYTES) return json({ error: "payload too large" }, 413);
+
       const payload = await request.json().catch(() => ({}));
       if (payload.website) return json({ ok: true, status: "pending" }, 202);
 
       const name = cleanOneLine(payload.name, 32);
       const message = cleanMessage(payload.message, 500);
       if (!name || !message) return json({ error: "name and message are required" }, 400);
+
+      const rate = await rateLimitCheck(env, "comments", clientIp(request), COMMENTS_RATE_LIMITS);
+      if (rate.limited) return rateLimitedResponse(rate.retryAfter);
 
       const turnstile = await verifyTurnstile(request, env, payload.turnstileToken || payload["cf-turnstile-response"]);
       if (!turnstile.ok) return json({ error: "turnstile verification failed", codes: turnstile.errorCodes }, turnstile.status);
@@ -285,168 +215,99 @@ export async function handleComments(request, env) {
       await saveComment(env, comment);
       if (comment.status === "approved") await refreshApprovedCommentsCache(env);
 
+      // Auxiliary side effect only: the comment is already persisted. A
+      // Telegram failure must never roll it back or delay the visitor, so the
+      // notification runs in the background and swallows its own errors.
+      const telegramText = buildTelegramMessage(comment, {
+        page: refererPage(request),
+        lang: refererLang(request),
+      });
+      const notify = sendTelegramNotification(env, telegramText).catch((error) => {
+        console.error("[telegram] notification failed", error?.message || error);
+      });
+      if (ctx?.waitUntil) ctx.waitUntil(notify);
+      else notify.catch(() => {});
+
       return json({ comment: publicComment(comment), status: comment.status }, comment.status === "approved" ? 201 : 202);
     }
 
     return json({ error: "method not allowed" }, 405);
   } catch (error) {
-    return json({ error: error?.message || "comments unavailable" }, 503);
+    return serviceErrorResponse(error);
   }
 }
 
 export async function handleSite(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
   if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
-  const hostname = requestHostname(request);
-  const settings = await loadSiteConfig(env);
-  const profile = await loadSiteProfile(env, hostname);
-  const allContacts = await loadAllContacts(env);
-  const contacts = filterContactsForProfile(allContacts, profile);
-  const cf = request.cf || {};
-  return json({
-    settings: publicSiteSettings(settings),
-    hostname: profile.hostname,
-    profile: {
-      hostname: profile.hostname,
-      template: profile.template,
-      language: profile.language,
-      modules: profile.enabled ? profile.modules : ["profile"],
-      travel: profile.travel,
-      githubUser: profile.githubUser,
-      title: profile.title,
-      subtitle: profile.subtitle,
-      enabled: profile.enabled,
-    },
-    contacts,
-    travel: profile.travel,
-    geo: {
-      country: String(cf.country || ""),
-      timezone: String(cf.timezone || ""),
-      city: String(cf.city || ""),
-    },
-  });
-}
-
-export async function handleContent(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
-  if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
-  const url = new URL(request.url);
-  const type = cleanOneLine(url.searchParams.get("type"), 20).toLowerCase();
-  const slug = cleanOneLine(url.searchParams.get("slug"), 120).toLowerCase();
-  // ---- Profile gate: permission lives on the server, not just in frontend routing.
-  // A hostname whose modules exclude e.g. github must not receive github items.
-  const profile = await loadSiteProfile(env, requestHostname(request));
-  const required = moduleForContentType(type);
-  if (required && required !== "all" && !profile.modules.includes(required)) {
-    if (slug) return json({ error: "not found" }, 404);
-    return json({ items: [] });
+  try {
+    const settings = await loadSiteConfig(env);
+    return json({ settings: publicSiteSettings(settings) });
+  } catch (error) {
+    return serviceErrorResponse(error);
   }
-  const cacheKey = slug
-    ? `content-detail:${profile.hostname}:${type || "all"}:${slug}`
-    : `content:${profile.hostname}:${type || "all"}`;
-  const cached = readContentMemory(cacheKey);
-  if (cached) return json(cached);
-  let items = await listContentItems(env, type || "all", true);
-  // type=all (or a future unmapped type): drop items whose module is closed.
-  items = items.filter((i) => {
-    const m = moduleForContentType(i.type);
-    return !m || profile.modules.includes(m);
-  });
-  if (slug) {
-    const found = items.find((i) => String(i.slug).toLowerCase() === slug && (!type || type === "all" || i.type === type));
-    if (!found) return json({ error: "not found" }, 404);
-    const body = { item: publicContentItem(found) };
-    writeContentMemory(cacheKey, body);
-    return json(body);
-  }
-  const body = { items: items.map(publicContentItem) };
-  writeContentMemory(cacheKey, body);
-  return json(body);
-}
-
-// Maps a content type to the profile module that gates it.
-// Returns "" for travel-ish types (served statically from data.js; no dynamic list)
-// and null for future unmapped types (allowed; no module claims them).
-function moduleForContentType(type) {
-  const t = String(type || "all").toLowerCase();
-  if (t === "anime") return "anime";
-  if (t === "game" || t === "games") return "games";
-  if (t === "github" || t === "project" || t === "software") return "github";
-  if (t === "travel" || t === "cities" || t === "city" || t === "japan") return "";
-  if (t === "all" || !t) return "all";
-  return null;
-}
-
-export async function handleVcard(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
-  if (request.method !== "GET" && request.method !== "HEAD") return json({ error: "method not allowed" }, 405);
-  const profile = await loadSiteProfile(env, requestHostname(request));
-  const contacts = filterContactsForProfile(await loadAllContacts(env), profile);
-  const body = buildVcard(contacts);
-  return new Response(body, {
-    status: 200,
-    headers: {
-      "content-type": "text/vcard; charset=utf-8",
-      "content-disposition": 'inline; filename="shuofeng-shuanyue.vcf"',
-      "cache-control": "no-store",
-      "access-control-allow-origin": "*",
-    },
-  });
-}
-
-function escapeVcard(value) {
-  return String(value || "").replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/;/g, "\\;").replace(/,/g, "\\,").slice(0, 300);
-}
-
-function buildVcard(contacts) {
-  const lines = [
-    "BEGIN:VCARD",
-    "VERSION:3.0",
-    "FN:朔风霜月",
-    "N:;朔风霜月;;;",
-    "NICKNAME:Shuofeng Shuanyue",
-    "URL:https://about.shuangyue.space/",
-  ];
-  for (const c of contacts || []) {
-    const type = String(c.type || "").toLowerCase();
-    const value = String(c.value || "");
-    const url = String(c.url || "");
-    if (!value && !url) continue;
-    if (type === "email" && value.includes("@")) {
-      lines.push(`EMAIL;TYPE=INTERNET:${escapeVcard(value)}`);
-    } else if (url) {
-      lines.push(`X-SOCIALPROFILE;TYPE=${escapeVcard(type)}:${escapeVcard(url)}`);
-    } else {
-      lines.push(`X-SOCIALPROFILE;TYPE=${escapeVcard(type)}:${escapeVcard(value)}`);
-    }
-  }
-  lines.push("NOTE:朔风霜月的个人主页");
-  lines.push("END:VCARD");
-  return lines.join("\r\n");
 }
 
 export async function handleEvents(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+
+  const contentLength = Number.parseInt(request.headers.get("content-length") || "0", 10) || 0;
+  if (contentLength > MAX_EVENT_BODY_BYTES) return json({ error: "payload too large" }, 413);
+
+  const userAgent = cleanOneLine(request.headers.get("user-agent"), 300);
+  if (!userAgent) return json({ error: "missing user agent" }, 400);
+
+  // Cheap validation runs before the rate-limit counters so malformed or
+  // disallowed payloads cost neither quota nor D1/KV. Flooding with junk
+  // therefore cannot burn legitimate clients' quota; only well-formed
+  // page_views advance the in-memory windows below (still 0 KV reads/writes).
   if (!env.COMMENTS_DB) return json({ ok: true }, 202);
 
-  const payload = await request.json().catch(() => ({}));
-  await saveEvent(env, {
-    type: cleanOneLine(payload.type, 40) || "page_view",
-    path: cleanPath(payload.path),
-    page: cleanOneLine(payload.page, 40),
-    lang: cleanOneLine(payload.lang, 12),
-    title: cleanOneLine(payload.title, 120),
-    referrer: cleanOneLine(payload.referrer, 300),
-    userAgent: cleanOneLine(request.headers.get("user-agent"), 300),
-    ip: clientIp(request),
-    ipLocation: clientLocation(request),
-  });
-  return json({ ok: true }, 202);
+  const payload = await request.json().catch(() => null);
+  if (!payload || typeof payload !== "object") return json({ error: "invalid payload" }, 400);
+
+  const type = cleanOneLine(payload.type, 40) || "page_view";
+  if (!ALLOWED_EVENT_TYPES.has(type)) return json({ error: "invalid event type" }, 400);
+
+  const page = cleanOneLine(payload.page, 40);
+  const lang = cleanOneLine(payload.lang, 12);
+  if (page && !ALLOWED_EVENT_PAGES.has(page)) return json({ error: "invalid page value" }, 400);
+  if (lang && !ALLOWED_EVENT_LANGS.has(lang)) return json({ error: "invalid lang value" }, 400);
+
+  const rate = memoryRateLimitCheck("events", clientIp(request), EVENTS_RATE_LIMITS);
+  if (rate.limited) return rateLimitedResponse(rate.retryAfter);
+
+  try {
+    await saveEvent(env, {
+      type,
+      path: cleanPath(payload.path),
+      page,
+      lang,
+      title: cleanOneLine(payload.title, 120),
+      referrer: cleanOneLine(payload.referrer, 300),
+      userAgent,
+      ip: clientIp(request),
+      ipLocation: clientLocation(request),
+    });
+    return json({ ok: true }, 202);
+  } catch (error) {
+    return serviceErrorResponse(error);
+  }
 }
 
-export async function handleAdmin(request, env) {
-  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: apiHeaders() });
+export async function handleCspReport(request) {
+  try {
+    const body = await request.text();
+    console.error(`[csp-report] ${body.slice(0, 4000)}`);
+  } catch {
+    // Report bodies are best-effort; ignore unreadable payloads.
+  }
+  return new Response(null, { status: 204 });
+}
+
+export async function handleAdmin(request, env, ctx) {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: adminApiHeaders() });
 
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/api/admin";
@@ -457,29 +318,29 @@ export async function handleAdmin(request, env) {
     }
 
     if (path === "/api/admin/logout" && request.method === "POST") {
-      return json({ ok: true }, 200, {
+      return jsonAdmin({ ok: true }, 200, {
         "set-cookie": `${ADMIN_COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`,
       });
     }
 
     const session = await adminSession(request, env);
-    if (!session) return json({ error: "unauthorized" }, 401);
+    if (!session) return jsonAdmin({ error: "unauthorized" }, 401);
 
     if (request.method !== "GET" && request.headers.get("x-admin-action") !== "1") {
-      return json({ error: "missing admin action header" }, 403);
+      return jsonAdmin({ error: "missing admin action header" }, 403);
     }
 
     if ((path === "/api/admin" || path === "/api/admin/me") && request.method === "GET") {
-      return json({ ok: true, expiresAt: session.exp * 1000 });
+      return jsonAdmin({ ok: true, expiresAt: session.exp * 1000 });
     }
 
     if (path === "/api/admin/health" && request.method === "GET") {
-      return json({ health: await adminHealth(env) });
+      return jsonAdmin({ health: await adminHealth(env) });
     }
 
     if ((path === "/api/admin/config" || path === "/api/admin/settings") && request.method === "GET") {
       const config = await loadSiteConfig(env);
-      return json({ config, settings: config });
+      return jsonAdmin({ config, settings: config });
     }
 
     if ((path === "/api/admin/config" || path === "/api/admin/settings") && request.method === "PUT") {
@@ -489,178 +350,165 @@ export async function handleAdmin(request, env) {
       config.updatedAt = new Date().toISOString();
       await saveSiteConfig(env, config);
       await refreshApprovedCommentsCache(env);
-      return json({ config, settings: config });
+      return jsonAdmin({ config, settings: config });
     }
 
     if (path === "/api/admin/comments" && request.method === "GET") {
       const limit = commentLimit(url.searchParams.get("limit") || String(MAX_STORED_COMMENTS));
       const status = cleanOneLine(url.searchParams.get("status"), 20) || "all";
       const comments = await listAdminComments(env, limit, status);
-      return json({ comments });
+      return jsonAdmin({ comments });
     }
 
     if (path === "/api/admin/migrate-comments" && request.method === "POST") {
       const config = await loadSiteConfig(env);
-      if (!config.migrationEnabled) return json({ error: "migration is disabled" }, 403);
-      return json({ result: await migrateLegacyComments(env) });
+      if (!config.migrationEnabled) return jsonAdmin({ error: "migration is disabled" }, 403);
+      return jsonAdmin({ result: await migrateLegacyComments(env) });
+    }
+
+    if (path === "/api/admin/cleanup-events" && request.method === "POST") {
+      if (!env.COMMENTS_DB) return jsonAdmin({ error: "D1 event storage is not configured" }, 503);
+      const payload = await request.json().catch(() => ({}));
+      const days = boundedInt(payload.days, EVENT_RETENTION_DAYS_DEFAULT, EVENT_RETENTION_DAYS_MIN, EVENT_RETENTION_DAYS_MAX);
+      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const result = await env.COMMENTS_DB.prepare("DELETE FROM site_events WHERE created_at < ?").bind(cutoff).run();
+      return jsonAdmin({ ok: true, deleted: result.meta?.changes || 0, cutoff, days });
     }
 
     if (path === "/api/admin/ai-chat" && request.method === "POST") {
+      // Empty messages are rejected before the rate-limit counters so junk or
+      // accidental empty posts never burn KV writes.
       const payload = await request.json().catch(() => ({}));
       const message = cleanMessage(payload.message, 1000);
-      if (!message) return json({ error: "message is required" }, 400);
-      return json({ reply: await adminAiChat(env, message) });
+      if (!message) return jsonAdmin({ error: "message is required" }, 400);
+
+      const rate = await adminAiChatRateLimit(request, env);
+      if (rate.limited) return rateLimitedResponse(rate.retryAfter, true);
+
+      const result = await adminAiChat(env, message);
+      return jsonAdmin({ reply: result.reply, contextMeta: result.contextMeta });
+    }
+
+    // Admin-only Telegram test. There is intentionally no public endpoint that
+    // can send Telegram messages; this one requires a valid admin session plus
+    // the admin action header, and is rate limited per session.
+    if (path === "/api/admin/test-telegram" && request.method === "POST") {
+      const token = cookieValue(request.headers.get("Cookie"), ADMIN_COOKIE_NAME);
+      const sessionId = token ? (await sha256Hex(token)).slice(0, 32) : clientIp(request);
+      const rate = await rateLimitCheck(env, "telegram-test", sessionId, [TELEGRAM_TEST_LIMIT]);
+      if (rate.limited) return rateLimitedResponse(rate.retryAfter, true);
+      const result = await sendTelegramNotification(env, `✅ Telegram 通知测试成功（${formatCst(new Date())}）\n来自 about.shuangyue.space 管理员后台。`);
+      if (result.skipped) return jsonAdmin({ error: "telegram is not configured" }, 503);
+      if (!result.ok) return jsonAdmin({ error: "telegram send failed" }, 502);
+      return jsonAdmin({ ok: true });
     }
 
     if (path.startsWith("/api/admin/comments/")) {
       const id = decodeURIComponent(path.slice("/api/admin/comments/".length));
-      if (!id) return json({ error: "comment id is required" }, 400);
+      if (!id) return jsonAdmin({ error: "comment id is required" }, 400);
 
       if (request.method === "PATCH") {
         const payload = await request.json().catch(() => ({}));
         const status = cleanOneLine(payload.status, 20);
         if (!["approved", "pending", "rejected"].includes(status)) {
-          return json({ error: "invalid comment status" }, 400);
+          return jsonAdmin({ error: "invalid comment status" }, 400);
         }
         const comment = await updateCommentStatus(env, id, status);
         if (status !== "pending") await refreshApprovedCommentsCache(env);
-        return json({ comment });
+        return jsonAdmin({ comment });
       }
 
       if (request.method === "DELETE") {
         await deleteComment(env, id);
         await refreshApprovedCommentsCache(env);
-        return json({ ok: true });
+        return jsonAdmin({ ok: true });
       }
     }
 
-    // ---- Site profiles (domain / page management) ----
-    if (path === "/api/admin/profiles" && request.method === "GET") {
-      return json({ profiles: await listSiteProfiles(env) });
-    }
-    if (path === "/api/admin/profiles" && request.method === "POST") {
-      const payload = await request.json().catch(() => ({}));
-      const profile = await saveSiteProfile(env, payload.profile || payload);
-      return json({ profile }, 201);
-    }
-    if (path.startsWith("/api/admin/profiles/")) {
-      const hostname = normalizeHostname(decodeURIComponent(path.slice("/api/admin/profiles/".length)));
-      if (!hostname) return json({ error: "hostname is required" }, 400);
-      if (request.method === "GET") {
-        return json({ profile: await loadSiteProfile(env, hostname) });
-      }
-      if (request.method === "PUT") {
-        const payload = await request.json().catch(() => ({}));
-        const profile = await saveSiteProfile(env, { ...(payload.profile || payload), hostname });
-        return json({ profile });
-      }
-      if (request.method === "DELETE") {
-        await deleteSiteProfile(env, hostname);
-        return json({ ok: true });
-      }
-    }
-
-    // ---- Contact catalog (admin sees all, public sees filtered subset) ----
-    if (path === "/api/admin/contacts" && request.method === "GET") {
-      return json({ contacts: await loadAllContacts(env, { includeDisabled: true }) });
-    }
-    if (path === "/api/admin/contacts" && (request.method === "PUT" || request.method === "POST")) {
-      const payload = await request.json().catch(() => ({}));
-      const contacts = await saveAllContacts(env, payload.contacts || []);
-      return json({ contacts });
-    }
-
-    // ---- Content items (anime / game / github share one table) ----
-    if (path === "/api/admin/content" && request.method === "GET") {
-      const type = cleanOneLine(url.searchParams.get("type"), 20).toLowerCase() || "all";
-      const includeDisabled = url.searchParams.get("all") === "1";
-      return json({ items: await listContentItems(env, type, !includeDisabled ? true : false, true) });
-    }
-    if (path === "/api/admin/content" && request.method === "POST") {
-      const payload = await request.json().catch(() => ({}));
-      const item = await saveContentItem(env, payload.item || payload);
-      await bustContentCache(env);
-      return json({ item: adminContentItem(item) }, 201);
-    }
-    if (path.startsWith("/api/admin/content/")) {
-      const id = decodeURIComponent(path.slice("/api/admin/content/".length));
-      if (!id) return json({ error: "content id is required" }, 400);
-      if (request.method === "PUT" || request.method === "PATCH") {
-        const payload = await request.json().catch(() => ({}));
-        const item = await saveContentItem(env, { ...(payload.item || payload), id });
-        await bustContentCache(env);
-        return json({ item: adminContentItem(item) });
-      }
-      if (request.method === "DELETE") {
-        // Default is soft delete (hide, enabled=0); ?permanent=1 destroys.
-        const permanent = url.searchParams.get("permanent") === "1";
-        if (permanent) {
-          await deleteContentItem(env, id);
-          await bustContentCache(env);
-          return json({ ok: true, permanent: true });
-        }
-        const item = await setContentEnabled(env, id, false);
-        await bustContentCache(env);
-        return json({ ok: true, soft: true, item: adminContentItem(item) });
-      }
-    }
-
-    // ---- GitHub scan (candidates only, admin picks what to import) ----
-    if (path === "/api/admin/github/scan" && request.method === "POST") {
-      const payload = await request.json().catch(() => ({}));
-      const username = cleanOneLine(payload.username, 64) || (await loadSiteProfile(env, "about.shuangyue.space")).githubUser || "shuangyue1124";
-      return json({ repos: await scanGithubRepos(username) });
-    }
-    if (path === "/api/admin/github/import" && request.method === "POST") {
-      const payload = await request.json().catch(() => ({}));
-      const repos = Array.isArray(payload.repos) ? payload.repos : [];
-      const imported = [];
-      let deduped = 0;
-      for (const repo of repos.slice(0, 50)) {
-        const { item, deduped: wasDup } = await importGithubRepo(env, repo);
-        if (wasDup) deduped += 1;
-        imported.push(adminContentItem(item));
-      }
-      await bustContentCache(env);
-      return json({ imported, deduped });
-    }
-
-    // ---- Workers AI short review (admin-triggered, saved to D1; visitors read D1 only) ----
-    if (path === "/api/admin/ai-review" && request.method === "POST") {
-      const payload = await request.json().catch(() => ({}));
-      const id = cleanOneLine(payload.id, 80);
-      const overwrite = payload.overwrite === true;
-      if (!id) return json({ error: "content id is required" }, 400);
-      return json({ item: adminContentItem(await generateAiReview(env, id, payload.repo || {}, overwrite)) });
-    }
-
-    return json({ error: "method not allowed" }, 405);
+    return jsonAdmin({ error: "method not allowed" }, 405);
   } catch (error) {
-    return json({ error: error?.message || "admin unavailable" }, 503);
+    return serviceErrorResponse(error, true);
   }
+}
+
+async function adminAiChatRateLimit(request, env) {
+  const token = cookieValue(request.headers.get("Cookie"), ADMIN_COOKIE_NAME);
+  const id = token ? (await sha256Hex(token)).slice(0, 32) : clientIp(request);
+  return rateLimitCheck(env, "aichat", id, AI_CHAT_RATE_LIMITS);
 }
 
 async function adminLogin(request, env) {
   const adminPassword = await loadAdminPassword(env);
   if (!adminPassword) {
-    return json({
+    return jsonAdmin({
       error: "Admin password is not configured for this deployment. Set ADMIN_PASSWORD on the Worker or Pages project that serves this custom domain.",
     }, 503);
+  }
+
+  const ip = clientIp(request);
+  const failure = await loginFailureState(env, ip);
+  if (failure.count >= LOGIN_FAILURE_LIMIT.max) {
+    return rateLimitedResponse(failure.retryAfter, true);
   }
 
   const payload = await request.json().catch(() => ({}));
   const password = String(payload.password || "");
   const ok = await verifyPassword(password, adminPassword);
-  if (!ok) return json({ error: "invalid password" }, 401);
+  if (!ok) {
+    await incrementLoginFailure(env, ip);
+    return jsonAdmin({ error: "invalid password" }, 401);
+  }
 
+  await clearLoginFailures(env, ip, failure.count);
   const token = await createAdminToken(adminPassword);
-  return json({ ok: true }, 200, {
+  return jsonAdmin({ ok: true }, 200, {
     "set-cookie": `${ADMIN_COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${ADMIN_SESSION_SECONDS}`,
   });
 }
 
+function loginFailureKey(ipHash, bucket) {
+  return `${RATE_LIMIT_PREFIX}:login-fail:${ipHash}:${bucket}`;
+}
+
+async function hashedIp(ip) {
+  return (await sha256Hex(cleanOneLine(ip, 128) || "unknown")).slice(0, 32);
+}
+
+async function loginFailureState(env, ip) {
+  if (!env.COMMENTS_KV) return { count: 0, retryAfter: 0 };
+  const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
+  const now = Date.now();
+  const bucket = Math.floor(now / windowMs);
+  const count = Number.parseInt(await env.COMMENTS_KV.get(loginFailureKey(await hashedIp(ip), bucket)).catch(() => "0") || "0", 10) || 0;
+  const retryAfter = Math.max(1, LOGIN_FAILURE_LIMIT.windowSeconds - Math.floor((now % windowMs) / 1000));
+  return { count, retryAfter };
+}
+
+async function incrementLoginFailure(env, ip) {
+  if (!env.COMMENTS_KV) return;
+  const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
+  const bucket = Math.floor(Date.now() / windowMs);
+  const key = loginFailureKey(await hashedIp(ip), bucket);
+  const count = Number.parseInt(await env.COMMENTS_KV.get(key).catch(() => "0") || "0", 10) || 0;
+  await env.COMMENTS_KV.put(key, String(count + 1), { expirationTtl: LOGIN_FAILURE_LIMIT.windowSeconds * 2 }).catch(() => {});
+}
+
+async function clearLoginFailures(env, ip, knownCount = -1) {
+  if (!env.COMMENTS_KV) return;
+  // A DELETE on an absent key still counts against the 1,000/day KV delete
+  // budget, so skip it when the pre-login state already shows zero failures.
+  if (knownCount === 0) return;
+  const windowMs = LOGIN_FAILURE_LIMIT.windowSeconds * 1000;
+  const bucket = Math.floor(Date.now() / windowMs);
+  await env.COMMENTS_KV.delete(loginFailureKey(await hashedIp(ip), bucket)).catch(() => {});
+}
+
 async function ensureSchema(env) {
   if (!env.COMMENTS_DB || memory.schemaReady) return;
+  // Production schema is managed by migrations/0001_comments_d1.sql and
+  // migrations/0002_site_events.sql. The DDL bootstrap below only runs for
+  // local preview where RUNTIME_SCHEMA_BOOTSTRAP is set.
+  if (env.RUNTIME_SCHEMA_BOOTSTRAP !== "1") return;
   await env.COMMENTS_DB.prepare(`
     CREATE TABLE IF NOT EXISTS comments (
       id TEXT PRIMARY KEY,
@@ -704,488 +552,7 @@ async function ensureSchema(env) {
   `).run();
   await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_site_events_type_created ON site_events (type, created_at DESC)").run();
   await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_site_events_path_created ON site_events (path, created_at DESC)").run();
-  await env.COMMENTS_DB.prepare(`
-    CREATE TABLE IF NOT EXISTS site_profiles (
-      id TEXT PRIMARY KEY,
-      hostname TEXT NOT NULL UNIQUE,
-      enabled INTEGER NOT NULL DEFAULT 1,
-      profile_json TEXT NOT NULL DEFAULT '{}',
-      updated_at TEXT NOT NULL
-    )
-  `).run();
-  await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_site_profiles_hostname ON site_profiles (hostname)").run();
-  await env.COMMENTS_DB.prepare(`
-    CREATE TABLE IF NOT EXISTS content_items (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      slug TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '{}',
-      subtitle TEXT NOT NULL DEFAULT '{}',
-      summary TEXT NOT NULL DEFAULT '{}',
-      cover TEXT NOT NULL DEFAULT '',
-      url TEXT NOT NULL DEFAULT '',
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      enabled INTEGER NOT NULL DEFAULT 1,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `).run();
-  await env.COMMENTS_DB.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_content_items_type_slug ON content_items (type, slug)").run();
-  await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_content_items_type_enabled ON content_items (type, enabled, sort_order)").run();
-  // Lightweight evolution for GitHub dedup (migration 0004). SQLite has no
-  // ADD COLUMN IF NOT EXISTS, so ignore "duplicate column" on older isolates.
-  for (const ddl of [
-    "ALTER TABLE content_items ADD COLUMN source_type TEXT NOT NULL DEFAULT 'manual'",
-    "ALTER TABLE content_items ADD COLUMN source_id TEXT NOT NULL DEFAULT ''",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_content_items_source ON content_items (source_type, source_id) WHERE source_id != ''",
-    "CREATE INDEX IF NOT EXISTS idx_content_items_source_lookup ON content_items (source_type, source_id)",
-  ]) {
-    try { await env.COMMENTS_DB.prepare(ddl).run(); } catch { /* column/index already exists */ }
-  }
-  await env.COMMENTS_DB.prepare(`
-    CREATE TABLE IF NOT EXISTS contact_items (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL UNIQUE,
-      label TEXT NOT NULL DEFAULT '',
-      value TEXT NOT NULL DEFAULT '',
-      url TEXT NOT NULL DEFAULT '',
-      enabled INTEGER NOT NULL DEFAULT 1,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL
-    )
-  `).run();
   memory.schemaReady = true;
-}
-
-// ---- Site profile storage: D1 -> KV cache -> memory cache (60s TTL) ----
-async function loadSiteProfile(env, hostname) {
-  const host = normalizeHostname(hostname) || "about.shuangyue.space";
-  const now = Date.now();
-  const mem = memory.profiles.get(host);
-  if (mem && mem.expiresAt > now) return mem.profile;
-  if (env.COMMENTS_KV) {
-    try {
-      const cached = await env.COMMENTS_KV.get(PROFILE_KV_PREFIX + host, "json");
-      if (cached && typeof cached === "object") {
-        const profile = sanitizeProfile(cached, host);
-        memory.profiles.set(host, { profile, expiresAt: now + PROFILE_CACHE_TTL_SECONDS * 1000 });
-        return profile;
-      }
-    } catch { /* fall through to D1/defaults */ }
-  }
-  if (env.COMMENTS_DB) {
-    try {
-      await ensureSchema(env);
-      const row = await env.COMMENTS_DB.prepare("SELECT profile_json FROM site_profiles WHERE hostname = ?").bind(host).first();
-      if (row?.profile_json) {
-        const profile = sanitizeProfile({ ...JSON.parse(row.profile_json), hostname: host }, host);
-        memory.profiles.set(host, { profile, expiresAt: now + PROFILE_CACHE_TTL_SECONDS * 1000 });
-        if (env.COMMENTS_KV) {
-          await env.COMMENTS_KV.put(PROFILE_KV_PREFIX + host, JSON.stringify(profile), { expirationTtl: PROFILE_CACHE_TTL_SECONDS }).catch(() => {});
-        }
-        return profile;
-      }
-    } catch { /* fall through to defaults */ }
-  }
-  const profile = defaultProfileFor(host);
-  memory.profiles.set(host, { profile, expiresAt: now + PROFILE_CACHE_TTL_SECONDS * 1000 });
-  return profile;
-}
-
-async function listSiteProfiles(env) {
-  if (!env.COMMENTS_DB) return [defaultProfileFor("about.shuangyue.space"), defaultProfileFor("wx.shuangyue.space"), defaultProfileFor("qq.shuangyue.space"), defaultProfileFor("github.shuangyue.space"), defaultProfileFor("travel.shuangyue.space")];
-  await ensureSchema(env);
-  const rows = await env.COMMENTS_DB.prepare("SELECT hostname, profile_json FROM site_profiles ORDER BY hostname ASC").all();
-  const stored = (rows.results || []).map((r) => {
-    try { return sanitizeProfile({ ...JSON.parse(r.profile_json), hostname: r.hostname }, r.hostname); } catch { return null; }
-  }).filter(Boolean);
-  // Always surface built-in hostnames so the admin list is useful before first save.
-  const seen = new Set(stored.map((p) => p.hostname));
-  for (const host of ["about.shuangyue.space", "wx.shuangyue.space", "qq.shuangyue.space", "github.shuangyue.space", "travel.shuangyue.space"]) {
-    if (!seen.has(host)) stored.push(defaultProfileFor(host));
-  }
-  return stored.sort((a, b) => String(a.hostname).localeCompare(String(b.hostname)));
-}
-
-async function saveSiteProfile(env, input) {
-  const profile = sanitizeProfile(input, input?.hostname);
-  if (!profile.hostname) throw new Error("hostname is required");
-  const now = new Date().toISOString();
-  profile.updatedAt = now;
-  if (env.COMMENTS_DB) {
-    await ensureSchema(env);
-    await env.COMMENTS_DB.prepare(`
-      INSERT INTO site_profiles (id, hostname, enabled, profile_json, updated_at) VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(hostname) DO UPDATE SET enabled = excluded.enabled, profile_json = excluded.profile_json, updated_at = excluded.updated_at
-    `).bind(profile.hostname, profile.hostname, profile.enabled ? 1 : 0, JSON.stringify(profile), now).run();
-  }
-  memory.profiles.set(profile.hostname, { profile, expiresAt: Date.now() + PROFILE_CACHE_TTL_SECONDS * 1000 });
-  bustContentMemoryForHost(profile.hostname);
-  if (env.COMMENTS_KV) {
-    await env.COMMENTS_KV.put(PROFILE_KV_PREFIX + profile.hostname, JSON.stringify(profile), { expirationTtl: PROFILE_CACHE_TTL_SECONDS }).catch(() => {});
-  }
-  return profile;
-}
-
-async function deleteSiteProfile(env, hostname) {
-  const host = normalizeHostname(hostname);
-  if (env.COMMENTS_DB) {
-    await ensureSchema(env);
-    await env.COMMENTS_DB.prepare("DELETE FROM site_profiles WHERE hostname = ?").bind(host).run();
-  }
-  memory.profiles.delete(host);
-  bustContentMemoryForHost(host);
-  if (env.COMMENTS_KV) await env.COMMENTS_KV.delete(PROFILE_KV_PREFIX + host).catch(() => {});
-}
-
-async function loadAllContacts(env, options = {}) {
-  let stored = null;
-  if (env.COMMENTS_DB) {
-    try {
-      await ensureSchema(env);
-      const rows = await env.COMMENTS_DB.prepare("SELECT type, label, value, url, enabled, sort_order FROM contact_items ORDER BY sort_order ASC").all();
-      if (rows.results && rows.results.length) {
-        stored = rows.results.map((r) => ({
-          type: String(r.type), label: String(r.label || r.type), value: String(r.value || ""),
-          url: String(r.url || ""), enabled: Number(r.enabled) !== 0, sortOrder: Number(r.sort_order) || 0,
-        }));
-      }
-    } catch { stored = null; }
-  }
-  const all = stored || DEFAULT_CONTACTS.map((c) => ({ ...c }));
-  if (options.includeDisabled) return all;
-  return all.filter((c) => c.enabled !== false);
-}
-
-async function saveAllContacts(env, contacts) {
-  const cleaned = (Array.isArray(contacts) ? contacts : []).map((c, i) => ({
-    type: String(c.type || "").toLowerCase().slice(0, 32),
-    label: cleanOneLine(c.label, 64) || String(c.type || ""),
-    value: cleanOneLine(c.value, 300),
-    url: cleanOneLine(c.url, 500),
-    enabled: c.enabled !== false,
-    sortOrder: Number.isFinite(Number(c.sortOrder)) ? Number(c.sortOrder) : i * 10,
-  })).filter((c) => c.type && CONTACT_TYPES.includes(c.type));
-  const now = new Date().toISOString();
-  if (env.COMMENTS_DB) {
-    await ensureSchema(env);
-    for (const c of cleaned) {
-      await env.COMMENTS_DB.prepare(`
-        INSERT INTO contact_items (id, type, label, value, url, enabled, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(type) DO UPDATE SET label = excluded.label, value = excluded.value, url = excluded.url, enabled = excluded.enabled, sort_order = excluded.sort_order, updated_at = excluded.updated_at
-      `).bind(c.type, c.type, c.label, c.value, c.url, c.enabled ? 1 : 0, c.sortOrder, now).run();
-    }
-  } else if (!cleaned.length) {
-    throw new Error("contact storage is not configured");
-  }
-  memory.contacts = null;
-  return cleaned;
-}
-
-function filterContactsForProfile(allContacts, profile) {
-  const allow = new Set((profile?.contacts || []).map((c) => String(c).toLowerCase()));
-  return (allContacts || [])
-    .filter((c) => c && c.enabled !== false && allow.has(String(c.type || "").toLowerCase()))
-    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-    .map((c) => ({ type: c.type, label: c.label, value: c.value, url: c.url || "" }));
-}
-
-// ---- Content items (shared anime/game/github table) ----
-function parseLocaleJson(value, fallback = {}) {
-  try {
-    const obj = typeof value === "string" ? JSON.parse(value) : value;
-    if (obj && typeof obj === "object") return { zh: String(obj.zh || fallback.zh || ""), ja: String(obj.ja || fallback.ja || obj.zh || ""), en: String(obj.en || fallback.en || obj.zh || "") };
-  } catch { /* fall through */ }
-  if (typeof value === "string" && value) return { zh: value, ja: fallback.ja || value, en: fallback.en || value };
-  return { zh: String(fallback.zh || ""), ja: String(fallback.ja || fallback.zh || ""), en: String(fallback.en || fallback.zh || "") };
-}
-
-function contentFromRow(row) {
-  return {
-    id: row.id, type: row.type, slug: row.slug,
-    title: parseLocaleJson(row.title), subtitle: parseLocaleJson(row.subtitle), summary: parseLocaleJson(row.summary),
-    cover: row.cover || "", url: row.url || "",
-    metadata: (() => { try { return JSON.parse(row.metadata_json || "{}"); } catch { return {}; } })(),
-    enabled: Number(row.enabled) !== 0, sortOrder: Number(row.sort_order) || 0,
-    sourceType: String(row.source_type || "manual"), sourceId: String(row.source_id || ""),
-    createdAt: row.created_at || "", updatedAt: row.updated_at || "",
-  };
-}
-
-function publicContentItem(item) {
-  return {
-    id: item.id, type: item.type, slug: item.slug, title: item.title, subtitle: item.subtitle,
-    summary: item.summary, cover: item.cover, url: item.url, metadata: item.metadata || {},
-    sortOrder: item.sortOrder, updatedAt: item.updatedAt,
-  };
-}
-
-function adminContentItem(item) {
-  return { ...publicContentItem(item), enabled: item.enabled, sourceType: item.sourceType, sourceId: item.sourceId, createdAt: item.createdAt };
-}
-
-async function listContentItems(env, type = "all", enabledOnly = true, includeDisabled = false) {
-  if (!env.COMMENTS_DB) return [];
-  await ensureSchema(env);
-  const t = String(type || "all").toLowerCase();
-  let query;
-  if (t && t !== "all") {
-    query = enabledOnly && !includeDisabled
-      ? env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE type = ? AND enabled = 1 ORDER BY sort_order ASC, updated_at DESC LIMIT 200").bind(t)
-      : env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE type = ? ORDER BY sort_order ASC, updated_at DESC LIMIT 200").bind(t);
-  } else {
-    query = enabledOnly && !includeDisabled
-      ? env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE enabled = 1 ORDER BY type ASC, sort_order ASC, updated_at DESC LIMIT 200")
-      : env.COMMENTS_DB.prepare("SELECT * FROM content_items ORDER BY type ASC, sort_order ASC, updated_at DESC LIMIT 200");
-  }
-  const rows = await query.all();
-  return (rows.results || []).map(contentFromRow);
-}
-
-function slugify(value, fallback = "") {
-  const s = String(value || fallback).toLowerCase().trim().replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80);
-  return s || `item-${Date.now().toString(36)}`;
-}
-
-async function saveContentItem(env, input) {
-  if (!env.COMMENTS_DB) throw new Error("D1 content storage is not configured");
-  await ensureSchema(env);
-  const now = new Date().toISOString();
-  const type = cleanOneLine(input.type, 20).toLowerCase() || "project";
-  if (![...CONTENT_TYPES, "project", "anime", "game", "github"].includes(type)) throw new Error("invalid content type");
-  const id = cleanOneLine(input.id, 80) || crypto.randomUUID();
-  const slug = slugify(input.slug || input.title?.zh || input.title?.en || id);
-  const existing = await env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE id = ?").bind(id).first().catch(() => null);
-  const row = {
-    id, type,
-    slug: cleanOneLine(input.slug, 120).toLowerCase() || slug,
-    title: JSON.stringify(input.title && typeof input.title === "object" ? input.title : { zh: cleanOneLine(input.title, 120) }),
-    subtitle: JSON.stringify(input.subtitle && typeof input.subtitle === "object" ? input.subtitle : { zh: cleanOneLine(input.subtitle, 160) }),
-    summary: JSON.stringify(input.summary && typeof input.summary === "object" ? input.summary : { zh: cleanMessage(input.summary, 2000) }),
-    cover: cleanOneLine(input.cover, 500),
-    url: cleanOneLine(input.url, 500),
-    metadata_json: typeof input.metadata === "object" ? JSON.stringify(input.metadata) : cleanOneLine(input.metadata_json || input.metadata, 4000) || (existing?.metadata_json || "{}"),
-    enabled: input.enabled !== false ? 1 : 0,
-    sort_order: Number.isFinite(Number(input.sortOrder)) ? Number(input.sortOrder) : Number(existing?.sort_order) || 0,
-    source_type: cleanOneLine(input.sourceType || input.source_type, 20).toLowerCase() || String(existing?.source_type || "manual"),
-    source_id: cleanOneLine(input.sourceId || input.source_id, 160) || String(existing?.source_id || ""),
-  };
-  await env.COMMENTS_DB.prepare(`
-    INSERT INTO content_items (id, type, slug, title, subtitle, summary, cover, url, metadata_json, enabled, sort_order, source_type, source_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET type = excluded.type, slug = excluded.slug, title = excluded.title, subtitle = excluded.subtitle, summary = excluded.summary, cover = excluded.cover, url = excluded.url, metadata_json = excluded.metadata_json, enabled = excluded.enabled, sort_order = excluded.sort_order, source_type = excluded.source_type, source_id = excluded.source_id, updated_at = excluded.updated_at
-  `).bind(row.id, row.type, row.slug, row.title, row.subtitle, row.summary, row.cover, row.url, row.metadata_json, row.enabled, row.sort_order, row.source_type, row.source_id, existing?.created_at || now, now).run();
-  const saved = await env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE id = ?").bind(id).first();
-  return contentFromRow(saved);
-}
-
-async function findContentBySource(env, sourceType, sourceId) {
-  const st = cleanOneLine(sourceType, 20).toLowerCase();
-  const sid = cleanOneLine(sourceId, 160);
-  if (!st || !sid) return null;
-  await ensureSchema(env);
-  const row = await env.COMMENTS_DB.prepare(
-    "SELECT * FROM content_items WHERE source_type = ? AND source_id = ? LIMIT 1"
-  ).bind(st, sid).first().catch(() => null);
-  return row ? contentFromRow(row) : null;
-}
-
-// Soft delete: default hides (enabled=0) so mistakes are recoverable.
-// Permanent delete only when the admin explicitly asks for it.
-async function setContentEnabled(env, id, enabled) {
-  if (!env.COMMENTS_DB) throw new Error("D1 content storage is not configured");
-  await ensureSchema(env);
-  await env.COMMENTS_DB.prepare("UPDATE content_items SET enabled = ?, updated_at = ? WHERE id = ?")
-    .bind(enabled ? 1 : 0, new Date().toISOString(), String(id)).run();
-  const saved = await env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE id = ?").bind(String(id)).first();
-  if (!saved) throw new Error("content not found");
-  return contentFromRow(saved);
-}
-
-async function deleteContentItem(env, id) {
-  if (!env.COMMENTS_DB) throw new Error("D1 content storage is not configured");
-  await ensureSchema(env);
-  await env.COMMENTS_DB.prepare("DELETE FROM content_items WHERE id = ?").bind(String(id)).run();
-}
-
-async function bustContentCache(env) {
-  // Drop all hostname-scoped content memory. No KV is used for content,
-  // so there are no per-visit KV writes and nothing to invalidate there.
-  memory.content.clear();
-  if (env && env.COMMENTS_KV) {
-    // Reserved: content KV (hostname-prefixed) if ever introduced.
-  }
-}
-
-// Bust only one hostname's content entries (used after that profile changes,
-// since module open/close changes what the hostname may see).
-function bustContentMemoryForHost(hostname) {
-  const host = normalizeHostname(hostname);
-  if (!host) return;
-  for (const key of [...memory.content.keys()]) {
-    if (key === `content:${host}` || key.startsWith(`content:${host}:`) || key.startsWith(`content-detail:${host}:`)) {
-      memory.content.delete(key);
-    }
-  }
-}
-
-function readContentMemory(key) {
-  const entry = memory.content.get(key);
-  if (!entry || entry.expiresAt <= Date.now()) {
-    if (entry) memory.content.delete(key);
-    return null;
-  }
-  return entry.body;
-}
-
-function writeContentMemory(key, body) {
-  memory.content.set(key, { body, expiresAt: Date.now() + PROFILE_CACHE_TTL_SECONDS * 1000 });
-  if (memory.content.size > 500) {
-    const oldest = memory.content.keys().next().value;
-    memory.content.delete(oldest);
-  }
-}
-
-async function scanGithubRepos(username) {
-  const user = cleanOneLine(username, 64);
-  if (!user) throw new Error("github username is required");
-  const res = await fetch(`https://api.github.com/users/${encodeURIComponent(user)}/repos?per_page=100&sort=updated`, {
-    headers: { accept: "application/vnd.github+json", "user-agent": "shuangyue-about-admin" },
-  });
-  if (!res.ok) throw new Error(`GitHub API returned ${res.status}`);
-  const repos = await res.json().catch(() => []);
-  if (!Array.isArray(repos)) throw new Error("GitHub API returned an unexpected payload");
-  return repos.map((r) => ({
-    name: String(r.name || ""), description: String(r.description || ""),
-    html_url: String(r.html_url || ""), homepage: String(r.homepage || ""),
-    language: String(r.language || ""), topics: Array.isArray(r.topics) ? r.topics.slice(0, 10) : [],
-    stargazers_count: Number(r.stargazers_count) || 0, forks_count: Number(r.forks_count) || 0,
-    updated_at: String(r.updated_at || ""), archived: Boolean(r.archived),
-  })).filter((r) => r.name);
-}
-
-// Derives a stable "owner/repo" id from a scan candidate (pure, unit-tested).
-export function githubSourceId(repo = {}) {
-  const explicit = cleanOneLine(repo.sourceId || repo.source_id, 160);
-  if (explicit && explicit.includes("/")) return explicit.toLowerCase();
-  const m = String(repo.html_url || repo.url || "").match(/github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?(?:[#?].*)?$/i);
-  if (m) return m[1].toLowerCase();
-  const owner = cleanOneLine(repo.owner, 64).toLowerCase();
-  const name = cleanOneLine(repo.name, 120).toLowerCase();
-  if (owner && name) return `${owner}/${name}`;
-  return "";
-}
-
-async function importGithubRepo(env, repo) {
-  const name = cleanOneLine(repo.name, 120);
-  if (!name) throw new Error("repo name is required");
-  const sourceId = githubSourceId(repo);
-  // Re-import never duplicates: refresh upstream facts in place, but keep the
-  // admin's own title/cover/sort order and any manual/AI review.
-  if (sourceId) {
-    const dup = await findContentBySource(env, "github", sourceId);
-    if (dup) {
-      const meta = { ...(dup.metadata || {}) };
-      meta.language = cleanOneLine(repo.language, 64) || meta.language || "";
-      meta.topics = Array.isArray(repo.topics) ? repo.topics.slice(0, 10) : meta.topics || [];
-      meta.stars = Number(repo.stars ?? repo.stargazers_count) ?? meta.stars ?? 0;
-      meta.forks = Number(repo.forks ?? repo.forks_count) ?? meta.forks ?? 0;
-      meta.homepage = cleanOneLine(repo.homepage, 500) || meta.homepage || "";
-      meta.updatedAt = cleanOneLine(repo.updated_at || repo.updatedAt, 40) || meta.updatedAt || "";
-      meta.archived = repo.archived !== undefined ? Boolean(repo.archived) : meta.archived;
-      const hasReview = Boolean(meta.manualReview) || Boolean(meta.review?.zh || meta.review?.ja || meta.review?.en);
-      const desc = { zh: cleanOneLine(repo.description, 500), ja: cleanOneLine(repo.description, 500), en: cleanOneLine(repo.description, 500) };
-      const updated = await saveContentItem(env, {
-        id: dup.id,
-        type: dup.type,
-        slug: dup.slug,
-        title: dup.title,
-        subtitle: dup.subtitle,
-        summary: hasReview ? dup.summary : desc,
-        cover: dup.cover,
-        url: cleanOneLine(repo.html_url, 500) || dup.url,
-        metadata: meta,
-        enabled: dup.enabled,
-        sortOrder: dup.sortOrder,
-        sourceType: "github",
-        sourceId,
-      });
-      return { item: updated, deduped: true };
-    }
-  }
-  const slug = slugify(name);
-  const item = await saveContentItem(env, {
-    type: "github",
-    slug,
-    title: { zh: name, ja: name, en: name },
-    subtitle: { zh: cleanOneLine(repo.language, 64), ja: cleanOneLine(repo.language, 64), en: cleanOneLine(repo.language, 64) },
-    summary: { zh: cleanOneLine(repo.description, 500), ja: cleanOneLine(repo.description, 500), en: cleanOneLine(repo.description, 500) },
-    cover: "",
-    url: cleanOneLine(repo.html_url, 500),
-    metadata: {
-      language: cleanOneLine(repo.language, 64),
-      topics: Array.isArray(repo.topics) ? repo.topics.slice(0, 10) : [],
-      stars: Number(repo.stars ?? repo.stargazers_count) || 0,
-      forks: Number(repo.forks ?? repo.forks_count) || 0,
-      homepage: cleanOneLine(repo.homepage, 500),
-      updatedAt: cleanOneLine(repo.updated_at || repo.updatedAt, 40),
-      archived: Boolean(repo.archived),
-      review: {},
-      manualReview: false,
-    },
-    enabled: repo.enabled !== false,
-    sortOrder: Number(repo.sortOrder) || 0,
-    sourceType: "github",
-    sourceId,
-  });
-  return { item, deduped: false };
-}
-
-async function generateAiReview(env, id, repo = {}, overwrite = false) {
-  if (!env.COMMENTS_DB) throw new Error("D1 content storage is not configured");
-  if (!env.AI?.run) throw new Error("Workers AI binding is not configured");
-  await ensureSchema(env);
-  const row = await env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE id = ?").bind(String(id)).first();
-  if (!row) throw new Error("content not found");
-  const item = contentFromRow(row);
-  const existingReview = item.metadata?.review || {};
-  if (item.metadata?.manualReview && !overwrite && (existingReview.zh || existingReview.ja || existingReview.en)) {
-    return item;
-  }
-  const config = await loadSiteConfig(env);
-  const model = cleanOneLine(config.aiModel, 120) || DEFAULT_MODERATION_MODEL;
-  const repoName = cleanOneLine(repo.name, 120) || item.title?.zh || item.slug;
-  const repoDesc = cleanOneLine(repo.description, 500) || item.summary?.zh || "";
-  const repoLang = cleanOneLine(repo.language, 64) || item.metadata?.language || "";
-  const prompt = [
-    "You write short showcase blurbs for a personal GitHub portfolio.",
-    'Return compact JSON only: {"zh":"...","ja":"...","en":"...","tags":[...]}.',
-    "Each blurb is 1-2 sentences, friendly, no hype, no code block.",
-    `Repo: ${repoName}`,
-    `Language: ${repoLang}`,
-    `Description: ${repoDesc}`,
-  ].join("\n");
-  let parsed = null;
-  try {
-    const result = await runTextModel(env, model, prompt);
-    const text = extractModelText(result);
-    parsed = parseFirstJsonObject(text);
-  } catch (error) {
-    throw new Error(error?.message || "AI generation failed");
-  }
-  if (!parsed || (!parsed.zh && !parsed.en && !parsed.ja)) throw new Error("AI returned an unreadable review");
-  const review = {
-    zh: cleanOneLine(parsed.zh, 300) || item.summary?.zh || "",
-    ja: cleanOneLine(parsed.ja, 300) || cleanOneLine(parsed.zh, 300),
-    en: cleanOneLine(parsed.en, 300) || cleanOneLine(parsed.zh, 300),
-  };
-  const tags = Array.isArray(parsed.tags) ? parsed.tags.map((t) => cleanOneLine(t, 32)).filter(Boolean).slice(0, 8) : [];
-  const metadata = { ...(item.metadata || {}), review, tags: tags.length ? tags : item.metadata?.tags || [], manualReview: false, aiModel: model, aiReviewedAt: new Date().toISOString() };
-  await env.COMMENTS_DB.prepare("UPDATE content_items SET summary = ?, metadata_json = ?, updated_at = ? WHERE id = ?")
-    .bind(JSON.stringify(review), JSON.stringify(metadata), new Date().toISOString(), String(id)).run();
-  const updated = await env.COMMENTS_DB.prepare("SELECT * FROM content_items WHERE id = ?").bind(String(id)).first();
-  return contentFromRow(updated);
 }
 
 async function listApprovedComments(env, limit) {
@@ -1356,11 +723,92 @@ async function saveEvent(env, event) {
   ).run();
 }
 
+// --- Telegram comment notifications (owner-only, outgoing only) ---
+// Secrets live in Pages/Worker bindings (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
+// and are never logged, returned, or sent to the browser.
+
+export function buildTelegramMessage(comment, meta = {}) {
+  const lines = [
+    "💬 New comment on about.shuangyue.space",
+    "",
+    `Name: ${cleanOneLine(comment?.name, 32) || "Anonymous"}`,
+    `Page: ${cleanPath(meta.page || "/")}`,
+    `Language: ${cleanOneLine(meta.lang, 12) || "zh"}`,
+    `Status: ${cleanOneLine(comment?.status, 20) || "pending"}`,
+    "",
+    "Message:",
+    cleanMessage(comment?.message, 400),
+    "",
+    "Time:",
+    formatCst(comment?.createdAt ? new Date(comment.createdAt) : new Date()),
+    "",
+    "Comment ID:",
+    cleanOneLine(comment?.id, 80),
+  ];
+  return lines.join("\n");
+}
+
+// Never include raw IPs, cookies, auth tokens, Turnstile tokens, or request
+// headers in the notification. The comment row already has its own UUID, so
+// each successful insert notifies exactly once with no extra dedup storage.
+export async function sendTelegramNotification(env, text, fetchImpl = fetch) {
+  const token = await loadSecret(env, "TELEGRAM_BOT_TOKEN");
+  const chatId = await loadSecret(env, "TELEGRAM_CHAT_ID");
+  if (!token || !chatId) return { ok: false, skipped: true, reason: "telegram is not configured" };
+
+  const body = cleanMessage(text, 3000);
+  if (!body) return { ok: false, skipped: true, reason: "empty message" };
+
+  let response;
+  try {
+    response = await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text: body, disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(TELEGRAM_API_TIMEOUT_MS),
+    });
+  } catch (error) {
+    return { ok: false, error: error?.message || "telegram request failed" };
+  }
+  if (!response.ok) {
+    return { ok: false, error: `telegram responded HTTP ${response.status}` };
+  }
+  return { ok: true };
+}
+
+export function formatCst(date = new Date()) {
+  const shifted = new Date(date.getTime() + 8 * 3600 * 1000);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())} +08:00`;
+}
+
 async function adminAiChat(env, message) {
-  if (!env.AI?.run) throw new Error("Workers AI binding is not configured");
+  if (!env.AI?.run) {
+    return {
+      reply: "Workers AI 绑定（AI）未配置，无法生成回复。请在 Cloudflare Pages → Settings → Functions → Workers AI Bindings 中添加。",
+      contextMeta: null,
+    };
+  }
+  if (!env.COMMENTS_DB) {
+    return {
+      reply: "D1 数据库绑定（COMMENTS_DB）未配置，无法查询统计数据。请在 Cloudflare Pages → Settings → Functions → D1 Database Bindings 中配置。",
+      contextMeta: null,
+    };
+  }
+
   const config = await loadSiteConfig(env);
   const model = cleanOneLine(config.aiChatModel, 120) || DEFAULT_CHAT_MODEL;
-  const context = await adminAiContext(env, config);
+
+  let context;
+  try {
+    context = await adminAiContext(env, config);
+  } catch (error) {
+    return {
+      reply: `查询 D1 数据失败：${error?.message || "数据库暂时不可用，请稍后重试。"}`,
+      contextMeta: null,
+    };
+  }
+
   const prompt = [
     "You are the private admin assistant for this personal site.",
     "Answer in Chinese unless the admin asks for another language.",
@@ -1373,8 +821,32 @@ async function adminAiChat(env, message) {
     "",
     `Admin question: ${message}`,
   ].join("\n");
-  const result = await runTextModel(env, model, prompt);
-  return extractModelText(result) || "没有得到可读的 AI 回复。";
+
+  const meta = {
+    generatedAt: context.generatedAt,
+    windows: ["过去 24 小时", "过去 7 天", "过去 30 天"],
+  };
+  const result = await raceWithTimeout(runTextModel(env, model, prompt), AI_CHAT_TIMEOUT_MS);
+  if (!result) {
+    return {
+      reply: `AI 推理超时（超过 ${Math.round(AI_CHAT_TIMEOUT_MS / 1000)} 秒），本次没有生成回复。请稍后重试；若持续超时，可在「系统配置」里把 AI 对话模型换成响应更快的模型。`,
+      contextMeta: meta,
+    };
+  }
+  return {
+    reply: extractModelText(result) || "没有得到可读的 AI 回复。",
+    contextMeta: meta,
+  };
+}
+
+function raceWithTimeout(promise, timeoutMs) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 async function adminAiContext(env, config) {
@@ -1532,10 +1004,9 @@ async function saveSiteConfig(env, config) {
     `).bind(SITE_CONFIG_KEY, JSON.stringify(next), next.updatedAt || new Date().toISOString()).run();
   }
 
-  if (env.COMMENTS_KV) {
-    await env.COMMENTS_KV.put(SITE_SETTINGS_KEY, JSON.stringify(next));
-  }
-
+  // KV is no longer a site_config store: with D1 present it only holds the
+  // approved comments cache (comments:approved:v1) and short-lived rate-limit
+  // counters. Legacy KV-only deployments keep reading SITE_SETTINGS_KEY above.
   memory.config = next;
   memory.configExpiresAt = Date.now() + Math.max(1, Math.min(next.memoryCacheTtlSeconds, 300)) * 1000;
 }
@@ -1737,12 +1208,33 @@ function parseFirstJsonObject(value) {
 }
 
 async function adminHealth(env) {
+  const turnstileSecret = Boolean(await loadSecret(env, "TURNSTILE_SECRET_KEY"));
+  const adminPassword = Boolean(await loadAdminPassword(env));
+  const telegramToken = Boolean(await loadSecret(env, "TELEGRAM_BOT_TOKEN"));
+  const telegramChatId = Boolean(await loadSecret(env, "TELEGRAM_CHAT_ID"));
+  const moderationModel = cleanOneLine(env.COMMENT_MODERATION_MODEL, 120);
+  const chatModel = cleanOneLine(env.AI_CHAT_MODEL || env.ADMIN_AI_CHAT_MODEL, 120);
+  const envChecks = [
+    { name: "COMMENTS_DB", ok: Boolean(env.COMMENTS_DB) },
+    { name: "COMMENTS_KV", ok: Boolean(env.COMMENTS_KV) },
+    { name: "AI", ok: Boolean(env.AI?.run) },
+    { name: "ADMIN_PASSWORD", ok: adminPassword },
+    { name: "TURNSTILE_SECRET_KEY", ok: turnstileSecret },
+    { name: "TURNSTILE_SITE_KEY", ok: Boolean(cleanOneLine(env.TURNSTILE_SITE_KEY, 256)), optional: true },
+    { name: "TELEGRAM_BOT_TOKEN", ok: telegramToken, optional: true },
+    { name: "TELEGRAM_CHAT_ID", ok: telegramChatId, optional: true },
+    { name: "COMMENT_MODERATION_MODEL", ok: Boolean(moderationModel), optional: true },
+    { name: "AI_CHAT_MODEL", ok: Boolean(chatModel), optional: true },
+    { name: "RUNTIME_SCHEMA_BOOTSTRAP", ok: env.RUNTIME_SCHEMA_BOOTSTRAP === "1", optional: true },
+  ];
   return {
     d1: Boolean(env.COMMENTS_DB),
     kv: Boolean(env.COMMENTS_KV),
     ai: Boolean(env.AI?.run),
-    turnstileSecret: Boolean(await loadSecret(env, "TURNSTILE_SECRET_KEY")),
-    adminPassword: Boolean(await loadAdminPassword(env)),
+    turnstileSecret,
+    adminPassword,
+    telegram: telegramToken && telegramChatId,
+    checks: envChecks,
   };
 }
 
@@ -1950,6 +1442,23 @@ function boundedInt(value, fallback, min, max) {
   return Math.min(Math.max(number, min), max);
 }
 
+function refererPage(request) {
+  try {
+    return cleanPath(new URL(request.headers.get("referer") || "").pathname);
+  } catch {
+    return "/";
+  }
+}
+
+function refererLang(request) {
+  try {
+    const first = new URL(request.headers.get("referer") || "").pathname.split("/").filter(Boolean)[0] || "";
+    return first === "en" || first === "ja" ? first : "zh";
+  } catch {
+    return "zh";
+  }
+}
+
 function clientIp(request) {
   return (
     request.headers.get("CF-Connecting-IP") ||
@@ -2040,16 +1549,114 @@ function countryName(code) {
   return countries[String(code || "").toUpperCase()] || code || "";
 }
 
-function json(data, status = 200, extraHeaders = {}) {
-  return new Response(JSON.stringify(data), { status, headers: { ...apiHeaders(), ...extraHeaders } });
+function json(data, status = 200, extraHeaders = {}, baseHeaders = publicApiHeaders()) {
+  return new Response(JSON.stringify(data), { status, headers: { ...baseHeaders, ...extraHeaders } });
 }
 
-function apiHeaders() {
+function jsonAdmin(data, status = 200, extraHeaders = {}) {
+  return json(data, status, extraHeaders, adminApiHeaders());
+}
+
+function serviceErrorResponse(error, admin = false) {
+  const requestId = crypto.randomUUID();
+  console.error(`[api error ${requestId}]`, error);
+  return json({ error: "service unavailable", requestId }, 503, {}, admin ? adminApiHeaders() : publicApiHeaders());
+}
+
+function rateLimitedResponse(retryAfter, admin = false) {
+  return json({ error: "too many requests", retryAfter }, 429, { "retry-after": String(retryAfter) }, admin ? adminApiHeaders() : publicApiHeaders());
+}
+
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "strict-origin-when-cross-origin",
+  "permissions-policy": "camera=(), microphone=(), geolocation=()",
+};
+
+function publicApiHeaders() {
   return {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "access-control-allow-headers": "content-type, authorization, x-admin-action",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type, accept",
+    ...SECURITY_HEADERS,
   };
+}
+
+function adminApiHeaders() {
+  return {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    ...SECURITY_HEADERS,
+  };
+}
+
+// Fixed-window counters kept only in isolate memory: 0 KV reads, 0 KV writes,
+// 0 KV deletes. Same bucket math as rateLimitCheck so limits behave identically
+// within one isolate. Entries expire with the window (2x TTL, like KV) and the
+// map is bounded to avoid unbounded growth; eviction only resets counters
+// (fail-open briefly), never blocks legitimate traffic.
+function memoryRateLimitCheck(scope, id, limits) {
+  const now = Date.now();
+  if (memory.rateLimits.size > 2000) {
+    for (const [key, entry] of memory.rateLimits) {
+      if (entry.expiresAt <= now) memory.rateLimits.delete(key);
+    }
+    if (memory.rateLimits.size > 2000) memory.rateLimits.clear();
+  }
+  // Memory-only and ephemeral (per isolate, never persisted or logged), so the
+  // raw truncated identifier is sufficient here; KV keys remain hashed.
+  const safeId = cleanOneLine(id, 128) || "unknown";
+
+  // Read all windows first and only advance counters when the request is
+  // allowed: blocked requests neither burn quota nor inflate later windows.
+  const pending = [];
+  for (const { limit, windowSeconds } of limits) {
+    const windowMs = windowSeconds * 1000;
+    const bucket = Math.floor(now / windowMs);
+    const key = `mem:${scope}:${safeId}:${windowSeconds}s:${bucket}`;
+    let entry = memory.rateLimits.get(key);
+    if (!entry || entry.expiresAt <= now) {
+      entry = { count: 0, expiresAt: now + windowMs * 2 };
+      memory.rateLimits.set(key, entry);
+    }
+    if (entry.count >= limit) {
+      const retryAfter = Math.max(1, windowSeconds - Math.floor((now % windowMs) / 1000));
+      return { limited: true, retryAfter };
+    }
+    pending.push(entry);
+  }
+  for (const entry of pending) entry.count += 1;
+
+  return { limited: false, retryAfter: 0 };
+}
+
+async function rateLimitCheck(env, scope, id, limits) {
+  if (!env.COMMENTS_KV) return { limited: false, retryAfter: 0 };
+  // Hash the client identifier so KV keys never store raw IPs in plaintext.
+  // Keys keep a short TTL (2x window) and only low-volume API writes touch KV.
+  const safeId = (await sha256Hex(cleanOneLine(id, 128) || "unknown")).slice(0, 32);
+  const now = Date.now();
+
+  // Read all windows before writing: a blocked request costs only GETs and
+  // never inflates the counters a later legitimate request would be judged by.
+  const pending = [];
+  for (const { limit, windowSeconds } of limits) {
+    const windowMs = windowSeconds * 1000;
+    const bucket = Math.floor(now / windowMs);
+    const key = `${RATE_LIMIT_PREFIX}:${scope}:${safeId}:${windowSeconds}s:${bucket}`;
+    const count = Number.parseInt(await env.COMMENTS_KV.get(key).catch(() => "0") || "0", 10) || 0;
+    if (count >= limit) {
+      const retryAfter = Math.max(1, windowSeconds - Math.floor((now % windowMs) / 1000));
+      return { limited: true, retryAfter };
+    }
+    pending.push({ key, count, windowSeconds });
+  }
+  for (const { key, count, windowSeconds } of pending) {
+    await env.COMMENTS_KV.put(key, String(count + 1), { expirationTtl: windowSeconds * 2 }).catch(() => {});
+  }
+
+  return { limited: false, retryAfter: 0 };
 }
