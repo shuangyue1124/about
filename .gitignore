@@ -1,3 +1,4 @@
 .wrangler/
 .wrangler-dryrun/
 node_modules/
+.reasonix/
