@@ -57,8 +57,9 @@ export default {
   // It does NOT run on the production Cloudflare Pages deployment: Pages Git
   // integration serves public/ plus the file-routed functions/ handlers, and
   // Pages Functions have no scheduled-event wiring, so wrangler.jsonc triggers
-  // are ignored there. Production cleanup relies on the authenticated admin
-  // button (POST /api/admin/cleanup-events). Cloudflare Cron runs in UTC; the
+  // are ignored there. Production therefore relies on two things: a sampled
+  // cleanup attached to every site_events write (maybeCleanupEvents, below) and
+  // the authenticated admin button (POST /api/admin/cleanup-events). Cloudflare Cron runs in UTC; the
   // cutoff below is an absolute instant, so no CST/UTC confusion is possible.
   // The school timetable is client-side only and is never touched by this.
   async scheduled(event, env, ctx) {
@@ -128,6 +129,8 @@ const AI_CHAT_TIMEOUT_MS = 24000;
 const EVENT_RETENTION_DAYS_DEFAULT = 90;
 const EVENT_RETENTION_DAYS_MIN = 7;
 const EVENT_RETENTION_DAYS_MAX = 365;
+// One cleanup attempt per N recorded events; keeps the sampled pruning cheap.
+const EVENT_CLEANUP_SAMPLE_RATE = 40;
 
 const memory = {
   comments: null,
@@ -1131,6 +1134,24 @@ async function saveEvent(env, event) {
     event.userAgent || "",
     new Date().toISOString()
   ).run();
+
+  await maybeCleanupEvents(env);
+}
+
+// Production runs on Cloudflare Pages, where scheduled() never fires, so retention
+// cannot rely on cron alone. A sampled cleanup rides along with normal event writes:
+// roughly one in EVENT_CLEANUP_SAMPLE_RATE requests prunes rows older than the
+// retention window. Failures are logged and never surface to the visitor.
+async function maybeCleanupEvents(env) {
+  if (!env.COMMENTS_DB) return;
+  if (Math.random() * EVENT_CLEANUP_SAMPLE_RATE >= 1) return;
+  const cutoff = new Date(Date.now() - EVENT_RETENTION_DAYS_DEFAULT * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const result = await env.COMMENTS_DB.prepare("DELETE FROM site_events WHERE created_at < ?").bind(cutoff).run();
+    if (result.meta?.changes) console.log(`[event cleanup] deleted ${result.meta.changes} site_events older than ${cutoff}`);
+  } catch (error) {
+    console.error("[event cleanup] failed", error?.message || error);
+  }
 }
 
 // --- Telegram comment notifications (owner-only, outgoing only) ---

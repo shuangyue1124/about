@@ -2,31 +2,35 @@
 
 ## 静态 HTML 是可用性基线
 
-构建阶段直接生成三种语言的完整页面正文、导航和 NFC 名片操作，并把静态内容写入 `#app`。日本旅记的四个章节和十五张海报也在这个阶段完整输出。客户端脚本只绑定交互和运行时增强；浏览器 API 或设置接口失败时保留原有文档。证据: `scripts/build-pages.mjs:112-189`, `scripts/build-pages.mjs:191-236`, `scripts/build-pages.mjs:346-435`, `assets/js/app.js:1011-1020`。
+构建阶段直接生成三种语言的完整页面正文、导航和 NFC 名片操作，并把静态内容写入 `#app`。日本旅记的四个章节、十五张海报和每日真实足迹也在这个阶段完整输出。客户端脚本只绑定交互和运行时增强；浏览器 API 或设置接口失败时保留原有文档。证据: `scripts/build-pages.mjs:80-162`, `scripts/build-pages.mjs:163-190`, `scripts/build-pages.mjs:397-523`, `assets/js/app.js:1011-1020`。
 
 ## 元数据与正文同源生成
 
-每个语言版本在同一次静态构建中生成 canonical、hreflang、Open Graph、Twitter Card 与 JSON-LD。首页使用 1200×630 名片图；日本旅记使用首张海报的 1440 宽 WebP 作为分享图，并把十五天映射为带图片、说明和日期的 `ItemList`。证据: `scripts/build-pages.mjs:112-151`, `scripts/build-pages.mjs:226-235`, `scripts/build-pages.mjs:393-414`, `scripts/build-pages.mjs:505-531`。
+每个语言版本在同一次静态构建中生成 canonical、hreflang、Open Graph、Twitter Card 与 JSON-LD。首页使用 1200×630 名片图；日本旅记使用首张海报的 1440 宽 WebP 作为分享图，并把十五天映射为带图片、说明和日期的 `ItemList`。证据: `scripts/build-pages.mjs:80-162`, `scripts/build-pages.mjs:397-474`, `scripts/build-pages.mjs:620-647`。
 
 ## 日本旅记是资料驱动的专题页
 
-`japanPlan` 定义 2026-06-30 至 2026-07-14 的已完成旅程、四个章节与十五条海报记录；章节与海报的标题、地点、摘要和替代文本都由资料层提供中、日、英三语。页面生成器为 `japan-2026` 选择专用模板，再与普通页面一起写入三个语言路径。证据: `assets/js/data.js:702-1025`, `scripts/build-pages.mjs:319-320`, `scripts/build-pages.mjs:346-435`, `scripts/build-pages.mjs:540-546`。
+`japanPlan` 定义 2026-06-30 至 2026-07-14 的已完成旅程、四个章节与十五条海报记录；章节与海报的标题、地点、摘要和替代文本都由资料层提供中、日、英三语。页面生成器为 `japan-2026` 选择专用模板，再与普通页面一起写入三个语言路径。证据: `assets/js/data.js:733-1137`, `scripts/build-pages.mjs:371`, `scripts/build-pages.mjs:397-472`, `scripts/build-pages.mjs:620-647`。
+
+## 每日足迹来自时间轴解析，插画缺失时不发布空图
+
+`japanPlan.footprints` 保存由 Google 地图时间轴解析出的每日停留（日期、时间、地点与一句话说明，三语齐全），生成器在四章海报之后渲染「每日真实足迹」区块。插画路径按 `assets/images/japan-2026/footprints/*.png` 约定声明，构建只在文件存在时才输出图片；`check-data` 对缺失插画打印待补提示而不失败，`verify-image-assets` 在文件出现后自动把它纳入 1440×1800 PNG 与 480/960/1440 WebP 产物校验。证据: `assets/js/data.js:1056-1135`, `scripts/build-pages.mjs:448`, `scripts/build-pages.mjs:495-522`, `scripts/check-data.mjs:146-199`, `scripts/verify-image-assets.mjs:188-206`。
 
 ## 海报视觉文字不承担唯一语义
 
-海报图像内的短标签属于视觉编辑层，页面语义来自独立的三语 `place`、`label`、`summary` 和 `alt` 字段。生成结果使用有替代文本的图片、`figure`/`figcaption`、机器可读的 `time` 和 JSON-LD 重述同一条旅行记录，不依赖对海报像素做文字识别。证据: `assets/js/data.js:768-1024`, `scripts/build-pages.mjs:426-434`, `scripts/build-pages.mjs:505-531`。
+海报图像内的短标签属于视觉编辑层，页面语义来自独立的三语 `place`、`label`、`summary` 和 `alt` 字段，每日足迹同样由独立的三语字段承载。生成结果使用有替代文本的图片、`figure`/`figcaption`、机器可读的 `time` 和 JSON-LD 重述同一条旅行记录，不依赖对海报像素做文字识别。证据: `assets/js/data.js:799-1055`, `scripts/build-pages.mjs:484-493`, `scripts/build-pages.mjs:495-523`, `scripts/build-pages.mjs:620-647`。
 
 ## 源码资源与 Pages 输出分离
 
-源码页面与资源保存在仓库目录，`npm run build` 依次生成图片衍生资源、三语静态页面，然后删除并重建 `public/`。日本 4:5 PNG 与首页 hero PNG 只作为构建源图保留，复制资源时从 Pages 输出中排除；已退出页面映射的旧日本视觉也不发布。专题页和首页只引用体积更小的 WebP。`public/` 是 Cloudflare Pages 的构建输出目录，任何源图、文案或样式变化都必须经过完整构建。证据: `package.json:6-11`, `scripts/prepare-worker-assets.mjs:3-48`, `scripts/build-pages.mjs:355-434`, `wrangler.jsonc:29-33`。
+源码页面与资源保存在仓库目录，`npm run build` 依次生成图片衍生资源、三语静态页面，然后删除并重建 `public/`。日本 4:5 PNG（含 `footprints/` 插画源图）与首页 hero PNG 只作为构建源图保留，复制资源时从 Pages 输出中排除；已退出页面映射的旧日本视觉也不发布。专题页和首页只引用体积更小的 WebP。`public/` 是 Cloudflare Pages 的构建输出目录，任何源图、文案或样式变化都必须经过完整构建。证据: `package.json:6-11`, `scripts/prepare-worker-assets.mjs:3-48`, `scripts/build-pages.mjs:397-523`, `wrangler.jsonc:29-33`。
 
 ## 图片衍生资源由构建统一生成
 
-所有内容 PNG 会产生 480/960 宽度的 WebP；`assets/images/japan-2026/` 下的 1440×1800、4:5 海报额外产生 1440 宽 WebP，并在检查中验证三个尺寸都保持 4:5。日本专题的 hero 首图通过同一组 `imagesrcset` / `srcset` 候选预加载并使用高优先级；图廊卡片使用 `loading="lazy"`，图片回退与点击大图也都使用 WebP，不要求线上保留 PNG。证据: `scripts/optimize-images.mjs:14-47`, `scripts/build-pages.mjs:108-116`, `scripts/build-pages.mjs:355-371`, `scripts/build-pages.mjs:393-434`, `scripts/verify-image-assets.mjs:138-193`。
+所有内容 PNG 会产生 480/960 宽度的 WebP；`assets/images/japan-2026/` 下的 1440×1800、4:5 海报及 `footprints/` 每日插画额外产生 1440 宽 WebP，并在检查中验证三个尺寸都保持 4:5。日本专题的 hero 首图通过同一组 `imagesrcset` / `srcset` 候选预加载并使用高优先级；图廊卡片与每日足迹插画使用 `loading="lazy"`，图片回退与点击大图也都使用 WebP，不要求线上保留 PNG。证据: `scripts/optimize-images.mjs:14-47`, `scripts/build-pages.mjs:49-57`, `scripts/build-pages.mjs:397-474`, `scripts/build-pages.mjs:495-523`, `scripts/verify-image-assets.mjs:143-206`。
 
 ## 首页与城市图片由资料层声明
 
-首页卡片通过 `homeCards.image` 声明图片；普通城市由 `cityImages` 映射专用城市图；日本专题的每一天则直接在 `japanPlan.posters` 中声明独立图片路径。这个边界让文案、顺序、语言和图片映射保持在资料层。证据: `assets/js/data.js:298-317`, `assets/js/data.js:768-1024`, `assets/js/data.js:1238-1284`, `scripts/build-pages.mjs:239-254`, `scripts/build-pages.mjs:426-434`。
+首页卡片通过 `homeCards.image` 声明图片；普通城市由 `cityImages` 映射专用城市图；日本专题的每一天则直接在 `japanPlan.posters` 中声明独立图片路径，每日足迹插画同样在 `japanPlan.footprints.days[].image` 中声明。这个边界让文案、顺序、语言和图片映射保持在资料层。证据: `assets/js/data.js:289-317`, `assets/js/data.js:799-1055`, `assets/js/data.js:1056-1135`, `assets/js/data.js:1307-1397`, `scripts/build-pages.mjs:284-303`, `scripts/build-pages.mjs:484-523`。
 
 ## VCF 使用稳定公共入口
 
@@ -46,4 +50,4 @@
 
 ## 质量检查在构建产物上自动执行
 
-`npm run check` 在语法与图片验证之后串联四个脚本：`check:data` 校验资料层（slug 唯一、日期、三语、图片、日本 Day 01~15 连续）；`check:i18n` 校验 `ui` 三语 key 一致与城市/行程三语完整；`check:links` 扫描 `public/` 内 `href/src/srcset/og:image` 的本地引用是否存在；`check:seo` 按 `sitemap.xml` 逐页校验 title、description、canonical、hreflang、Open Graph/Twitter、JSON-LD、`lang` 与 `h1/main`。`npm run test:site` 用 Node 内置 HTTP 服务对 sitemap 全部页面做状态与结构冒烟，并用内存 KV/D1 mock 直接调用 `worker.js` 的 API 处理器验证 405/400/401/429 等分支，无需 Playwright。证据: `package.json:7-16`, `scripts/check-data.mjs:1-148`, `scripts/check-i18n.mjs:1-86`, `scripts/check-links.mjs:1-110`, `scripts/check-seo.mjs:1-96`, `scripts/test-site.mjs:1-230`。
+`npm run check` 在语法与图片验证之后串联四个脚本：`check:data` 校验资料层（slug 唯一、日期、三语、图片、日本 Day 01~15 连续、每日足迹结构与待补插画提示）；`check:i18n` 校验 `ui` 三语 key 一致与城市/行程/足迹三语完整；`check:links` 扫描 `public/` 内 `href/src/srcset/og:image` 的本地引用是否存在；`check:seo` 按 `sitemap.xml` 逐页校验 title、description、canonical、hreflang、Open Graph/Twitter、JSON-LD、`lang` 与 `h1/main`。`npm run test:site` 用 Node 内置 HTTP 服务对 sitemap 全部页面做状态与结构冒烟，并用内存 KV/D1 mock 直接调用 `worker.js` 的 API 处理器验证 405/400/401/429 等分支，无需 Playwright。证据: `package.json:7-16`, `scripts/check-data.mjs:146-204`, `scripts/check-i18n.mjs:103-118`, `scripts/check-links.mjs:1-110`, `scripts/check-seo.mjs:1-96`, `scripts/test-site.mjs:1-230`。

@@ -22,8 +22,9 @@
 - 无 JavaScript 时的保底说明与可读静态正文: `scripts/build-pages.mjs:147-150`, `scripts/build-pages.mjs:346-454`。
 - Web Share API、复制降级和操作反馈: `assets/js/app.js:757-814`。
 - 首页卡片图片来自 `homeCards.image`: `assets/js/data.js:237-339`。
-- 城市图片优先来自 `cityImages`，未命中才回退 `regionalImages`: `assets/js/data.js:1219-1314`。
-- 日本十五日三语海报旅记、章节与图说: `assets/js/data.js:702-1025`, `scripts/build-pages.mjs:346-435`。
+- 城市图片优先来自 `cityImages`，未命中才回退 `regionalImages`: `assets/js/data.js:1331-1397`。
+- 日本十五日三语海报旅记、章节、图说与每日真实足迹: `assets/js/data.js:733-1137`, `scripts/build-pages.mjs:397-523`。
+- 每日足迹插画的源图目录（待补）与产物校验: `assets/js/data.js:1056-1135`, `scripts/check-data.mjs:170-199`, `scripts/verify-image-assets.mjs:188-206`。
 - 响应式 WebP、日本海报 1440 WebP、首页 hero、1200×630 分享图和应用图标的生成: `scripts/optimize-images.mjs:14-104`。
 - `public/` 发布目录的重建与复制清单: `scripts/prepare-worker-assets.mjs:3-29`；构建入口见 `package.json:6-11`。
 - VCF 的响应头和旧地址迁移: `_headers:28-35`, `_redirects:1-2`。

@@ -780,9 +780,9 @@ export const japanPlan = {
       range: "2026-07-08/2026-07-11",
       title: c("向西的列车", "西へ向かう列車", "Westbound by Rail"),
       summary: c(
-        "新干线把热海与新大阪连在一起；道顿堀水道、新世界餐桌与京都鸟居，成为关西的三种节奏。",
-        "新幹線が熱海と新大阪をつなぎ、道頓堀の水路、新世界の食卓、京都の鳥居が関西の異なるリズムになります。",
-        "The Shinkansen joins Atami to Shin-Osaka; Dotonbori's channel, a Shinsekai table, and Kyoto torii become three Kansai rhythms."
+        "新干线把热海与新大阪连在一起；道顿堀水道、新世界餐桌与京都鸟居各是一种节奏，最后京阪线把京都的安静送回大阪的夜色。",
+        "新幹線が熱海と新大阪をつなぎ、道頓堀の水路、新世界の食卓、京都の鳥居がそれぞれのリズムに。最後は京阪線が京都の静けさを大阪の夜へ運びました。",
+        "The Shinkansen joins Atami to Shin-Osaka; Dotonbori's channel, a Shinsekai table, and Kyoto torii each keep their own rhythm, before the Keihan line carries Kyoto's quiet back into Osaka's night."
       ),
     },
     {
@@ -790,9 +790,9 @@ export const japanPlan = {
       range: "2026-07-12/2026-07-14",
       title: c("鹿、港口与最后一眼", "鹿、港、最後の眺め", "Deer, Harbor & Last View"),
       summary: c(
-        "奈良溪边的鹿、神户三宫的暮色和归程机窗外的富士山，为旅行留下安静的尾声。",
-        "奈良の水辺に佇む鹿、神戸・三宮の暮色、帰りの機窓から見えた富士山が、旅に静かな余韻を残します。",
-        "A deer beside Nara's stream, dusk around Kobe Sannomiya, and Fuji through the homebound window leave the journey a quiet coda."
+        "奈良溪边的鹿、从神户机场飞回东京的午后，以及归程机窗外的富士山，为旅行留下安静的尾声。",
+        "奈良の水辺に佇む鹿、神戸空港から東京へ戻る午後、そして帰りの機窓から見えた富士山が、旅に静かな余韻を残します。",
+        "A deer beside Nara's stream, an afternoon flight from Kobe back to Tokyo, and Fuji through the homebound window leave the journey a quiet coda."
       ),
     },
   ],
@@ -989,9 +989,9 @@ export const japanPlan = {
       place: c("京都 · 伏见稻荷与清水寺", "京都 · 伏見稲荷と清水寺", "Kyoto · Fushimi Inari & Kiyomizu-dera"),
       label: c("通道 / 12", "参道 / 12", "PASSAGE / 12"),
       summary: c(
-        "鸟居沿着林间山路一座座延伸，从伏见稻荷到清水寺，京都的空间总在门、坡道与转折之间展开。",
-        "鳥居が林の山道を連なり、伏見稲荷から清水寺へ。京都の空間は、門、坂、曲がり角の間で展開します。",
-        "Torii climbed through the woods from Fushimi Inari toward a day ending at Kiyomizu-dera, with Kyoto unfolding through gates, slopes, and turns."
+        "鸟居沿着林间山路一座座延伸，从伏见稻荷到清水寺；入夜后沿京阪线南下，心斋桥与难波把京都的安静换成大阪的灯火。",
+        "鳥居が林の山道を連なり、伏見稲荷から清水寺へ。夜は京阪線で南下し、心斎橋と難波が京都の静けさを大阪の灯りに変えていきました。",
+        "Torii climbed through the woods from Fushimi Inari toward Kiyomizu-dera; after nightfall the Keihan line carried the day south, where Shinsaibashi and Namba traded Kyoto's quiet for Osaka's lights."
       ),
       alt: c(
         "日本旅记海报 12：无人鸟居通道深入林间，重复的门构成纵深感。",
@@ -1003,12 +1003,12 @@ export const japanPlan = {
     },
     {
       date: "2026-07-12",
-      place: c("奈良", "奈良", "Nara"),
+      place: c("奈良 · 奈良公园与东向商店街", "奈良 · 奈良公園と東向商店街", "Nara · Nara Park & Higashimuki"),
       label: c("静水 / 13", "静水 / 13", "STILL WATER / 13"),
       summary: c(
-        "奈良公园的人流之外，一只鹿停在溪流与石岸旁，让返回大阪前的午后慢了下来。",
-        "奈良公園の人波から少し離れ、一頭の鹿が流れと石岸のそばに立ち、大阪に戻る前の午後をゆっくりにしました。",
-        "Away from Nara Park's crowds, one deer paused beside a stream and stone bank, slowing the afternoon before returning to Osaka."
+        "从难波搭近铁抵达奈良，奈良公园的鹿、东向商店街的屋檐与小西さくら通り的午后依次展开；一只鹿停在溪流与石岸旁，让返回大阪前的时光慢了下来。",
+        "難波から近鉄で奈良へ。奈良公園の鹿、東向商店街の軒先、小西さくら通りの午後が順に開き、一頭の鹿が流れと石岸のそばに立って、大阪へ戻る前の時間をゆっくりにしました。",
+        "A Kintetsu train from Namba opened Nara: deer in Nara Park, the eaves of Higashimuki shopping street, and an afternoon on Konishi Sakura-dori, where one deer beside a stream and stone bank slowed the hours before returning to Osaka."
       ),
       alt: c(
         "日本旅记海报 13：一只鹿站在溪流与石岸边，水面平静、构图留白。",
@@ -1020,12 +1020,12 @@ export const japanPlan = {
     },
     {
       date: "2026-07-13",
-      place: c("神户三宫 · 大阪", "神戸三宮 · 大阪", "Kobe Sannomiya · Osaka"),
+      place: c("神户机场 → 羽田 · 回到东京", "神戸空港 → 羽田 · 東京へ", "Kobe Airport → Haneda · Back to Tokyo"),
       label: c("窗 / 14", "窓 / 14", "WINDOW / 14"),
       summary: c(
-        "列车将三宫与大阪连在傍晚里，窗格之后的城市逐渐变暗，像旅程结束前的一次停顿。",
-        "列車が三宮と大阪を夕暮れの中でつなぎ、網入りガラスの向こうで街が少しずつ暗くなり、旅の終わり前の一拍となりました。",
-        "The train linked Sannomiya and Osaka at dusk as the city darkened behind window panes, a pause before the journey's close."
+        "清晨从大阪梅田出发，经三宫换乘港湾人工岛线抵达神户机场；上午的航班把旅程带回东京，傍晚在蒲田安顿下来，像结束前的一次转折。",
+        "早朝の大阪・梅田を出て、三宮からポートライナーで神戸空港へ。午前のフライトが旅を東京へ連れ戻し、夕方には蒲田へ。終わりを前にした静かな転換点です。",
+        "From Osaka's Umeda in the early morning, the day crossed Sannomiya and rode the Port Liner out to Kobe Airport; a morning flight carried the journey back to Tokyo, with evening settling in Kamata—a quiet turn before the end."
       ),
       alt: c(
         "日本旅记海报 14：窗格后是逐渐入夜的城市轮廓与暮色。",
@@ -1040,9 +1040,9 @@ export const japanPlan = {
       place: c("归程 · 富士山远望", "帰路 · 富士山遠望", "Homebound · Fuji in the Distance"),
       label: c("最后一眼 / 15", "最後の眺め / 15", "LAST VIEW / 15"),
       summary: c(
-        "车站、机场与登机流程将旅行收束，起飞后，机翼与远处富士山共同留下最后一帧。",
-        "駅、空港、搭乗の時間が旅を閉じ、離陸後、翼と遠くの富士山が最後の一幕を残しました。",
-        "Stations, airport, and boarding closed the journey; after takeoff, the wing and distant Mount Fuji shared its final frame."
+        "清晨从蒲田出发，车站、机场与登机流程把旅行收束；起飞后，机翼与远处富士山共同留下最后一帧。",
+        "早朝の蒲田を出発し、駅、空港、搭乗の時間が旅を閉じます。離陸後、翼と遠くの富士山が最後の一幕を残しました。",
+        "Leaving Kamata at dawn, stations, airport, and boarding closed the journey; after takeoff, the wing and distant Mount Fuji shared its final frame."
       ),
       alt: c(
         "日本旅记海报 15：归程机窗外的机翼，以及远处最后一次出现的富士山。",
@@ -1053,6 +1053,86 @@ export const japanPlan = {
       chapter: "deer-harbor-home",
     },
   ],
+  footprints: {
+    title: c("每日真实足迹", "一日ごとの足跡", "Day-by-Day Footprints"),
+    note: c(
+      "以下时间线来自 Google 地图时间轴里的真实定位记录（7 月 11 日至 13 日），时间均为日本当地时间，停留区间按到达与离开整理。",
+      "以下のタイムラインは Google マップのタイムラインに残った実際の位置情報（7月11日〜13日）にもとづきます。時刻は日本時間で、滞在は到着と出発でまとめています。",
+      "The timelines below are built from real locations in Google Maps Timeline (July 11–13). Times are Japan local, with stays grouped by arrival and departure."
+    ),
+    days: [
+      {
+        date: "2026-07-11",
+        title: c("京都 → 大阪 · 心斋桥之夜", "京都 → 大阪 · 心斎橋の夜", "Kyoto → Osaka · A Night in Shinsaibashi"),
+        summary: c(
+          "傍晚沿京阪线南下回到大阪，夜里从心斋桥走到难波，最后停回心斋桥东的住处。",
+          "夕方に京阪線で大阪へ戻り、夜は心斎橋から難波まで歩いて、最後は心斎橋東の宿へ。",
+          "The evening returned south to Osaka by the Keihan line, walking at night from Shinsaibashi to Namba before settling back near East Shinsaibashi."
+        ),
+        image: "assets/images/japan-2026/footprints/11-kyoto-osaka.png",
+        imageAlt: c(
+          "日本旅记足迹插画 11：纸面上的小幅夜景，心斋桥的灯火与街巷倒影。",
+          "日本旅行記の足跡イラスト11。紙面に置かれた小さな夜景、心斎橋の灯りと路地の照り返し。",
+          "Japan travel footprint illustration 11: a small night scene on paper, with Shinsaibashi lights and reflected alleys."
+        ),
+        stops: [
+          { time: "18:28", place: c("枚方 · 京阪沿线", "枚方 · 京阪沿線", "Hirakata · Keihan Line"), note: c("傍晚的列车沿京阪线南下。", "夕方の列車で京阪線を南下。", "An evening train runs south along the Keihan line.") },
+          { time: "18:45", place: c("京桥", "京橋", "Kyobashi"), note: c("进入大阪市区，转乘地铁。", "大阪市内へ入り、地下鉄に乗り換え。", "Entering central Osaka and switching to the subway.") },
+          { time: "19:47–20:41", place: c("心斋桥东 · 鰻谷", "心斎橋東 · 鰻谷", "East Shinsaibashi · Unagidani"), note: c("放下行李，在住处一带停留约 55 分钟。", "荷物を置き、宿の周辺で約55分。", "Dropping bags and pausing around the lodgings for about fifty-five minutes.") },
+          { time: "20:45", place: c("心斋桥筋", "心斎橋筋", "Shinsaibashi-suji"), note: c("夜里的散步从心斋桥筋开始。", "夜の散歩は心斎橋筋から。", "The night walk begins on Shinsaibashi-suji.") },
+          { time: "21:15", place: c("日本桥", "日本橋", "Nipponbashi"), note: c("沿堺筋的街区继续向南。", "堺筋の街をさらに南へ。", "Continuing south through the streets along Sakaisuji.") },
+          { time: "21:45", place: c("难波 · 千日前", "難波 · 千日前", "Namba · Sennichimae"), note: c("在难波收尾，夜里回到心斋桥东的住处。", "難波で締めくくり、夜は心斎橋東の宿へ戻る。", "Closing the loop in Namba, then back to the lodgings near East Shinsaibashi.") },
+        ],
+      },
+      {
+        date: "2026-07-12",
+        title: c("大阪 → 奈良 · 午后与鹿", "大阪 → 奈良 · 鹿と午後", "Osaka → Nara · Deer and an Afternoon"),
+        summary: c(
+          "中午从难波出发，近铁穿过生驹山把一天交给奈良；傍晚沿近铁奈良线原路返回，记录在东大阪一带中断。",
+          "昼は難波から近鉄で生駒の山を越えて奈良へ。夕方は近鉄奈良線で同じ道を戻り、東大阪付近で記録が途切れる。",
+          "Leaving Namba at noon, a Kintetsu train crossed the Ikoma hills and handed the day to Nara; by evening the same Nara Line carried the return, with the record ending around Higashiosaka."
+        ),
+        image: "assets/images/japan-2026/footprints/12-osaka-nara.png",
+        imageAlt: c(
+          "日本旅记足迹插画 12：纸面上的小幅午后影像，鹿、屋檐与商店街的光。",
+          "日本旅行記の足跡イラスト12。紙面の小さな午後の写真、鹿と軒先と商店街の光。",
+          "Japan travel footprint illustration 12: a small afternoon image on paper, with deer, eaves, and the light of a shopping street."
+        ),
+        stops: [
+          { time: "11:45–12:45", place: c("难波 · 南波本通", "難波 · なんば本通", "Namba Hondori"), note: c("中午的难波，午餐与街区散步约一小时。", "昼の難波で、食事と街歩きを約1時間。", "An hour of lunch and strolling in Namba at midday.") },
+          { time: "13:14", place: c("近铁 · 生驹", "近鉄 · 生駒", "Kintetsu · Ikoma"), note: c("电车翻过生驹山，向奈良行进。", "電車は生駒の山を越えて奈良へ。", "The train climbs over the Ikoma hills toward Nara.") },
+          { time: "13:45–15:00", place: c("奈良公园 · 登大路", "奈良公園 · 登大路", "Nara Park · Noboriōji"), note: c("兴福寺一带的午后，鹿群与草地。", "興福寺周辺の午後、鹿と芝生。", "An afternoon around Kofuku-ji, among deer and lawns.") },
+          { time: "15:00", place: c("春日野町", "春日野町", "Kasuganocho"), note: c("往春日大社表参道与东大寺方向。", "春日大社の表参道と東大寺の方へ。", "Heading toward the Kasuga Taisha approach and Todai-ji.") },
+          { time: "15:30", place: c("东向商店街", "東向商店街", "Higashimuki Shopping Street"), note: c("近铁奈良站前的商店街。", "近鉄奈良駅前の商店街。", "The shopping street in front of Kintetsu Nara Station.") },
+          { time: "15:39–17:06", place: c("小西さくら通り", "小西さくら通り", "Konishi Sakura-dori"), note: c("在巷子里停留约 85 分钟。", "路地で約85分の滞在。", "A pause of about eighty-five minutes in the side streets.") },
+        ],
+      },
+      {
+        date: "2026-07-13",
+        title: c("大阪 → 神户机场 → 东京蒲田", "大阪 → 神戸空港 → 東京・蒲田", "Osaka → Kobe Airport → Kamata, Tokyo"),
+        summary: c(
+          "清晨从梅田出发，经三宫与港湾人工岛抵达神户机场；中午的航班回到羽田，午后在蒲田落脚。",
+          "早朝の梅田から三宮・ポートアイランドを経て神戸空港へ。昼のフライトで羽田に戻り、午後は蒲田へ。",
+          "From Umeda at dawn through Sannomiya and Port Island to Kobe Airport; a midday flight returned to Haneda, and the afternoon settled into Kamata."
+        ),
+        image: "assets/images/japan-2026/footprints/13-kobe-haneda.png",
+        imageAlt: c(
+          "日本旅记足迹插画 13：纸面上的小幅影像，机场的窗、跑道与海面。",
+          "日本旅行記の足跡イラスト13。紙面の小さな写真、空港の窓と滑走路と海。",
+          "Japan travel footprint illustration 13: a small image on paper, with airport windows, a runway, and the sea."
+        ),
+        stops: [
+          { time: "08:00", place: c("大阪 · 梅田", "大阪 · 梅田", "Osaka · Umeda"), note: c("从大阪的清晨出发。", "大阪の早朝に出発。", "Setting out early from Osaka.") },
+          { time: "08:30", place: c("神户 · 三宫", "神戸 · 三宮", "Kobe · Sannomiya"), note: c("抵达神户市中心，换乘港湾人工岛线。", "神戸の中心街に到着し、ポートライナーへ乗り換え。", "Arriving in central Kobe and switching to the Port Liner.") },
+          { time: "08:50", place: c("神户港岛", "神戸ポートアイランド", "Kobe Port Island"), note: c("高架电车驶向海上的人工岛。", "高架の電車が海の上の人工島へ。", "The elevated line runs out toward the man-made island on the water.") },
+          { time: "09:00–10:45", place: c("神户机场", "神戸空港", "Kobe Airport"), note: c("候机与登机，停留约 105 分钟。", "搭乗までの待ち時間、約105分の滞在。", "Waiting and boarding, a stay of about one hundred minutes.") },
+          { time: "11:56", place: c("羽田机场", "羽田空港", "Haneda Airport"), note: c("航班落地，把旅程带回东京。", "フライトが着陸し、旅を東京へ連れ戻す。", "The flight lands, carrying the journey back to Tokyo.") },
+          { time: "12:00–12:30", place: c("羽田 · 第 1 航站楼", "羽田 · 第1ターミナル", "Haneda · Terminal 1"), note: c("出站后换乘东京单轨电车。", "到着後、東京モノレールへ乗り換え。", "After arrival, a transfer to the Tokyo Monorail.") },
+          { time: "12:55–16:45", place: c("蒲田 · 京急蒲田", "蒲田 · 京急蒲田", "Kamata · Keikyu Kamata"), note: c("午后入住，夜晚停在蒲田的街区。", "午後にチェックインし、夜は蒲田の街に。", "Checking in for the afternoon, the night pausing in Kamata's streets.") },
+        ],
+      },
+    ],
+  },
 };
 
 const pendingCities = [

@@ -100,6 +100,21 @@ japanPlan.posters.forEach((poster, index) => {
   checkTri(`japanPlan[${number}]`, "summary", poster.summary);
   checkTri(`japanPlan[${number}]`, "alt", poster.alt);
 });
+if (japanPlan.footprints) {
+  checkTri("japanPlan.footprints", "title", japanPlan.footprints.title);
+  checkTri("japanPlan.footprints", "note", japanPlan.footprints.note);
+  (japanPlan.footprints.days || []).forEach((day, index) => {
+    const daySource = `japanPlan.footprints.days[${index}](${day.date || "?"})`;
+    checkTri(daySource, "title", day.title);
+    checkTri(daySource, "summary", day.summary);
+    if (day.image) checkTri(daySource, "imageAlt", day.imageAlt);
+    (day.stops || []).forEach((stop, stopIndex) => {
+      const stopSource = `${daySource}.stops[${stopIndex}](${stop.time || "?"})`;
+      checkTri(stopSource, "place", stop.place);
+      checkTri(stopSource, "note", stop.note);
+    });
+  });
+}
 
 // --- app.js localized objects (commentUi, nowStatusNotes) ---
 let commentUi = null;

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -181,6 +182,26 @@ async function main() {
       } catch {
         // assertFile above records missing outputs.
       }
+    }
+  }
+
+  // 每日足迹插画：文件缺失视为待补（跳过），补齐后自动纳入同样的 1440x1800 PNG + WebP 产物校验。
+  for (const [index, day] of (japanPlan.footprints?.days || []).entries()) {
+    if (!day.image) continue;
+    const sourcePath = toLocalPath(day.image);
+    if (!existsSync(sourcePath)) continue;
+    await assertMissing(toLocalPath(day.image, "public"));
+    const metadata = await sharp(sourcePath).metadata();
+    if (metadata.width !== 1440 || metadata.height !== 1800 || metadata.format !== "png") {
+      fail(`japan footprint ${index} (${day.image}) must be a 1440x1800 PNG, got ${metadata.width}x${metadata.height} ${metadata.format}`);
+    }
+    const generatedBase = day.image.replace("assets/images/", "assets/images/generated/").replace(/\.png$/, "");
+    for (const width of [480, 960, 1440]) {
+      await assertFile(toLocalPath(`${generatedBase}-${width}.webp`));
+      await assertFile(toLocalPath(`${generatedBase}-${width}.webp`, "public"));
+    }
+    for (const lang of ["zh", "ja", "en"]) {
+      if (!day.imageAlt?.[lang]) fail(`japan footprint ${day.image} is missing imageAlt.${lang}`);
     }
   }
 

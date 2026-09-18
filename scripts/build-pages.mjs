@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -444,6 +445,7 @@ function japanTripPage(locale, trip) {
         </ol>
       </section>
       ${trip.chapters.map((chapter) => tripChapter(locale, depth, trip, chapter)).join("")}
+      ${tripFootprints(locale, depth, trip)}
       <div class="trip-footer"><p>${esc(footerNote)}</p><a class="trip-back-link" href="${attr(localePath(locale, "travel/"))}">← ${esc(l(lang, "backTravel"))}</a></div>
     </main>`, `cities/${trip.slug}.html`);
   return pageFrame({
@@ -488,6 +490,35 @@ function posterFigure(locale, depth, trip, poster) {
   return `<li><figure class="poster-card"><a class="poster-card__link" href="${attr(fullImage)}" aria-label="${attr(`${t(lang, poster.place)} · ${poster.date} · ${t(lang, poster.label)}`)}">
     <span class="poster-media"><picture><source type="image/webp" srcset="${attr(imageSrcset(depth, poster.image))}" sizes="(max-width: 640px) calc(100vw - 30px), (max-width: 920px) 44vw, 340px"><img src="${attr(image)}" alt="${attr(t(lang, poster.alt))}" loading="lazy" decoding="async" width="1440" height="1800"></picture></span>
   </a><figcaption class="poster-card__caption"><span class="poster-card__index">${esc(l(lang, "dayLabel"))} ${number} · ${esc(t(lang, poster.label))}</span><h3 class="poster-card__title">${esc(t(lang, poster.place))}</h3><span class="poster-card__meta"><time datetime="${attr(poster.date)}">${esc(poster.date.replaceAll("-", "."))}</time></span><p class="poster-card__note">${esc(t(lang, poster.summary))}</p></figcaption></figure></li>`;
+}
+
+function tripFootprints(locale, depth, trip) {
+  const lang = locale.code;
+  const footprints = trip.footprints;
+  if (!footprints || !Array.isArray(footprints.days) || footprints.days.length === 0) return "";
+  const days = footprints.days.map((day) => {
+    const hasImage = Boolean(day.image) && existsSync(resolve(root, day.image));
+    const figure = hasImage
+      ? `<figure class="footprint-day__figure"><picture><source type="image/webp" srcset="${attr(imageSrcset(depth, day.image))}" sizes="(max-width: 920px) min(calc(100vw - 64px), 400px), 340px"><img src="${attr(generatedImage(depth, day.image, 960))}" alt="${attr(t(lang, day.imageAlt))}" loading="lazy" decoding="async" width="1440" height="1800"></picture></figure>`
+      : "";
+    const stops = (day.stops || []).map((stop) => `<li class="footprint-stop"><span class="footprint-stop__time">${esc(stop.time)}</span><span class="footprint-stop__text"><strong>${esc(t(lang, stop.place))}</strong><small>${esc(t(lang, stop.note))}</small></span></li>`).join("");
+    return `<li class="footprint-day${hasImage ? " footprint-day--with-image" : ""}">
+        ${figure}
+        <div class="footprint-day__body">
+          <p class="footprint-day__date"><time datetime="${attr(day.date)}">${esc(day.date.replaceAll("-", "."))}</time></p>
+          <h3 class="footprint-day__title">${esc(t(lang, day.title))}</h3>
+          <p class="footprint-day__summary">${esc(t(lang, day.summary))}</p>
+          <ol class="footprint-day__stops">${stops}</ol>
+        </div>
+      </li>`;
+  }).join("");
+  return `<section class="trip-footprints" aria-labelledby="trip-footprints-title">
+    <div class="trip-footprints__header">
+      <h2 id="trip-footprints-title">${esc(t(lang, footprints.title))}</h2>
+      <p class="trip-footprints__note">${esc(t(lang, footprints.note))}</p>
+    </div>
+    <ol class="trip-footprints__days">${days}</ol>
+  </section>`;
 }
 
 function cityVisual(locale, depth, city, size) {

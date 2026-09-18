@@ -143,10 +143,62 @@ japan.posters?.forEach((poster, index) => {
   }
 });
 
+// --- japanPlan.footprints（Google 时间轴解析出的每日足迹） ---
+const pendingFootprintImages = [];
+const footprints = japan.footprints;
+if (!footprints || !Array.isArray(footprints.days) || footprints.days.length === 0) {
+  fail("japanPlan.footprints.days 必须是数组且非空");
+} else {
+  for (const field of ["title", "note"]) {
+    for (const lang of LANGS) {
+      if (!textOf(footprints[field], lang)) fail(`japanPlan.footprints.${field}.${lang} 缺失`);
+    }
+  }
+  const footprintDates = new Set();
+  footprints.days.forEach((day, index) => {
+    if (!DATE_RE.test(String(day.date || "")) || Number.isNaN(Date.parse(String(day.date)))) {
+      fail(`japanPlan.footprints.days[${index}].date 无效: ${day.date}`);
+    } else if (footprintDates.has(day.date)) {
+      fail(`japanPlan.footprints.days 日期重复: ${day.date}`);
+    } else {
+      footprintDates.add(day.date);
+    }
+    for (const field of ["title", "summary"]) {
+      for (const lang of LANGS) {
+        if (!textOf(day[field], lang)) fail(`japanPlan.footprints.days[${index}].${field}.${lang} 缺失`);
+      }
+    }
+    if (day.image) {
+      if (!String(day.image).startsWith("assets/images/japan-2026/") || !day.image.endsWith(".png")) {
+        fail(`japanPlan.footprints.days[${index}].image 必须是 assets/images/japan-2026/ 下的 PNG: ${day.image}`);
+      }
+      for (const lang of LANGS) {
+        if (!textOf(day.imageAlt, lang)) fail(`japanPlan.footprints.days[${index}].imageAlt.${lang} 缺失`);
+      }
+      if (!existsSync(resolve(ROOT, day.image))) pendingFootprintImages.push(day.image);
+    }
+    if (!Array.isArray(day.stops) || day.stops.length === 0) {
+      fail(`japanPlan.footprints.days[${index}].stops 缺失`);
+    } else {
+      day.stops.forEach((stop, stopIndex) => {
+        if (!String(stop.time || "").trim()) fail(`japanPlan.footprints.days[${index}].stops[${stopIndex}].time 缺失`);
+        for (const field of ["place", "note"]) {
+          for (const lang of LANGS) {
+            if (!textOf(stop[field], lang)) fail(`japanPlan.footprints.days[${index}].stops[${stopIndex}].${field}.${lang} 缺失`);
+          }
+        }
+      });
+    }
+  });
+}
+
 // --- report ---
 if (errors.length) {
   console.error(`check-data: ${errors.length} 个问题`);
   for (const error of errors) console.error(`  ❌ ${error}`);
   process.exit(1);
 }
-console.log(`check-data: OK（${languages.length} 语言、${homeCards.length} 卡片、${contacts.length} 联系方式、${cities.length} 城市、${japan.posters.length} 张日本海报）`);
+if (pendingFootprintImages.length) {
+  console.log(`check-data: 待补足迹插画 ${pendingFootprintImages.length} 张（文件缺失时页面不渲染该图，补齐后自动出现）: ${pendingFootprintImages.join(", ")}`);
+}
+console.log(`check-data: OK（${languages.length} 语言、${homeCards.length} 卡片、${contacts.length} 联系方式、${cities.length} 城市、${japan.posters.length} 张日本海报、${japan.footprints ? japan.footprints.days.length : 0} 天足迹）`);

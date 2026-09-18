@@ -40,11 +40,12 @@ npm run test:site
 git push origin main
 ```
 
-- `npm run build`：优化图片、生成三语页面、重建 `public/`。
-- `npm run check`：JS 语法 + 图片产物验证 + `check:data`（数据完整性）+ `check:i18n`（三语完整性）+ `check:links`（断链）+ `check:seo`（SEO 元素）。
-- `npm run test:site`：本地 HTTP 服务对 sitemap 全部页面做冒烟（status/title/lang/h1/main/canonical/资源），并用内存 KV/D1 mock 跑 API 冒烟（405/400/401/429 等分支）。
+- `npm run build`：优化图片、生成三语页面、重建 `public/`。`public/` 与 `assets/images/generated/` 都是构建产物，已在 `.gitignore` 中排除；Pages 部署时会重新运行构建，所以不必入库。
+- `npm run check`：JS 语法 + 图片产物验证 + `check:data`（数据完整性）+ `check:i18n`（三语完整性）+ `check:links`（断链）+ `check:seo`（SEO 元素）+ `check:routes`（Pages Functions 路由覆盖）+ `check:schedule`（课表边界）+ `test:profiles`（域名profile隔离）+ `test:site`（HTTP 冒烟与 API 分支）。
+- `npm run check:routes`：`worker.js` 里出现的每个 `/api/...` 路径都必须能被 `functions/` 下的文件路由命中，否则该端点在线上就是 404（`wrangler dev` 却正常）。新增 API 时忘了补 `functions/**/*.js`，这个检查会直接失败并列出缺失路径。
+- `npm run test:site`：本地 HTTP 服务对 sitemap 全部页面做冒烟（status/title/lang/h1/main/canonical/资源），并用内存 KV/D1 mock 跑 API 冒烟（405/400/401/429 等分支）。`npm run check` 已包含它，需要单独看详细输出时再单独运行。
 
-不要对这份配置运行 `npx wrangler deploy`；`wrangler.jsonc` 和 `worker.js` 用于本地模拟 Pages Functions 运行环境，生产自定义域名由 Pages 托管。启用 Functions 后，Cloudflare 会为 Pages 项目生成 `pages-worker--*-production` / `pages-worker--*-preview` 内部脚本；控制台中看到它们不代表存在第二个同名站点，也不要单独删除。
+不要对这份配置运行 `npx wrangler deploy`；`wrangler.jsonc` 和 `worker.js` 用于本地模拟 Pages Functions 运行环境，生产自定义域名由 Pages 托管。这一点有个容易踩的坑：Pages 只按 `functions/` 下的**文件路径**路由，`worker.js` 里的 `export default { fetch }` 路由器在生产**根本不会执行**。因此每个 `/api/...` 端点都必须在 `functions/` 下有对应文件，否则本地 `wrangler dev` 正常、线上却是 404。`functions/api/admin/[[path]].js` 是管理端 API 的统一兜底入口（具体文件仍优先于它），新增 `handleAdmin` 路由时仍建议补对应文件，并让 `npm run check:routes` 验证。启用 Functions 后，Cloudflare 会为 Pages 项目生成 `pages-worker--*-production` / `pages-worker--*-preview` 内部脚本；控制台中看到它们不代表存在第二个同名站点，也不要单独删除。
 
 本地预览 Worker 使用 `public/` 作为静态资源目录，并通过 `worker.js` 兼容这些路径：
 
@@ -199,13 +200,18 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 
 限流键里的客户端标识是 SHA-256 哈希（KV 只存短 TTL 计数），不以明文存 IP。静态页面不触碰 KV；`/api/events` 正常与超限时均为 0 KV 操作，只有低频 API（评论/登录/AI 对话/Telegram 测试）与公开评论缓存会走 KV。
 
-`site_events` 没有自动无限增长：后台「清理统计事件」按钮调用 `POST /api/admin/cleanup-events`（默认删除 90 天前事件，可传 `days` 7~365），这是生产环境（Cloudflare Pages Git 集成部署）的清理路径。`wrangler.jsonc` 另配了每天 00:00 中国时间（即 16:00 UTC，Cron 按 UTC 运行）的 `scheduled()` 自动清理，但它只在 Worker 运行时（`wrangler dev` / `wrangler deploy`）生效——Pages Functions 没有定时触发 wiring，Pages 生产部署会忽略该配置，因此不要把自动清理视为线上已生效；个人站建议保留手动清理按钮作为生产兜底。
+`site_events` 没有自动无限增长，生产环境有两条清理路径，任选其一即可保留数据：
+
+- 自动抽样清理：每次写入事件后，以 1/40 的概率顺带删除超过保留期（默认 90 天）的旧事件（`worker.js` 的 `maybeCleanupEvents`）。Pages Functions 无法配置定时触发，这是线上唯一真正自动生效的路径；失败只记录日志，不影响访问。
+- 手动清理：后台「清理统计事件」按钮调用 `POST /api/admin/cleanup-events`（默认删除 90 天前事件，可传 `days` 7~365）。
+
+`wrangler.jsonc` 另配了每天 00:00 中国时间（即 16:00 UTC，Cron 按 UTC 运行）的 `scheduled()` 自动清理，但它只在 Worker 运行时（`wrangler dev` / `wrangler deploy`）生效——Pages Functions 没有定时触发 wiring，Pages 生产部署会忽略该配置。
 
 ### 安全响应头与 CSP
 
-静态页面通过 `_headers` 下发 HSTS（`max-age=31536000`，不含 `includeSubDomains`）与 `Content-Security-Policy-Report-Only`（先只报告不拦截），CSP 违规报告由同源 `POST /api/csp-report` 记录到 Workers 日志。API 响应在 `worker.js` 内单独附加 `nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy` 与 `Permissions-Policy`；管理员 API 不开放跨域，公共 API 保持 `Access-Control-Allow-Origin: *`。
+静态页面通过 `_headers` 下发 HSTS（`max-age=31536000`，不含 `includeSubDomains`）与正式生效的 `Content-Security-Policy`（此前是 `Report-Only`），CSP 违规报告同源 POST 到 `/api/csp-report` 并记录到 Workers 日志。策略允许 `self`、data: 图片与 `https://challenges.cloudflare.com`（Turnstile），并限制 `object-src`、`base-uri`、`form-action`、`frame-ancestors`。API 响应在 `worker.js` 内单独附加 `nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy` 与 `Permissions-Policy`；管理员 API 不开放跨域，公共 API 保持 `Access-Control-Allow-Origin: *`。
 
-启用正式 CSP 前，请先在线上观察 `/api/csp-report` 的违规报告，再按真实资源来源收紧 `_headers` 中的策略。
+已知限制：`script-src` / `style-src` 仍带 `'unsafe-inline'`，因为三语页面使用了内联 `style=` 属性、JSON-LD 与主题初始化脚本。要去掉它需要先把这些内联片段改成外部文件或逐页 CSP 哈希，届时按同样方式在 `_headers` 中收紧即可。
 
 ## 字体
 

@@ -540,7 +540,11 @@ function profileEditor(p) {
       <h3>${p.hostname ? `编辑 ${esc(p.hostname)}` : "新增域名"}</h3>
       <label><span>域名（hostname，如 wx.shuangyue.space） <b class="admin-required">*必填</b></span><input name="hostname" value="${esc(p.hostname || "")}" ${p.hostname ? "readonly" : ""} required></label>
       <label><span>页面名称（标题 zh）</span><input name="title_zh" value="${esc(p.title?.zh || "")}"></label>
+      <label><span>页面名称（标题 ja）</span><input name="title_ja" value="${esc(p.title?.ja || "")}"></label>
+      <label><span>页面名称（标题 en）</span><input name="title_en" value="${esc(p.title?.en || "")}"></label>
       <label><span>副标题（zh）</span><input name="subtitle_zh" value="${esc(p.subtitle?.zh || "")}"></label>
+      <label><span>副标题（ja）</span><input name="subtitle_ja" value="${esc(p.subtitle?.ja || "")}"></label>
+      <label><span>副标题（en）</span><input name="subtitle_en" value="${esc(p.subtitle?.en || "")}"></label>
       <label><span>模板</span><select name="template">${TEMPLATE_OPTIONS.map((t) => `<option value="${t}" ${p.template === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label><span>语言：自动 / 中文 / 日文 / 英文</span><select name="language">${[["auto", "自动"], ["zh", "中文"], ["ja", "日文"], ["en", "英文"]].map(([v, n]) => `<option value="${v}" ${p.language === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
       <label><span>GitHub 用户名</span><input name="githubUser" value="${esc(p.githubUser || "shuangyue1124")}"></label>
@@ -949,8 +953,8 @@ async function saveProfile(event) {
     travel: { mode: String(form.get("travelMode") || "all"), cities: travelCities },
     githubUser: String(form.get("githubUser") || "shuangyue1124"),
     enabled: form.get("enabled") === "on",
-    title: { zh: String(form.get("title_zh") || ""), ja: String(form.get("title_zh") || ""), en: String(form.get("title_zh") || "") },
-    subtitle: { zh: String(form.get("subtitle_zh") || ""), ja: String(form.get("subtitle_zh") || ""), en: String(form.get("subtitle_zh") || "") },
+    title: { zh: String(form.get("title_zh") || ""), ja: String(form.get("title_ja") || form.get("title_zh") || ""), en: String(form.get("title_en") || form.get("title_zh") || "") },
+    subtitle: { zh: String(form.get("subtitle_zh") || ""), ja: String(form.get("subtitle_ja") || form.get("subtitle_zh") || ""), en: String(form.get("subtitle_en") || form.get("subtitle_zh") || "") },
   };
   // 必填校验：逐项列出缺失，不满足不提交；同时把草稿写回 editingProfile，避免报错后清空已填内容。
   const missing = [];
