@@ -56,9 +56,6 @@
 /admin.html
   Cache-Control: no-cache
 
-/manage.html
-  Cache-Control: no-cache
-
 https://about-aqa.pages.dev/*
   X-Robots-Tag: noindex
 

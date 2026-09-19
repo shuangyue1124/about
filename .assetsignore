@@ -1,9 +1,0 @@
-.git/**
-.wrangler/**
-node_modules/**
-.DS_Store
-.assetsignore
-package.json
-README.md
-scripts/**
-wrangler.jsonc
