@@ -21,6 +21,12 @@ export default {
       return handleComments(request, env, ctx);
     }
 
+    // Mirrors functions/api/translate.js: production routes by file, while this
+    // router keeps `wrangler dev` behaviour identical to the Pages deployment.
+    if (url.pathname === "/api/translate" || url.pathname === "/api/translate/") {
+      return handleTranslate(request, env, ctx);
+    }
+
     if (url.pathname === "/api/csp-report" || url.pathname === "/api/csp-report/") {
       return handleCspReport(request);
     }
@@ -132,6 +138,52 @@ const EVENT_RETENTION_DAYS_MAX = 365;
 // One cleanup attempt per N recorded events; keeps the sampled pruning cheap.
 const EVENT_CLEANUP_SAMPLE_RATE = 40;
 
+// --- AI page translation (Workers AI + D1 cache, free tier only) ---
+// zh/ja/en have hand-written static pages; only the languages below reach the
+// AI. The free tier grants a limited daily neuron budget, so every translation
+// is cached in D1 by content hash and shared by all visitors and all pages.
+const AI_LANGUAGES = new Map([
+  ["ko", "Korean"],
+  ["fr", "French"],
+  ["de", "German"],
+  ["es", "Spanish"],
+  ["pt", "Portuguese"],
+  ["ru", "Russian"],
+  ["it", "Italian"],
+  ["ar", "Arabic"],
+  ["hi", "Hindi"],
+  ["th", "Thai"],
+  ["vi", "Vietnamese"],
+  ["id", "Indonesian"],
+]);
+// Translation is a low-volume path, but it is also the only one that spends
+// neurons: cap it in memory (0 KV writes) so a reload loop cannot burn quota.
+// A cold-cache first visit still sends 2-3 requests per page (80 items each),
+// so the window must allow a visitor to browse several pages.
+const TRANSLATE_RATE_LIMITS = [
+  { limit: 20, windowSeconds: 60 },
+  { limit: 100, windowSeconds: 600 },
+];
+const MAX_TRANSLATE_ITEMS = 80;
+// Must stay in sync with TRANSLATE_ITEM_MAX_CHARS in assets/js/app.js. A lower
+// value here used to slice long copy silently: the model saw only the first
+// 1000 chars, and that partial translation replaced the whole node and was then
+// cached under the truncated text's hash.
+const MAX_TRANSLATE_ITEM_CHARS = 2000;
+const MAX_TRANSLATE_ITEM_ID_CHARS = 120;
+const MAX_TRANSLATE_BODY_BYTES = 65536;
+const TRANSLATE_BATCH_SIZE = 10;
+const TRANSLATE_TIMEOUT_MS = 30000;
+// Cached translations for a language nobody visits for a month are dropped
+// wholesale, which also reclaims rows orphaned by copy changes.
+const TRANSLATION_STALE_DAYS = 31;
+const TRANSLATION_STALE_DAYS_MIN = 7;
+const TRANSLATION_STALE_DAYS_MAX = 365;
+const TRANSLATE_CLEANUP_SAMPLE_RATE = 40;
+// Usage is tracked with at most one D1 write per language per 10 minutes.
+const TRANSLATION_TOUCH_INTERVAL_MS = 10 * 60 * 1000;
+const DEFAULT_TRANSLATE_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+
 const memory = {
   comments: null,
   commentsExpiresAt: 0,
@@ -150,6 +202,9 @@ const memory = {
   // Memory-only limiting costs 0 KV ops on the hot path; KV is retained only
   // for low-volume scopes (comments/login/ai-chat/telegram-test).
   rateLimits: new Map(),
+  // Language -> last D1 usage-touch timestamp. Keeps the "last visited" marker
+  // cheap: one write per language per 10 minutes instead of one per request.
+  langTouch: new Map(),
 };
 
 // --- Multi-hostname site profiles (incremental, no rewrite) ---
@@ -338,6 +393,17 @@ export async function handleComments(request, env, ctx) {
       const message = cleanMessage(payload.message, 500);
       if (!name || !message) return json({ error: "name and message are required" }, 400);
 
+      // Optional reply target: must reference an existing approved comment so
+      // visitors can never attach replies to hidden/pending content. The name
+      // is fetched too so the Telegram notification can show who was answered.
+      const parentId = cleanOneLine(payload.parentId, 80);
+      let parentName = "";
+      if (parentId) {
+        const parent = await env.COMMENTS_DB?.prepare("SELECT id, name, status FROM comments WHERE id = ?").bind(parentId).first();
+        if (!parent || parent.status !== "approved") return json({ error: "parent comment not found" }, 400);
+        parentName = cleanOneLine(parent.name, 32);
+      }
+
       const rate = await rateLimitCheck(env, "comments", clientIp(request), COMMENTS_RATE_LIMITS);
       if (rate.limited) return rateLimitedResponse(rate.retryAfter);
 
@@ -364,6 +430,8 @@ export async function handleComments(request, env, ctx) {
         createdAt: now,
         updatedAt: now,
         reviewedAt: moderation.safe ? now : "",
+        parentId: parentId || "",
+        parentName,
       };
 
       await saveComment(env, comment);
@@ -387,8 +455,278 @@ export async function handleComments(request, env, ctx) {
 
     return json({ error: "method not allowed" }, 405);
   } catch (error) {
+    // Unapplied migrations/0004 breaks every comment write (saveComment now
+    // inserts parent_id); point the operator at the migration instead of a
+    // generic "service unavailable".
+    const message = String(error?.message || error);
+    if (/no such table|no such column/i.test(message)) {
+      return json({ error: "comment storage is not migrated; run migrations/0004_comment_replies_and_translations.sql", detail: message }, 503);
+    }
     return serviceErrorResponse(error);
   }
+}
+
+// --- AI page translation -------------------------------------------------
+// The browser collects every translatable string on the page (static copy, UI
+// labels and comment bodies), sends them as one batch and applies the result
+// only after every entry came back. Cache hits are served from D1; only the
+// missing entries are sent to Workers AI, in small batches, so a reload never
+// re-translates a page and never re-spends neurons.
+export async function handleTranslate(request, env, ctx) {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
+
+  try {
+    if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+
+    const contentLength = Number.parseInt(request.headers.get("content-length") || "0", 10) || 0;
+    if (contentLength > MAX_TRANSLATE_BODY_BYTES) return json({ error: "payload too large" }, 413);
+
+    const payload = await request.json().catch(() => ({}));
+    const lang = cleanOneLine(payload.lang, 12).toLowerCase();
+    if (!AI_LANGUAGES.has(lang)) return json({ error: "unsupported language" }, 400);
+
+    let items;
+    try {
+      items = sanitizeTranslateItems(payload.items);
+    } catch (error) {
+      // Malformed item (e.g. copy over the per-item cap): the client's bug, so
+      // answer 400 with the reason instead of translating a prefix.
+      return json({ error: String(error?.message || error) }, 400);
+    }
+    if (!items.length) return json({ error: "items are required" }, 400);
+
+    const rate = memoryRateLimitCheck("translate", clientIp(request), TRANSLATE_RATE_LIMITS);
+    if (rate.limited) return rateLimitedResponse(rate.retryAfter);
+
+    if (!env.AI?.run) return json({ error: "AI binding is not configured" }, 503);
+    if (!env.COMMENTS_DB) return json({ error: "D1 binding is not configured" }, 503);
+
+    // Local preview self-boots the schema; in production this is a no-op and
+    // migrations/0004 must be applied before this endpoint can read its cache.
+    await ensureSchema(env).catch(() => {});
+
+    const model = cleanOneLine(env.TRANSLATE_MODEL, 120) || DEFAULT_TRANSLATE_MODEL;
+    const languageName = AI_LANGUAGES.get(lang);
+
+    // Content addressing: identical copy on any page shares one cached row, and
+    // a copy change simply produces a new hash instead of serving stale text.
+    const hashes = [];
+    for (const item of items) hashes.push((await sha256Hex(item.text)).slice(0, 40));
+
+    const byHash = new Map();
+    for (const group of chunkArray(hashes, 40)) {
+      const result = await env.COMMENTS_DB.prepare(
+        `SELECT chunk_hash, translated_text FROM translations WHERE lang = ? AND chunk_hash IN (${group.map(() => "?").join(", ")})`
+      ).bind(lang, ...group).all();
+      for (const row of result.results || []) byHash.set(row.chunk_hash, row.translated_text);
+    }
+
+    const missing = [];
+    const pendingHashes = new Set();
+    for (const [index, item] of items.entries()) {
+      const hash = hashes[index];
+      // Deduplicate by hash: the same copy submitted under two ids must be
+      // translated (and paid for) exactly once; both ids resolve from byHash.
+      if (!byHash.has(hash) && !pendingHashes.has(hash)) {
+        pendingHashes.add(hash);
+        missing.push({ item, hash });
+      }
+    }
+
+    let freshCount = 0;
+    try {
+      for (const batch of chunkArray(missing, TRANSLATE_BATCH_SIZE)) {
+        const translated = await translateBatchWithRetry(env, model, languageName, batch.map((entry) => entry.item.text));
+        const saved = batch.map((entry, index) => ({
+          hash: entry.hash,
+          source: entry.item.text,
+          text: cleanMessage(translated[index], MAX_TRANSLATE_ITEM_CHARS * 2),
+        }));
+        for (const entry of saved) byHash.set(entry.hash, entry.text);
+        // Persist each finished batch immediately. If a later batch fails, the
+        // work already paid for stays cached and the client retry only pays for
+        // the remainder — no page is ever left half-translated.
+        await saveTranslations(env, lang, saved);
+        freshCount += saved.length;
+      }
+    } catch (error) {
+      console.error("[translate] batch failed", error?.message || error);
+      return json({ error: "translation failed", lang }, 502);
+    }
+
+    // Null prototype: request-controlled ids like "__proto__" can never poison
+    // Object.prototype through this plain assignment loop.
+    const translations = Object.create(null);
+    for (const [index, item] of items.entries()) {
+      const value = byHash.get(hashes[index]);
+      if (value) translations[item.id] = value;
+    }
+
+    const background = (async () => {
+      await touchTranslationUsage(env, lang).catch(() => {});
+      await maybeCleanupTranslations(env).catch(() => {});
+    })();
+    if (ctx?.waitUntil) ctx.waitUntil(background);
+    else background.catch(() => {});
+
+    return json({ lang, model, translations, cachedCount: items.length - freshCount, freshCount });
+  } catch (error) {
+    // An unapplied migrations/0004 leaves the cache tables missing; say so
+    // instead of a generic 503 the operator cannot act on.
+    const message = String(error?.message || error);
+    if (/no such table|no such column/i.test(message)) {
+      return json({ error: "translation cache is not migrated; run migrations/0004_comment_replies_and_translations.sql", detail: message }, 503);
+    }
+    return serviceErrorResponse(error);
+  }
+}
+
+function sanitizeTranslateItems(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const items = [];
+  for (const entry of value) {
+    if (items.length >= MAX_TRANSLATE_ITEMS) break;
+    const id = cleanOneLine(entry?.id, MAX_TRANSLATE_ITEM_ID_CHARS);
+    const text = cleanMessage(entry?.text, MAX_TRANSLATE_ITEM_CHARS).trim();
+    // Never let cleanMessage's slice() quietly shorten the source: the model
+    // would translate a prefix, the client would write that prefix back over
+    // the whole node, and the truncated result would be cached under the
+    // truncated hash. Over-long copy is the client's bug, so say so instead.
+    if (String(entry?.text || "").trim().length > MAX_TRANSLATE_ITEM_CHARS) {
+      throw new Error(`translation item "${id || "?"}" exceeds ${MAX_TRANSLATE_ITEM_CHARS} characters`);
+    }
+    if (!id || !text || seen.has(id)) continue;
+    seen.add(id);
+    items.push({ id, text });
+  }
+  return items;
+}
+
+function chunkArray(values, size) {
+  const groups = [];
+  for (let index = 0; index < values.length; index += size) {
+    groups.push(values.slice(index, index + size));
+  }
+  return groups;
+}
+
+async function translateBatchWithRetry(env, model, languageName, texts) {
+  try {
+    return await translateBatch(env, model, languageName, texts);
+  } catch (error) {
+    // One retry absorbs the common case of a model answering with prose or a
+    // truncated array; a second failure surfaces as 502 so the client can drop
+    // back to the original language instead of showing partial copy.
+    console.warn("[translate] retrying batch", error?.message || error);
+    return translateBatch(env, model, languageName, texts);
+  }
+}
+
+async function translateBatch(env, model, languageName, texts) {
+  const content = [
+    `Translate the following Chinese texts into ${languageName}.`,
+    `Return ONLY a JSON array of ${texts.length} strings, in the same order as the input.`,
+    "Rules: no commentary or explanation; keep URLs, numbers, emoji, @mentions, line breaks and placeholders such as {name} unchanged; keep UI labels short and natural.",
+    "",
+    "Input:",
+    JSON.stringify(texts),
+  ].join("\n");
+
+  // raceWithTimeout clears its timer and resolves null on timeout; a null here
+  // fails the batch exactly like any other malformed answer.
+  const result = await raceWithTimeout(runTextModel(env, model, content), TRANSLATE_TIMEOUT_MS);
+  if (result === null) throw new Error("translation timed out");
+
+  const parsed = extractFirstJsonArray(extractModelText(result));
+  // A length mismatch means the model dropped or merged an entry; refusing the
+  // whole batch is what keeps the page from rendering half-translated.
+  if (!Array.isArray(parsed) || parsed.length !== texts.length) {
+    throw new Error(`translation returned ${Array.isArray(parsed) ? parsed.length : "invalid"} entries for ${texts.length}`);
+  }
+  const cleaned = parsed.map((value) => cleanMessage(value, MAX_TRANSLATE_ITEM_CHARS * 2));
+  if (cleaned.some((value) => !value.trim())) throw new Error("translation returned an empty entry");
+  return cleaned;
+}
+
+function extractFirstJsonArray(text) {
+  const raw = String(text || "");
+  const start = raw.indexOf("[");
+  const end = raw.lastIndexOf("]");
+  if (start < 0 || end <= start) throw new Error("no JSON array in model output");
+  return JSON.parse(raw.slice(start, end + 1));
+}
+
+async function saveTranslations(env, lang, entries) {
+  if (!env.COMMENTS_DB || !entries.length) return;
+  await ensureSchema(env);
+  const now = new Date().toISOString();
+  for (const entry of entries) {
+    await env.COMMENTS_DB.prepare(`
+      INSERT OR REPLACE INTO translations (lang, chunk_hash, source_text, translated_text, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).bind(lang, entry.hash, entry.source, entry.text, now).run();
+  }
+}
+
+async function touchTranslationUsage(env, lang) {
+  if (!env.COMMENTS_DB) return;
+  const now = Date.now();
+  if (now - (memory.langTouch.get(lang) || 0) < TRANSLATION_TOUCH_INTERVAL_MS) return;
+  // Mark only after the write succeeded, so a transient D1 error does not mute
+  // usage tracking for the next ten minutes.
+  await env.COMMENTS_DB.prepare(`
+    INSERT INTO translation_lang_usage (lang, last_used_at, request_count)
+    VALUES (?, ?, 1)
+    ON CONFLICT(lang) DO UPDATE SET last_used_at = excluded.last_used_at, request_count = request_count + 1
+  `).bind(lang, new Date(now).toISOString()).run();
+  memory.langTouch.set(lang, now);
+}
+
+// Cloudflare Pages never fires scheduled(), so stale-language pruning rides
+// along with translation requests: roughly one in TRANSLATE_CLEANUP_SAMPLE_RATE
+// calls drops every cached row of languages unused for more than a month.
+async function maybeCleanupTranslations(env) {
+  if (!env.COMMENTS_DB) return { deletedLangs: 0, deletedChunks: 0 };
+  if (Math.random() * TRANSLATE_CLEANUP_SAMPLE_RATE >= 1) return { deletedLangs: 0, deletedChunks: 0 };
+  const result = await cleanupTranslations(env, TRANSLATION_STALE_DAYS);
+  if (result.deletedLangs) console.log(`[translate cleanup] removed ${result.deletedChunks} cached rows for ${result.deletedLangs} stale languages`);
+  return result;
+}
+
+async function cleanupTranslations(env, days, onlyLang = "") {
+  await ensureSchema(env);
+  const windowDays = Math.min(Math.max(days, TRANSLATION_STALE_DAYS_MIN), TRANSLATION_STALE_DAYS_MAX);
+  const cutoff = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const stale = onlyLang
+    ? [onlyLang]
+    : ((await env.COMMENTS_DB.prepare("SELECT lang FROM translation_lang_usage WHERE last_used_at < ?").bind(cutoff).all()).results || [])
+      .map((row) => row.lang);
+  if (!stale.length) return { deletedLangs: 0, deletedChunks: 0 };
+
+  let deletedChunks = 0;
+  for (const lang of stale) {
+    const result = await env.COMMENTS_DB.prepare("DELETE FROM translations WHERE lang = ?").bind(lang).run();
+    deletedChunks += result.meta?.changes || 0;
+  }
+  await env.COMMENTS_DB.prepare(
+    `DELETE FROM translation_lang_usage WHERE lang IN (${stale.map(() => "?").join(", ")})`
+  ).bind(...stale).run();
+  return { deletedLangs: stale.length, deletedChunks };
+}
+
+async function translateStats(env) {
+  await ensureSchema(env);
+  const [usage, counts] = await Promise.all([
+    env.COMMENTS_DB.prepare("SELECT lang, last_used_at, request_count FROM translation_lang_usage ORDER BY last_used_at DESC").all(),
+    env.COMMENTS_DB.prepare("SELECT lang, COUNT(*) AS chunks FROM translations GROUP BY lang ORDER BY chunks DESC").all(),
+  ]);
+  return {
+    usage: usage.results || [],
+    counts: counts.results || [],
+    languages: Array.from(AI_LANGUAGES.keys()),
+    staleDays: TRANSLATION_STALE_DAYS,
+  };
 }
 
 export async function handleSite(request, env) {
@@ -644,6 +982,24 @@ export async function handleAdmin(request, env, ctx) {
       return jsonAdmin({ ok: true, deleted: result.meta?.changes || 0, cutoff, days });
     }
 
+    // Translation cache: the automatic one-month sweep is sampled and therefore
+    // invisible, so the admin gets both a read-only overview and a manual purge
+    // (whole language, or every language unused for N days).
+    if (path === "/api/admin/translate-stats" && request.method === "GET") {
+      if (!env.COMMENTS_DB) return jsonAdmin({ error: "D1 storage is not configured" }, 503);
+      return jsonAdmin(await translateStats(env));
+    }
+
+    if (path === "/api/admin/translate-cleanup" && request.method === "POST") {
+      if (!env.COMMENTS_DB) return jsonAdmin({ error: "D1 storage is not configured" }, 503);
+      const payload = await request.json().catch(() => ({}));
+      const days = boundedInt(payload.days, TRANSLATION_STALE_DAYS, TRANSLATION_STALE_DAYS_MIN, TRANSLATION_STALE_DAYS_MAX);
+      const lang = cleanOneLine(payload.lang, 12).toLowerCase();
+      if (lang && !AI_LANGUAGES.has(lang)) return jsonAdmin({ error: "unsupported language" }, 400);
+      const result = await cleanupTranslations(env, days, lang);
+      return jsonAdmin({ ok: true, ...result, days, lang });
+    }
+
     if (path === "/api/admin/ai-chat" && request.method === "POST") {
       // Empty messages are rejected before the rate-limit counters so junk or
       // accidental empty posts never burn KV writes.
@@ -790,9 +1146,10 @@ export async function handleAdmin(request, env, ctx) {
       }
 
       if (request.method === "DELETE") {
-        await deleteComment(env, id);
+        const result = await deleteComment(env, id);
         await refreshApprovedCommentsCache(env);
-        return jsonAdmin({ ok: true });
+        // deleted > 1 tells the admin the cascade removed replies as well.
+        return jsonAdmin({ ok: true, deleted: result?.deleted ?? 1 });
       }
     }
 
@@ -877,7 +1234,8 @@ async function clearLoginFailures(env, ip, knownCount = -1) {
 async function ensureSchema(env) {
   if (!env.COMMENTS_DB || memory.schemaReady) return;
   // Production schema is managed by migrations/0001_comments_d1.sql,
-  // migrations/0002_site_events.sql and migrations/0003_site_profiles.sql.
+  // migrations/0002_site_events.sql, migrations/0003_site_profiles.sql and
+  // migrations/0004_comment_replies_and_translations.sql.
   // The DDL bootstrap below only runs for local preview where
   // RUNTIME_SCHEMA_BOOTSTRAP is set.
   if (env.RUNTIME_SCHEMA_BOOTSTRAP !== "1") return;
@@ -896,9 +1254,15 @@ async function ensureSchema(env) {
       moderation_error TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      reviewed_at TEXT
+      reviewed_at TEXT,
+      parent_id TEXT
     )
   `).run();
+  // SQLite has no "ADD COLUMN IF NOT EXISTS": a fresh CREATE above already
+  // contains parent_id, so this ALTER only upgrades an older local database
+  // and safely swallows the duplicate-column error otherwise.
+  await env.COMMENTS_DB.prepare("ALTER TABLE comments ADD COLUMN parent_id TEXT").run().catch(() => {});
+  await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments (parent_id)").run();
   await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_comments_status_created ON comments (status, created_at DESC)").run();
   await env.COMMENTS_DB.prepare(`
     CREATE TABLE IF NOT EXISTS site_config (
@@ -965,6 +1329,25 @@ async function ensureSchema(env) {
       updated_at TEXT NOT NULL
     )
   `).run();
+  // AI translation cache (migrations/0004): chunk_hash is content-addressed,
+  // so D1 stays the only store — no KV writes are spent on translations.
+  await env.COMMENTS_DB.prepare(`
+    CREATE TABLE IF NOT EXISTS translations (
+      lang TEXT NOT NULL,
+      chunk_hash TEXT NOT NULL,
+      source_text TEXT NOT NULL,
+      translated_text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (lang, chunk_hash)
+    )
+  `).run();
+  await env.COMMENTS_DB.prepare(`
+    CREATE TABLE IF NOT EXISTS translation_lang_usage (
+      lang TEXT PRIMARY KEY,
+      last_used_at TEXT NOT NULL,
+      request_count INTEGER NOT NULL DEFAULT 0
+    )
+  `).run();
   memory.schemaReady = true;
 }
 
@@ -1000,13 +1383,18 @@ async function listAdminComments(env, limit, status) {
 async function listD1Comments(env, limit, status = "approved") {
   await ensureSchema(env);
   const capped = commentLimit(limit);
+  // LEFT JOIN resolves the direct parent's name and status so the client can
+  // render one-level nesting without a second query. Old rows have no
+  // parent_id, so the join simply yields NULLs for them.
   const columns = `
-    id, name, message, ip, ip_location, status, moderation_model, moderation_result,
-    moderation_categories, moderation_reason, moderation_error, created_at, updated_at, reviewed_at
+    c.id, c.name, c.message, c.ip, c.ip_location, c.status, c.moderation_model, c.moderation_result,
+    c.moderation_categories, c.moderation_reason, c.moderation_error, c.created_at, c.updated_at, c.reviewed_at,
+    c.parent_id, p.name AS parent_name, p.status AS parent_status
   `;
+  const from = "FROM comments c LEFT JOIN comments p ON p.id = c.parent_id";
   const query = status && status !== "all"
-    ? env.COMMENTS_DB.prepare(`SELECT ${columns} FROM comments WHERE status = ? ORDER BY created_at DESC LIMIT ?`).bind(status, capped)
-    : env.COMMENTS_DB.prepare(`SELECT ${columns} FROM comments ORDER BY created_at DESC LIMIT ?`).bind(capped);
+    ? env.COMMENTS_DB.prepare(`SELECT ${columns} ${from} WHERE c.status = ? ORDER BY c.created_at DESC LIMIT ?`).bind(status, capped)
+    : env.COMMENTS_DB.prepare(`SELECT ${columns} ${from} ORDER BY c.created_at DESC LIMIT ?`).bind(capped);
   const result = await query.all();
   return (result.results || []).map(commentFromRow);
 }
@@ -1017,8 +1405,8 @@ async function saveComment(env, comment) {
     await env.COMMENTS_DB.prepare(`
       INSERT INTO comments (
         id, name, message, ip, ip_location, status, moderation_model, moderation_result,
-        moderation_categories, moderation_reason, moderation_error, created_at, updated_at, reviewed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        moderation_categories, moderation_reason, moderation_error, created_at, updated_at, reviewed_at, parent_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       comment.id,
       comment.name,
@@ -1033,7 +1421,8 @@ async function saveComment(env, comment) {
       comment.moderationError || "",
       comment.createdAt,
       comment.updatedAt,
-      comment.reviewedAt || ""
+      comment.reviewedAt || "",
+      comment.parentId || ""
     ).run();
     return;
   }
@@ -1054,9 +1443,10 @@ async function updateCommentStatus(env, id, status) {
     .bind(status, now, reviewedAt, id)
     .run();
   const comment = await env.COMMENTS_DB.prepare(`
-    SELECT id, name, message, ip, ip_location, status, moderation_model, moderation_result,
-      moderation_categories, moderation_reason, moderation_error, created_at, updated_at, reviewed_at
-    FROM comments WHERE id = ?
+    SELECT c.id, c.name, c.message, c.ip, c.ip_location, c.status, c.moderation_model, c.moderation_result,
+      c.moderation_categories, c.moderation_reason, c.moderation_error, c.created_at, c.updated_at, c.reviewed_at,
+      c.parent_id, p.name AS parent_name, p.status AS parent_status
+    FROM comments c LEFT JOIN comments p ON p.id = c.parent_id WHERE c.id = ?
   `).bind(id).first();
   if (!comment) throw new Error("comment not found");
   return adminComment(commentFromRow(comment));
@@ -1065,14 +1455,25 @@ async function updateCommentStatus(env, id, status) {
 async function deleteComment(env, id) {
   if (env.COMMENTS_DB) {
     await ensureSchema(env);
-    await env.COMMENTS_DB.prepare("DELETE FROM comments WHERE id = ?").bind(id).run();
-    return;
+    // Single-statement recursive delete: atomic (no orphan window between the
+    // descendant scan and the delete) and free of the 100-bind-parameter cap a
+    // pre-collected IN list would hit on deep threads.
+    const removed = await env.COMMENTS_DB.prepare(`
+      WITH RECURSIVE descendants(id) AS (
+        SELECT id FROM comments WHERE id = ?
+        UNION ALL
+        SELECT c.id FROM comments c JOIN descendants d ON c.parent_id = d.id
+      )
+      DELETE FROM comments WHERE id IN (SELECT id FROM descendants)
+    `).bind(id).run();
+    return { deleted: (removed.meta?.changes || 0) };
   }
 
   if (!env.COMMENTS_KV) throw new Error("comment deletion is not configured");
   const comments = await listLegacyKvComments(env, MAX_STORED_COMMENTS);
   const next = comments.filter((item) => String(item.id || "") !== String(id));
   await env.COMMENTS_KV.put(LEGACY_COMMENT_INDEX_KEY, JSON.stringify(next));
+  return { deleted: 1 };
 }
 
 async function migrateLegacyComments(env) {
@@ -1163,6 +1564,13 @@ export function buildTelegramMessage(comment, meta = {}) {
     "💬 New comment on about.shuangyue.space",
     "",
     `Name: ${cleanOneLine(comment?.name, 32) || "Anonymous"}`,
+  ];
+  // Replies surface their target so the owner can follow the conversation.
+  const parentName = cleanOneLine(comment?.parentName, 32);
+  if (comment?.parentId) {
+    lines.push(`Reply to: ${parentName || cleanOneLine(comment.parentId, 80)}`);
+  }
+  lines.push(
     `Page: ${cleanPath(meta.page || "/")}`,
     `Language: ${cleanOneLine(meta.lang, 12) || "zh"}`,
     `Status: ${cleanOneLine(comment?.status, 20) || "pending"}`,
@@ -1175,7 +1583,7 @@ export function buildTelegramMessage(comment, meta = {}) {
     "",
     "Comment ID:",
     cleanOneLine(comment?.id, 80),
-  ];
+  );
   return lines.join("\n");
 }
 
@@ -2234,6 +2642,8 @@ function publicComment(comment) {
     ip: cleanOneLine(comment.ip, 64) || "unknown",
     ipLocation: cleanOneLine(comment.ipLocation || comment.location, 120) || "Unknown location",
     createdAt: cleanOneLine(comment.createdAt, 40),
+    parentId: cleanOneLine(comment.parentId, 80) || "",
+    parentName: cleanOneLine(comment.parentName, 32) || "",
   };
 }
 
@@ -2248,6 +2658,7 @@ function adminComment(comment) {
     moderationReason: cleanOneLine(comment.moderationReason, 400),
     moderationError: cleanOneLine(comment.moderationError, 400),
     moderationResult: cleanOneLine(comment.moderationResult, 1200),
+    parentStatus: cleanOneLine(comment.parentStatus, 20) || "",
   };
 }
 
@@ -2267,6 +2678,9 @@ function commentFromRow(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     reviewedAt: row.reviewed_at,
+    parentId: row.parent_id || "",
+    parentName: row.parent_name || "",
+    parentStatus: row.parent_status || "",
   };
 }
 

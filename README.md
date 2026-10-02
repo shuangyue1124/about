@@ -100,6 +100,16 @@ IP 归属地来自 Cloudflare 请求信息，优先显示国家 / 地区 / 城�
 
 注意：当前需求要求公开显示留言者 IP 和归属地。上线前请确认这符合你的隐私预期。
 
+### 留言回复
+
+访客可以对任意一条已公开的留言点「回复」。回复与普通留言走完全相同的链路（蜜罐 -> 限流 -> Turnstile -> AI 审核 -> D1），只是额外携带 `parentId`：
+
+- `POST /api/comments` 支持可选字段 `parentId`，必须是状态为 `approved` 的留言，否则返回 400（防止把回复挂到未公开内容上）。
+- `GET /api/comments` 的每条留言额外返回 `parentId` 与 `parentName`，前端据此组装层级。
+- 前台只嵌套一层：直接回复缩进显示在原留言下；「回复的回复」平铺在同一组里，并以「回复 @昵称」标注被回复对象。
+- 管理员在后台删除一条留言时，会连同它的全部回复一起删除（D1 递归级联），后台删除按钮会二次确认。
+- 管理员驳回父留言后，其回复会在前台隐藏（数据仍在库里，父留言重新批准即可恢复）；后台会显示「父评论已驳回，前台隐藏此回复」提示。
+
 ### D1 主库 + KV 缓存
 
 评论完整数据和站点配置保存在 D1；KV 只承担公开评论缓存（`comments:approved:v1`）和短期限流计数，不再保存站点配置（旧 KV `site:settings` 仅作为无 D1 环境的迁移回退读取）。Worker 实例内还有短期内存缓存。读取路径是内存缓存 -> KV -> D1。KV 是最终一致存储，公开评论刷新后全球边缘传播可能需要 60 秒以上，后台配置里的 KV TTL 默认 60 秒。
@@ -114,7 +124,19 @@ npx wrangler d1 create about-comments
 
 ```powershell
 npx wrangler d1 execute about-comments --file migrations/0001_comments_d1.sql
+npx wrangler d1 execute about-comments --file migrations/0002_site_events.sql
+npx wrangler d1 execute about-comments --file migrations/0003_site_profiles.sql
+# 留言回复（parent_id）+ AI 翻译缓存表
+npx wrangler d1 execute about-comments --file migrations/0004_comment_replies_and_translations.sql
 ```
+
+生产环境执行（ Pages 项目绑定的就是同一个数据库）：
+
+```powershell
+npx wrangler d1 execute about-comments --file migrations/0004_comment_replies_and_translations.sql --remote
+```
+
+> **部署顺序硬约束**：migrations/0004 之后，评论写入（`saveComment`）固定写 `parent_id` 列、翻译 API 读写 `translations` 表。**必须先对生产 D1 执行该 migration，再推送触发 Pages 部署**；顺序颠倒会让所有评论提交和翻译请求返回 503（响应体中会提示运行该 migration）。
 
 创建 KV namespace 作为公开评论缓存和旧数据迁移来源：
 
@@ -184,6 +206,7 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 - 查看后台依赖的 Cloudflare 绑定与环境变量清单状态（D1、KV、AI、Turnstile、管理员密码、Telegram 等）；缺少某项时逐项提示变量名、期望值与设置位置，只提醒不拦截，不影响页面访问与后台管理
 - 幂等迁移旧 KV `comments:index` 到 D1
 - 清理 90 天前的 `site_events` 统计事件
+- 查看 / 清理 AI 翻译缓存（每种语言的缓存条数、最后使用时间；可按天数清理过期语言，或单独清空某语言）
 - 发送 Telegram 通知测试（需先配置 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`）
 
 登录态使用 HttpOnly Cookie 保存 24 小时，Cookie 签名由 `ADMIN_PASSWORD` 派生。没有配置 `ADMIN_PASSWORD` 时，后台登录会返回 `ADMIN_PASSWORD is not configured`。
@@ -197,6 +220,7 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 - `/api/admin/login`：单 IP 5 次失败/5 分钟后返回 429，登录成功后清零（此前无失败记录时跳过 KV 删除，省一次 delete 额度）。
 - `/api/admin/ai-chat`：每个管理员会话 30 次/分钟（空消息在限流前直接 400，不消耗 KV）。
 - `/api/admin/test-telegram`：每个管理员会话 3 次/分钟。
+- `/api/translate`：单 IP 12 次/分钟、60 次/10 分钟，**纯内存固定窗口（0 KV 操作）**。翻译是唯一会消耗 Workers AI neuron 额度的路径，缓存必须命中优先。
 
 限流键里的客户端标识是 SHA-256 哈希（KV 只存短 TTL 计数），不以明文存 IP。静态页面不触碰 KV；`/api/events` 正常与超限时均为 0 KV 操作，只有低频 API（评论/登录/AI 对话/Telegram 测试）与公开评论缓存会走 KV。
 
@@ -206,6 +230,28 @@ Workers AI 默认使用 `@cf/meta/llama-guard-3-8b` 审核。AI 判定不安全�
 - 手动清理：后台「清理统计事件」按钮调用 `POST /api/admin/cleanup-events`（默认删除 90 天前事件，可传 `days` 7~365）。
 
 `wrangler.jsonc` 另配了每天 00:00 中国时间（即 16:00 UTC，Cron 按 UTC 运行）的 `scheduled()` 自动清理，但它只在 Worker 运行时（`wrangler dev` / `wrangler deploy`）生效——Pages Functions 没有定时触发 wiring，Pages 生产部署会忽略该配置。
+
+## AI 整页翻译（Workers AI + D1 缓存）
+
+除中 / 日 / 英三语静态页面外，站点的语言选择器还提供 12 种语言（韩、法、德、西、葡、俄、意、阿、印地、泰、越南、印尼）。这些语言没有对应的静态页面，由 Workers AI 在访问时翻译，全部在 Cloudflare 免费额度内完成。
+
+工作方式：
+
+1. 访客在页面右上角语言选择器里选择一种 AI 语言，选择结果写入 `localStorage`（键 `sfsy-lang`）。静态语言（zh/ja/en）仍是跳转到对应静态页面。
+2. 前端收集页面上**全部**可见文案：界面字典、静态正文、按钮、占位符 / `aria-label` / `title` / `alt`，以及评论区每条留言正文。纯数字、日期和符号不会发送。
+3. 按 60 条一组调用 `POST /api/translate`，服务端按内容哈希（sha256）查 D1 缓存 `translations` 表；只有未命中的条目才送给 Workers AI（模型默认 `@cf/meta/llama-3.3-70b-instruct-fp8-fast`，可用 `TRANSLATE_MODEL` 变量切换），每 10 条一批。
+4. **完整性保证**：模型必须返回与输入条数相同的 JSON 数组，否则整批重试一次，仍失败则返回 502；前端只有在**所有**条目都拿到译文后才一次性替换页面（原子应用），任何一步失败就保留原文并提示「翻译暂不可用」。已完成的批次会立即写进缓存，客户端重试只为剩余部分付费，不会重复消耗额度。
+5. 相同文案（跨页面、跨访客）共享同一条缓存行；模型调用是一次性的，之后所有访客都直接命中 D1。
+
+缓存清理（同样无需付费、无需额外服务）：
+
+- 翻译请求会以 `translation_lang_usage` 表记录每种语言最后使用时间（同一实例内每种语言最多 10 分钟写一次 D1）。
+- 自动清理沿用项目既有的「概率抽样」模式：每次翻译请求以 1/40 的概率顺带删除**超过 31 天无人使用**的语言及其**全部**缓存译文（Pages 无 cron，这是线上唯一自动生效的路径）。
+- 后台「AI 翻译缓存」面板可查看各语言缓存条数 / 请求次数 / 最后使用时间，并手动「清理超过 N 天未使用的语言」（`POST /api/admin/translate-cleanup`，`days` 7~365）或单独清空某语言（传 `lang`）。
+
+额度与成本：翻译只使用 Workers AI 免费额度（每天 10,000 neurons）。缓存、清理全部落在 D1 与 Worker 内存上，**不新增任何 KV 写入**（KV 免费额度仅 1,000 写/天，是全站最稀缺的资源）。额度吃紧时把 `TRANSLATE_MODEL` 换成 `@cf/meta/llama-3.2-3b-instruct` 即可，已缓存的语言不受影响。
+
+新增语言只需两处同步：`assets/js/data.js` 的 `languages`（加 `ai: true`）与 `worker.js` 的 `AI_LANGUAGES`；`npm run check` 的 `check:data` 会校验两者一致。
 
 ### 安全响应头与 CSP
 

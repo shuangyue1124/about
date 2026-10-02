@@ -5,6 +5,7 @@
 ## 文档分类
 
 - `docs/features/visual-content.md`: 访客能看到的 NFC 名片、分享、通讯录、静态降级与图片行为。
+- `docs/features/comments-and-translation.md`: 留言回复的层级展示，以及非静态语言的整页 AI 翻译、缓存与过期清理。
 - `docs/architecture/asset-delivery.md`: 静态页面、图片衍生资源、PWA 文件从源码到 Cloudflare Pages 的交付边界。
 - `docs/principles/image-asset-maintenance.md`: 后续换图、调整首屏、维护分享/VCF、构建和发布时必须遵守的规则。
 
@@ -31,6 +32,8 @@
 - Service Worker 的页面网络优先与静态资源缓存策略: `sw.js:1-79`。
 - Pages Git 集成与本地 Worker 预览的职责边界: `README.md:31-78`, `wrangler.jsonc:1-5`, `wrangler.jsonc:29-33`。
 - 本地及线上资源回归检查: `scripts/verify-image-assets.mjs:87-301`。
+- 留言回复（parent_id、一层嵌套、级联删除）: `migrations/0004_comment_replies_and_translations.sql:1-9`, `worker.js` 的 `handleComments` / `listD1Comments` / `deleteComment`, `assets/js/app.js` 的 `buildCommentTree`。
+- AI 整页翻译与缓存清理: `worker.js` 的 `handleTranslate` / `translateBatch` / `cleanupTranslations`, `assets/js/app.js` 的 `collectTranslationItems` / `startAiTranslation` / `bindLangSelector`, `docs/features/comments-and-translation.md`。
 
 ## 维护约束
 

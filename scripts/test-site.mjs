@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync, statSync } from "node:fs";
 import { extname, resolve } from "node:path";
-import { buildTelegramMessage, handleAdmin, handleComments, handleCspReport, handleEvents, handleSite, sendTelegramNotification } from "../worker.js";
+import { buildTelegramMessage, handleAdmin, handleComments, handleCspReport, handleEvents, handleSite, handleTranslate, sendTelegramNotification } from "../worker.js";
 import { checkHtmlLinks } from "./check-links.mjs";
 
 const ROOT = resolve(".");
@@ -114,10 +114,15 @@ class MemoryDb {
     this.writes = 0;
     this.lastSql = "";
     this.lastValues = [];
+    // Optional fixtures keyed by a SQL substring, so handlers can be driven
+    // through branches that need a row back (an existing parent comment, a
+    // cached translation, a stale-language list).
+    this.fixtures = new Map();
   }
   prepare(sql) {
     const db = this;
     db.lastSql = sql;
+    const match = [...db.fixtures.entries()].find(([key]) => sql.includes(key));
     return {
       bind(...values) {
         this.values = values;
@@ -129,10 +134,10 @@ class MemoryDb {
         return { meta: { changes: 1 } };
       },
       async first() {
-        return null;
+        return match ? match[1].first ?? null : null;
       },
       async all() {
-        return { results: [] };
+        return { results: match ? match[1].all ?? [] : [] };
       },
     };
   }
@@ -274,6 +279,167 @@ async function apiSmoke() {
   }), env));
   const tgBody = JSON.stringify(tgAdmin.data || {});
   check("test-telegram 未配置 → 503 且不泄露 secret", tgAdmin.status === 503 && !/fake|token|chat/i.test(tgBody), tgAdmin.status);
+
+  // ---- comment replies ----
+  // Fresh KV (the rate-limit quota above is already spent for this IP) plus a
+  // stubbed Turnstile endpoint so the request can reach the persistence path.
+  const replyEnv = { ...env, COMMENTS_DB: new MemoryDb(), COMMENTS_KV: new MemoryKv(), TURNSTILE_SECRET_KEY: "test-secret" };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => (
+    String(input?.url || input).includes("challenges.cloudflare.com")
+      ? new Response(JSON.stringify({ success: true }), { status: 200, headers: { "content-type": "application/json" } })
+      : realFetch(input, init)
+  );
+
+  const orphanReply = await asJson(await handleComments(apiRequest("/api/comments", {
+    method: "POST",
+    body: { name: "smoke", message: "hello", parentId: "missing-parent", turnstileToken: "x" },
+  }), replyEnv));
+  check("回复不存在的评论 → 400", orphanReply.status === 400, orphanReply.status);
+
+  replyEnv.COMMENTS_DB.fixtures.set("SELECT id, name, status FROM comments WHERE id", { first: { id: "parent-1", status: "pending" } });
+  const pendingReply = await asJson(await handleComments(apiRequest("/api/comments", {
+    method: "POST",
+    body: { name: "smoke", message: "hello", parentId: "parent-1", turnstileToken: "x" },
+  }), replyEnv));
+  check("回复未公开评论 → 400", pendingReply.status === 400, pendingReply.status);
+
+  replyEnv.COMMENTS_DB.fixtures.set("SELECT id, name, status FROM comments WHERE id", { first: { id: "parent-1", status: "approved", name: "Parent Nick" } });
+  const okReply = await asJson(await handleComments(apiRequest("/api/comments", {
+    method: "POST",
+    body: { name: "smoke", message: "hello", parentId: "parent-1", turnstileToken: "x" },
+  }), replyEnv));
+  // No AI binding here, so the reply lands in pending; the parent link is what
+  // matters — it has to survive the moderation + persistence pipeline, and the
+  // Telegram notification must be able to name the parent.
+  check("回复已公开评论 → 202 且保留 parentId", okReply.status === 202 && okReply.data?.comment?.parentId === "parent-1", `${okReply.status}/${okReply.data?.comment?.parentId}`);
+  check("回复携带父评论昵称（Telegram 用）", okReply.data?.comment?.parentName === "Parent Nick", okReply.data?.comment?.parentName);
+  globalThis.fetch = realFetch;
+
+  // ---- AI translation ----
+  const trEnv = { ...env, COMMENTS_DB: new MemoryDb() };
+  const trGet = await asJson(await handleTranslate(apiRequest("/api/translate"), trEnv));
+  check("GET /api/translate → 405", trGet.status === 405, trGet.status);
+  const trLang = await asJson(await handleTranslate(apiRequest("/api/translate", {
+    method: "POST",
+    body: { lang: "zh", items: [{ id: "a", text: "首页" }] },
+  }), trEnv));
+  check("translate 静态语言 zh → 400", trLang.status === 400, trLang.status);
+  const trEmpty = await asJson(await handleTranslate(apiRequest("/api/translate", {
+    method: "POST",
+    body: { lang: "ko", items: [] },
+  }), trEnv));
+  check("translate 空 items → 400", trEmpty.status === 400, trEmpty.status);
+  const trNoAi = await asJson(await handleTranslate(apiRequest("/api/translate", {
+    method: "POST",
+    body: { lang: "ko", items: [{ id: "a", text: "首页" }] },
+  }), trEnv));
+  check("translate 无 AI 绑定 → 503", trNoAi.status === 503, trNoAi.status);
+
+  // Model returns a JSON array of the same length: every entry must be stored
+  // and returned, otherwise the page would render half-translated.
+  const aiCalls = [];
+  const trAiEnv = {
+    ...env,
+    COMMENTS_DB: new MemoryDb(),
+    AI: {
+      run: async (model, input) => {
+        aiCalls.push(model);
+        const texts = JSON.parse(String(input.messages[0].content).split("Input:\n")[1]);
+        return { response: JSON.stringify(texts.map((text) => `KO:${text}`)) };
+      },
+    },
+  };
+  const trOk = await asJson(await handleTranslate(apiRequest("/api/translate", {
+    method: "POST",
+    body: { lang: "ko", items: [{ id: "ui:home", text: "首页" }, { id: "comment:1", text: "这是一条留言" }] },
+  }), trAiEnv));
+  check(
+    "translate 成功 → 200 且每个 id 都有译文",
+    trOk.status === 200 && trOk.data?.translations?.["ui:home"] === "KO:首页" && trOk.data?.translations?.["comment:1"] === "KO:这是一条留言",
+    JSON.stringify(trOk.data?.translations || {})
+  );
+  check("translate 首次全部为新译文", trOk.data?.freshCount === 2 && trOk.data?.cachedCount === 0, `${trOk.data?.freshCount}/${trOk.data?.cachedCount}`);
+  check("translate 使用可配置模型", typeof trOk.data?.model === "string" && trOk.data.model.length > 0);
+
+  // A model answer that is not a valid array of the right length must fail as a
+  // whole (502) instead of producing partial copy; already-finished batches stay
+  // cached so a retry only pays for the rest.
+  const badAiEnv = { ...trAiEnv, COMMENTS_DB: new MemoryDb(), AI: { run: async () => ({ response: "抱歉，我无法翻译" }) } };
+  const trBad = await asJson(await handleTranslate(apiRequest("/api/translate", {
+    method: "POST",
+    body: { lang: "ko", items: [{ id: "ui:home", text: "首页" }] },
+  }), badAiEnv));
+  check("translate 模型返回非法结果 → 502", trBad.status === 502, trBad.status);
+
+  // Copy between the old 1000-char worker cap and the 2000-char frontend cap
+  // used to be sliced silently: the model only ever saw the first 1000 chars,
+  // the client wrote that prefix over the whole node (losing the tail), and the
+  // truncated result was cached under the truncated hash. Long copy must now
+  // reach the model intact, and copy over the shared cap must be refused with a
+  // 400 rather than translated as a prefix.
+  const longSeen = [];
+  const longAiEnv = {
+    ...env,
+    COMMENTS_DB: new MemoryDb(),
+    AI: {
+      run: async (model, input) => {
+        const texts = JSON.parse(String(input.messages[0].content).split("Input:\n")[1]);
+        longSeen.push(...texts);
+        return { response: JSON.stringify(texts.map((t) => `KO:${t}`)) };
+      },
+    },
+  };
+  const underCap = "長".repeat(1500);
+  const trLong = await asJson(await handleTranslate(apiRequest("/api/translate", {
+    method: "POST",
+    body: { lang: "ko", items: [{ id: "ui:long", text: underCap }] },
+  }), longAiEnv));
+  check(
+    "translate 1500 字符长文本 → 模型收到完整原文（不被静默截断）",
+    trLong.status === 200 && longSeen[0]?.length === underCap.length && trLong.data?.translations?.["ui:long"] === `KO:${underCap}`,
+    `${trLong.status}/model saw ${longSeen[0]?.length} of ${underCap.length}`
+  );
+
+  const overCap = "長".repeat(2001);
+  const trOver = await asJson(await handleTranslate(apiRequest("/api/translate", {
+    method: "POST",
+    body: { lang: "ko", items: [{ id: "ui:over", text: overCap }] },
+  }), longAiEnv));
+  check(
+    "translate 超上限文本 → 400 报错（不返回截断译文）",
+    trOver.status === 400 && !trOver.data?.translations?.["ui:over"],
+    `${trOver.status}`
+  );
+
+  // ---- translation cache admin endpoints ----
+  const statsAnon = await asJson(await handleAdmin(apiRequest("/api/admin/translate-stats"), env));
+  check("translate-stats 未登录 → 401", statsAnon.status === 401, statsAnon.status);
+  const statsOk = await asJson(await handleAdmin(apiRequest("/api/admin/translate-stats", { cookie: `sfsy_admin=${token}` }), env));
+  check("translate-stats 管理员 → 200 + 语言清单", statsOk.status === 200 && Array.isArray(statsOk.data?.languages), statsOk.status);
+
+  const cleanupEnv = { ...env, COMMENTS_DB: new MemoryDb() };
+  cleanupEnv.COMMENTS_DB.fixtures.set("SELECT lang FROM translation_lang_usage", { all: [{ lang: "ko" }] });
+  const purgeAnon = await asJson(await handleAdmin(apiRequest("/api/admin/translate-cleanup", {
+    method: "POST",
+    body: { lang: "ko" },
+    headers: { "x-admin-action": "1" },
+  }), cleanupEnv));
+  check("translate-cleanup 未登录 → 401", purgeAnon.status === 401, purgeAnon.status);
+  const purgeOk = await asJson(await handleAdmin(apiRequest("/api/admin/translate-cleanup", {
+    method: "POST",
+    body: { lang: "ko" },
+    headers: { "x-admin-action": "1" },
+    cookie: `sfsy_admin=${token}`,
+  }), cleanupEnv));
+  check("translate-cleanup 管理员 → 200 + 删除计数", purgeOk.status === 200 && purgeOk.data?.deletedLangs === 1, JSON.stringify(purgeOk.data || {}));
+  const purgeBad = await asJson(await handleAdmin(apiRequest("/api/admin/translate-cleanup", {
+    method: "POST",
+    body: { lang: "zh" },
+    headers: { "x-admin-action": "1" },
+    cookie: `sfsy_admin=${token}`,
+  }), cleanupEnv));
+  check("translate-cleanup 静态语言 → 400", purgeBad.status === 400, purgeBad.status);
 
   return failures;
 }

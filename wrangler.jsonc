@@ -33,6 +33,10 @@
   },
   "vars": {
     "COMMENT_MODERATION_MODEL": "@cf/meta/llama-3.2-3b-instruct",
+    // Model used for AI page translation. 70b gives far better quality for
+    // non-Latin scripts; switch to "@cf/meta/llama-3.2-3b-instruct" if the
+    // daily free neuron budget runs tight (cached languages stay cached).
+    "TRANSLATE_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADnuEH7YMTYy_Dgd",
     "RUNTIME_SCHEMA_BOOTSTRAP": "1"
   },

@@ -1,7 +1,23 @@
+// zh/ja/en are built as real static pages at build time. The `ai: true` entries
+// have no static page: selecting one keeps the visitor on the Chinese/Japanese/
+// English document and translates it at runtime with Workers AI, cached in D1.
+// Keep code/html in sync with AI_LANGUAGES in worker.js.
 export const languages = [
   { code: "zh", label: "中文", html: "zh-CN" },
   { code: "ja", label: "日本語", html: "ja-JP" },
   { code: "en", label: "English", html: "en-US" },
+  { code: "ko", label: "한국어", html: "ko-KR", ai: true },
+  { code: "fr", label: "Français", html: "fr-FR", ai: true },
+  { code: "de", label: "Deutsch", html: "de-DE", ai: true },
+  { code: "es", label: "Español", html: "es-ES", ai: true },
+  { code: "pt", label: "Português", html: "pt-BR", ai: true },
+  { code: "ru", label: "Русский", html: "ru-RU", ai: true },
+  { code: "it", label: "Italiano", html: "it-IT", ai: true },
+  { code: "ar", label: "العربية", html: "ar-EG", ai: true },
+  { code: "hi", label: "हिन्दी", html: "hi-IN", ai: true },
+  { code: "th", label: "ไทย", html: "th-TH", ai: true },
+  { code: "vi", label: "Tiếng Việt", html: "vi-VN", ai: true },
+  { code: "id", label: "Bahasa Indonesia", html: "id-ID", ai: true },
 ];
 
 export const profile = {
@@ -44,6 +60,8 @@ export const ui = {
     shareFail: "暂时无法分享，请稍后重试",
     downloadStarted: "正在打开通讯录文件",
     retry: "重新加载",
+    translating: "正在翻译页面，请稍候…",
+    translateFailed: "翻译暂时不可用，已显示原文。",
     toggleTheme: "切换明暗主题",
     nowStatusTitle: "现在的状态",
     nowStatusTimetable: "今日课表",
@@ -133,6 +151,8 @@ export const ui = {
     shareFail: "共有できません。しばらくしてからお試しください",
     downloadStarted: "連絡先ファイルを開いています",
     retry: "再読み込み",
+    translating: "ページを翻訳しています…",
+    translateFailed: "翻訳を利用できません。元の文章を表示しています。",
     toggleTheme: "カラーテーマを切り替える",
     nowStatusTitle: "今の様子",
     nowStatusTimetable: "今日の時間割",
@@ -224,6 +244,8 @@ export const ui = {
     shareFail: "Unable to share right now. Please try again",
     downloadStarted: "Opening the contact file",
     retry: "Reload",
+    translating: "Translating this page…",
+    translateFailed: "Translation is unavailable. Original text is shown.",
     toggleTheme: "Toggle color theme",
     nowStatusTitle: "Right now",
     nowStatusTimetable: "Today's timetable",

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cities, contacts, homeCards, japanPlan, languages, profile, visualShapes } from "../assets/js/data.js";
 
@@ -12,11 +12,60 @@ function textOf(value, lang) {
 }
 
 // --- languages ---
-if (!Array.isArray(languages) || languages.length !== LANGS.length) {
-  fail(`languages 必须是 ${LANGS.length} 种语言，当前 ${languages?.length}`);
+// LANGS (zh/ja/en) are the statically generated pages; entries marked ai:true
+// have no static page and are translated at runtime by Workers AI instead.
+if (!Array.isArray(languages) || languages.length < LANGS.length) {
+  fail(`languages 至少要有 ${LANGS.length} 种静态语言，当前 ${languages?.length}`);
 } else {
   for (const lang of LANGS) {
     if (!languages.some((item) => item.code === lang)) fail(`languages 缺少 ${lang}`);
+  }
+  const seen = new Set();
+  for (const item of languages) {
+    if (!item?.code || !item?.label || !item?.html) fail(`languages 项缺少 code/label/html：${JSON.stringify(item)}`);
+    if (seen.has(item.code)) fail(`languages 语言代码重复：${item.code}`);
+    seen.add(item.code);
+  }
+  // AI languages must stay in sync with AI_LANGUAGES in worker.js, otherwise a
+  // selectable language would be rejected by /api/translate.
+  const aiCodes = languages.filter((item) => item.ai).map((item) => item.code);
+  if (aiCodes.length) {
+    const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+    const block = worker.match(/const AI_LANGUAGES = new Map\(\[([\s\S]*?)\]\);/);
+    const workerCodes = block ? [...block[1].matchAll(/\["([a-z]{2})"/g)].map((match) => match[1]) : [];
+    const missing = aiCodes.filter((code) => !workerCodes.includes(code));
+    const extra = workerCodes.filter((code) => !aiCodes.includes(code));
+    if (missing.length) fail(`data.js 的 AI 语言未同步到 worker.js AI_LANGUAGES：${missing.join(", ")}`);
+    if (extra.length) fail(`worker.js AI_LANGUAGES 未同步到 data.js languages：${extra.join(", ")}`);
+  }
+
+  // The per-item character cap lives in two files. When app.js allowed 2000 and
+  // worker.js capped at 1000, copy in between was silently truncated, so the
+  // page rendered a partial translation that was then cached for good.
+  const appSource = readFileSync(new URL("../assets/js/app.js", import.meta.url), "utf8");
+  const workerSource = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const appCap = appSource.match(/const TRANSLATE_ITEM_MAX_CHARS = (\d+);/)?.[1];
+  const workerCap = workerSource.match(/const MAX_TRANSLATE_ITEM_CHARS = (\d+);/)?.[1];
+  if (!appCap || !workerCap) fail("找不到翻译字符上限常量（app.js TRANSLATE_ITEM_MAX_CHARS / worker.js MAX_TRANSLATE_ITEM_CHARS）");
+  else if (appCap !== workerCap) {
+    fail(`翻译字符上限不一致：app.js=${appCap}，worker.js=${workerCap}（worker 会静默截断超限文本，导致译文不完整并被缓存）`);
+  }
+
+  // sw.js is hand-maintained, so its precache URLs drift from assetVersion.
+  // A stale ?v= never matches the page's real request and the precache is a
+  // silent no-op; check the query strings instead of trusting the edit.
+  const buildPages = readFileSync(new URL("./build-pages.mjs", import.meta.url), "utf8");
+  const assetVersion = buildPages.match(/const assetVersion = "([^"]+)";/)?.[1];
+  const swSource = readFileSync(new URL("../sw.js", import.meta.url), "utf8");
+  if (assetVersion) {
+    if (!swSource.includes(`sfsy-static-v${assetVersion}`)) {
+      fail(`sw.js CACHE_NAME 未同步 assetVersion（当前 ${assetVersion}）`);
+    }
+    for (const match of swSource.matchAll(/\/assets\/[^"]+\?v=([^"]+)"/g)) {
+      if (match[1] !== assetVersion) {
+        fail(`sw.js 预缓存资源版本过期：${match[0]}（应为 ${assetVersion}）`);
+      }
+    }
   }
 }
 

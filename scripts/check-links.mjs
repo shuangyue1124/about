@@ -97,6 +97,42 @@ export function checkAllHtmlLinks() {
     errors.push(...result.errors);
     checked += result.checked;
   }
+  const js = checkJsImports();
+  errors.push(...js.errors);
+  checked += js.checked;
+  return { errors, checked };
+}
+
+// HTML link checks cannot see ES module imports inside assets/js/*.js. A stale
+// hardcoded "?v=" there once survived a global version bump unnoticed, so both
+// existence and version consistency are validated here. build-pages.mjs holds
+// the single source of truth for the current assetVersion.
+export function checkJsImports() {
+  const errors = [];
+  let checked = 0;
+  const buildSource = readFileSync(resolve(ROOT, "scripts", "build-pages.mjs"), "utf8");
+  const assetVersion = buildSource.match(/const assetVersion = "([^"]+)"/)?.[1] || "";
+  const jsDir = resolve(ROOT, "assets", "js");
+  const jsFiles = readdirSync(jsDir).filter((file) => file.endsWith(".js"));
+  const importRe = /(?:^|\n)\s*(?:import|export)\s+(?:[\s\S]*?from\s*)?["'](\.[^"']+)["']/g;
+
+  for (const file of jsFiles) {
+    const source = readFileSync(resolve(jsDir, file), "utf8");
+    let match;
+    while ((match = importRe.exec(source))) {
+      const value = match[1];
+      const cleaned = stripQueryHash(value);
+      checked += 1;
+      if (!existsSync(resolve(jsDir, cleaned))) {
+        errors.push(`assets/js/${file}: import 目标不存在 "${value}"`);
+        continue;
+      }
+      const version = value.split("?")[1];
+      if (version && assetVersion && version !== `v=${assetVersion}`) {
+        errors.push(`assets/js/${file}: import 版本号 "${version}" 与 assetVersion "v=${assetVersion}" 不一致`);
+      }
+    }
+  }
   return { errors, checked };
 }
 

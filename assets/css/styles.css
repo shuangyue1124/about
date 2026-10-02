@@ -334,6 +334,88 @@ textarea {
   color: var(--ink);
 }
 
+/* Language picker injected by app.js: zh/ja/en navigate to their static page,
+   the rest stay on the current document and are translated by Workers AI. */
+.lang-select {
+  height: 36px;
+  max-width: 132px;
+  margin-right: 4px;
+  padding: 0 8px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--white) 82%, transparent);
+  border: 1px solid rgba(38, 37, 30, 0.16);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lang-select:focus-visible {
+  border-color: rgba(53, 88, 74, 0.55);
+  box-shadow: 0 0 0 3px rgba(53, 88, 74, 0.12);
+}
+
+.translate-banner {
+  position: fixed;
+  z-index: 60;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 10px 18px;
+  /* Theme variables only: --green-dark flips to a pale tone in dark mode, so a
+     hardcoded light background would leave pale text on a pale surface. */
+  color: var(--green-dark);
+  background: var(--green-light);
+  border: 1px solid color-mix(in srgb, var(--green-dark) 24%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(38, 37, 30, 0.12);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.translate-banner[hidden] {
+  display: none;
+}
+
+.admin-translate-table {
+  width: 100%;
+  margin: 12px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-translate-table th,
+.admin-translate-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.admin-translate-table th {
+  color: var(--ink-muted);
+  font-weight: 700;
+}
+
+.admin-field--inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-field--inline input {
+  width: 84px;
+  height: 40px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: var(--white);
+  border: 1px solid rgba(38, 37, 30, 0.16);
+  border-radius: 8px;
+}
+
 .hero,
 .city-hero,
 .travel-hero {
@@ -1505,6 +1587,58 @@ button.contact-link {
   overflow-wrap: anywhere;
 }
 
+/* One nesting level only: replies sit closer to their root comment and are
+   marked by an indent rule instead of deeper and deeper padding. */
+.comment-item--reply {
+  margin: -4px 0 0 1.25rem;
+  padding-left: 1rem;
+  background: color-mix(in srgb, var(--white) 46%, transparent);
+  border-left: 2px solid rgba(53, 88, 74, 0.24);
+}
+
+.comment-item__reply-to {
+  margin: 0;
+  color: var(--green-dark);
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.comment-item__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.comment-item__actions .btn {
+  min-height: 34px;
+  padding: 4px 14px;
+  font-size: 13px;
+}
+
+.comment-reply-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  grid-column: 1 / -1;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 14px;
+  /* Same dark-mode caveat as .translate-banner: theme variables only. */
+  color: var(--green-dark);
+  background: var(--green-light);
+  border: 1px solid color-mix(in srgb, var(--green-dark) 16%, transparent);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* The context bar carries display:flex, so the hidden attribute needs an
+   explicit override to actually collapse it. */
+.comment-reply-context[hidden] {
+  display: none;
+}
+
 .travel-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;
@@ -2320,6 +2454,24 @@ button.contact-link {
   color: var(--cinnabar);
   background: rgba(185, 95, 55, 0.12);
   border-color: rgba(185, 95, 55, 0.28);
+}
+
+.admin-badge--reply {
+  color: var(--ink-soft);
+  background: rgba(38, 37, 30, 0.06);
+  border-color: rgba(38, 37, 30, 0.14);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.admin-comment__note {
+  margin: 0;
+  color: #7a4a14;
+  background: rgba(209, 181, 111, 0.16);
+  border: 1px solid rgba(209, 181, 111, 0.32);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
 }
 
 .admin-moderation {
@@ -3158,6 +3310,11 @@ button.contact-link {
   .comment-form {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .comment-item--reply {
+    margin-left: 0.7rem;
+    padding-left: 0.75rem;
   }
 
   .comment-form .btn {

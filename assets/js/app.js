@@ -9,6 +9,8 @@ import {
 const page = document.body.dataset.page || "home";
 const root = document.body.dataset.root || ".";
 const langKey = "sfsy-lang";
+// Languages that have no static page and are served by the AI translator.
+const AI_LANG_CODES = new Set(languages.filter((item) => item.ai).map((item) => item.code));
 
 function storageGet(key) {
   try {
@@ -26,16 +28,45 @@ function storageSet(key, value) {
   }
 }
 
-let lang = normalizeLang(document.body.dataset.lang) || langFromPath() || normalizeLang(storageGet(langKey)) || detectLang();
+const storedLangInitial = normalizeLang(storageGet(langKey));
+// An explicitly chosen AI language (ko, fr, …) has no static page, so it must
+// override the static locale path — otherwise a choice made on /en/ would be
+// silently dropped on every reload (the old chain short-circuited on
+// dataset.lang and applyProfileLanguage even wrote the path language back).
+let lang = isAiLang(storedLangInitial)
+  ? storedLangInitial
+  : normalizeLang(document.body.dataset.lang) || langFromPath() || storedLangInitial || detectLang();
 let siteSettings = null;
 let siteProfile = null;
 let siteContacts = [];
 let siteGeo = { country: "", timezone: "", city: "" };
 let pageViewTracked = false;
 let toastTimer = 0;
+// AI translation state: aiLang is empty for the static zh/ja/en pages, and
+// aiDict is swapped in only after every chunk of a language has arrived, so a
+// page is never left half-translated.
+let aiLang = "";
+let aiDict = null;
+// Source text -> translation, shared by every id with the same copy; lets the
+// incremental pass (comments, content cards) skip already-translated text.
+let aiTextDict = null;
+// Guards against startAiTranslation racing the incremental translateNewContent
+// calls fired by loadComments / loadContentSections.
+let aiTranslationActive = false;
 
 function normalizeLang(value) {
-  return normalizeLangCode(value) || (value ? "zh" : "");
+  // AI languages are not known to normalizeLangCode (it only maps zh/ja/en),
+  // so accept them explicitly — otherwise a remembered choice such as "ko"
+  // would silently collapse back to "zh" on the next visit.
+  return normalizeLangCode(value) || (AI_LANG_CODES.has(value) ? value : value ? "zh" : "");
+}
+
+function isAiLang(value) {
+  return AI_LANG_CODES.has(value);
+}
+
+function languageLabel(code) {
+  return languages.find((item) => item.code === code)?.label || code;
 }
 
 function detectLang() {
@@ -55,6 +86,10 @@ function detectLang() {
 }
 
 function applyProfileLanguage() {
+  // An explicitly chosen AI language always wins: it has no static page, so the
+  // visitor wants this document translated in place. Never overwrite it with
+  // the pinned profile or the locale path (that used to erase the choice).
+  if (isAiLang(lang)) return;
   // Domain profile may pin language; otherwise auto-detect once and remember.
   const pinned = siteProfile?.language;
   if (pinned === "zh" || pinned === "ja" || pinned === "en") {
@@ -90,7 +125,9 @@ function langFromPath() {
 }
 
 function label(key) {
-  return ui[lang][key] || ui.zh[key] || key;
+  // aiDict wins while an AI language is active; the optional chaining matters
+  // because ui has no entry for those languages at all.
+  return (aiDict && aiLang ? aiDict[`ui:${key}`] : "") || ui[lang]?.[key] || ui.zh[key] || key;
 }
 
 function settingText(key, fallback) {
@@ -131,6 +168,10 @@ const commentUi = {
     location: "归属地",
     unknownLocation: "未知归属地",
     time: "时间",
+    reply: "回复",
+    replyTo: "回复",
+    replyingTo: "正在回复",
+    cancelReply: "取消回复",
   },
   ja: {
     title: "コメント",
@@ -154,6 +195,10 @@ const commentUi = {
     location: "所在地",
     unknownLocation: "所在地不明",
     time: "時間",
+    reply: "返信",
+    replyTo: "返信",
+    replyingTo: "返信中",
+    cancelReply: "返信をやめる",
   },
   en: {
     title: "Comments",
@@ -177,11 +222,15 @@ const commentUi = {
     location: "Location",
     unknownLocation: "Unknown location",
     time: "Time",
+    reply: "Reply",
+    replyTo: "Reply to",
+    replyingTo: "Replying to",
+    cancelReply: "Cancel reply",
   },
 };
 
 function commentLabel(key) {
-  return commentUi[lang]?.[key] || commentUi.zh[key] || key;
+  return (aiDict && aiLang ? aiDict[`ui:comment:${key}`] : "") || commentUi[lang]?.[key] || commentUi.zh[key] || key;
 }
 
 function esc(value) {
@@ -198,6 +247,11 @@ function renderCommentsSection() {
   const form = commentsEnabled()
     ? `
       <form class="comment-form" id="commentForm" autocomplete="off">
+        <input type="hidden" name="parentId" id="commentParentId" value="">
+        <p class="comment-reply-context" id="commentReplyContext" hidden>
+          <span id="commentReplyContextText"></span>
+          <button class="btn btn--compact js-cancel-reply" type="button">${esc(commentLabel("cancelReply"))}</button>
+        </p>
         <label>
           <span>${esc(commentLabel("name"))}</span>
           <input name="name" maxlength="32" required placeholder="${esc(commentLabel("namePlaceholder"))}">
@@ -248,6 +302,7 @@ function bindCommon() {
   bindComments();
   bindNowStatus();
   bindThemeToggle();
+  bindLangSelector();
   registerServiceWorker();
   trackPageView();
 }
@@ -462,6 +517,7 @@ function bindComments() {
   if (!list) return;
 
   loadComments(list);
+  bindReplyButtons(list, form);
   if (!form) return;
   loadTurnstile();
 
@@ -474,6 +530,7 @@ function bindComments() {
       message: String(formData.get("message") || "").trim(),
       website: String(formData.get("website") || ""),
       turnstileToken: String(formData.get("cf-turnstile-response") || ""),
+      parentId: String(formData.get("parentId") || "").trim(),
     };
 
     if (!payload.name || !payload.message || !payload.turnstileToken) return;
@@ -492,20 +549,58 @@ function bindComments() {
       }
       const data = await response.json().catch(() => ({}));
       form.reset();
+      setReplyTarget(form, "", "");
       if (window.turnstile) window.turnstile.reset();
       if (status) status.textContent = data.status === "pending" ? commentLabel("pending") : commentLabel("success");
       if (data.comment && data.status === "approved") {
+        // Re-render the whole tree: a new reply must land under its parent,
+        // which a plain prepend cannot know.
         if (commentsCache.comments) commentsCache.comments.unshift(data.comment);
-        prependComment(list, data.comment);
+        renderComments(liveCommentList(list), commentsCache.comments);
+        translateNewContent().catch(() => {});
       } else {
         await loadComments(list, { force: true });
       }
     } catch (error) {
       if (status) status.textContent = commentFailureLabel(error);
+      // A failed verification consumes the Turnstile token server-side; without
+      // a reset every retry would keep failing with the same spent token.
+      if (window.turnstile) window.turnstile.reset();
     } finally {
       submit.disabled = false;
     }
   });
+}
+
+// Reply buttons live inside dynamically rendered comments, so clicks are
+// delegated from the list container. All replies reuse the single main form
+// (and its one Turnstile widget) instead of spawning per-comment forms.
+function bindReplyButtons(list, form) {
+  if (!list || !form) return;
+  list.addEventListener("click", (event) => {
+    const button = event.target.closest?.(".js-reply-comment");
+    if (!button) return;
+    setReplyTarget(form, button.dataset.id || "", button.dataset.name || "");
+    const field = form.querySelector("textarea[name='message']") || form.querySelector("input[name='name']");
+    field?.focus({ preventScroll: true });
+    form.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  form.querySelector(".js-cancel-reply")?.addEventListener("click", () => {
+    setReplyTarget(form, "", "");
+  });
+}
+
+function setReplyTarget(form, id, name) {
+  if (!form) return;
+  const input = form.querySelector("#commentParentId");
+  if (input) input.value = id || "";
+  const context = form.querySelector("#commentReplyContext");
+  const text = form.querySelector("#commentReplyContextText");
+  if (context && text) {
+    const active = Boolean(id);
+    context.hidden = !active;
+    text.textContent = active ? `${commentLabel("replyingTo")} @${name || ""}` : "";
+  }
 }
 
 function commentFailureLabel(error) {
@@ -515,12 +610,6 @@ function commentFailureLabel(error) {
   const codes = Array.isArray(error?.data?.codes) ? error.data.codes : [];
   if (status === 401 || (status === 400 && codes.length)) return commentLabel("turnstileFailed");
   return commentLabel("error");
-}
-
-function prependComment(list, comment) {
-  const empty = list.querySelector(".comment-list__empty");
-  if (empty) empty.remove();
-  list.insertAdjacentHTML("afterbegin", commentItem(comment));
 }
 
 function loadTurnstile() {
@@ -710,6 +799,7 @@ async function loadComments(list, options = {}) {
   try {
     if (!options.force && commentsCache.comments && Date.now() - commentsCache.at < COMMENTS_CACHE_MS) {
       renderComments(target, commentsCache.comments);
+      translateNewContent().catch(() => {});
       return;
     }
     if (!commentsRequest) {
@@ -728,6 +818,8 @@ async function loadComments(list, options = {}) {
     // while the request was in flight; render into the live node instead of
     // a detached one so a retry is never needed for that race.
     renderComments(liveCommentList(list), await commentsRequest);
+    // Late comments (slow API) are translated by the incremental pass.
+    translateNewContent().catch(() => {});
   } catch {
     const retryTarget = liveCommentList(list);
     retryTarget.innerHTML = `<div class="comment-list__empty"><p>${esc(commentLabel("error"))}</p><button class="btn btn--compact js-retry-comments" type="button">${esc(label("retry"))}</button></div>`;
@@ -802,7 +894,14 @@ function applySiteSettings() {
 
   if (siteContacts.length) renderContactsFromApi();
   if (page === "travel" || page === "home") filterTravelDom();
-  if (page === "anime" || page === "games" || page === "github" || page === "home") loadContentSections();
+  if (page === "anime" || page === "games" || page === "github" || page === "home") {
+    // Content cards render asynchronously; translate whatever they add once ready.
+    Promise.resolve(loadContentSections()).then(() => translateNewContent()).catch(() => {});
+  }
+
+  // Runs last: the comment section has been rebuilt by now, so an AI language
+  // translates the final DOM (and the comment bodies already in the cache).
+  startAiTranslation().then(() => translateNewContent()).catch(() => {});
 }
 
 function profileTitleText(fallback) {
@@ -960,18 +1059,86 @@ function renderComments(list, comments) {
     return;
   }
 
-  list.innerHTML = comments.map(commentItem).join("");
+  list.innerHTML = renderCommentTree(comments);
 }
 
-function commentItem(comment) {
+// Replies are stored as a flat list with parent_id. The public page shows one
+// nesting level: direct replies sit under their root comment, while replies to
+// a reply stay flat inside the same group and are labelled "回复 @name" instead
+// of growing another indentation level (keeps mobile readable).
+function buildCommentTree(comments) {
+  const byId = new Map(comments.map((comment) => [comment.id, comment]));
+  // A rejected parent hides its replies here, but the rows stay in the database
+  // so re-approving the parent brings the whole thread back.
+  const hidden = (comment) => comment.parentStatus === "rejected";
+  const rootOf = (comment) => {
+    let current = comment;
+    let hops = 0;
+    while (current.parentId && hops < 64) {
+      const parent = byId.get(current.parentId);
+      if (!parent || hidden(parent)) break;
+      current = parent;
+      hops += 1;
+    }
+    return current;
+  };
+
+  const tops = [];
+  const childrenByRoot = new Map();
+  for (const comment of comments) {
+    if (hidden(comment)) continue;
+    const root = rootOf(comment);
+    if (root.id === comment.id) {
+      tops.push(comment);
+      continue;
+    }
+    if (!childrenByRoot.has(root.id)) childrenByRoot.set(root.id, []);
+    childrenByRoot.get(root.id).push(comment);
+  }
+  // Oldest first inside a thread; the backend already returns newest-first, so
+  // top-level comments keep that order by pushing in iteration order.
+  for (const children of childrenByRoot.values()) {
+    children.sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+  }
+  return { tops, childrenByRoot };
+}
+
+function renderCommentTree(comments) {
+  const { tops, childrenByRoot } = buildCommentTree(comments);
+  return tops
+    .map((top) => {
+      const children = childrenByRoot.get(top.id) || [];
+      const replies = children.map((child) => commentItem(child, { reply: true, topId: top.id })).join("");
+      return commentItem(top, { topId: top.id }) + replies;
+    })
+    .join("");
+}
+
+// Translated comment text wins when the AI translation dictionary has it;
+// otherwise the original message is shown (never blank).
+function commentMessage(comment) {
+  const translated = aiDict && aiLang ? aiDict[`comment:${comment.id}`] : "";
+  return translated || comment.message || "";
+}
+
+function commentItem(comment, options = {}) {
+  const topId = options.topId || "";
+  // Label only when the direct parent is not the group's root: an orphaned
+  // reply (parent deleted/rejected) or a reply-to-a-reply.
+  const replyTo = comment.parentId && comment.parentId !== topId && comment.parentName ? comment.parentName : "";
+  const className = ["comment-item", options.reply ? "comment-item--reply" : ""].filter(Boolean).join(" ");
   return `
-    <article class="comment-item">
+    <article class="${className}" data-comment-id="${esc(comment.id || "")}">
+      ${replyTo ? `<p class="comment-item__reply-to">${esc(commentLabel("replyTo"))} @${esc(replyTo)}</p>` : ""}
       <div class="comment-item__head">
         <strong>${esc(comment.name || "")}</strong>
         <span>${esc(commentTime(comment.createdAt))}</span>
       </div>
-      <p>${esc(comment.message || "")}</p>
+      <p>${esc(commentMessage(comment))}</p>
       <small>${esc(commentLabel("ip"))}: ${esc(comment.ip || "unknown")} · ${esc(commentLabel("location"))}: ${esc(commentLocation(comment))}</small>
+      <div class="comment-item__actions">
+        <button class="btn btn--compact js-reply-comment" type="button" data-id="${esc(comment.id || "")}" data-name="${esc(comment.name || "")}">${esc(commentLabel("reply"))}</button>
+      </div>
     </article>
   `;
 }
@@ -992,6 +1159,303 @@ function commentTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+// --- AI translation runtime -------------------------------------------------
+// Languages marked `ai: true` in data.js have no static page. For those, every
+// visible string — static copy, UI labels, placeholders/aria labels and comment
+// bodies — is collected in the browser, translated in batches by Workers AI via
+// /api/translate, cached in D1 by content hash, and applied only after every
+// entry came back, so a page is never left half-translated.
+const TRANSLATE_SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "CODE", "PRE", "KBD", "SAMP"]);
+const TRANSLATE_ATTRS = ["placeholder", "aria-label", "title", "alt"];
+// Worker caps: 80 items and 2000 chars per item, 64KB body. Groups also carry
+// a byte budget so a batch of long entries can never exceed the body limit.
+// TRANSLATE_ITEM_MAX_CHARS must stay equal to MAX_TRANSLATE_ITEM_CHARS in
+// worker.js: when this was larger, the worker silently truncated the source and
+// the page ended up showing a partial translation. A node over the cap is left
+// in the source language rather than risk a half-translated page.
+const TRANSLATE_GROUP_SIZE = 80;
+const TRANSLATE_GROUP_BYTES = 200000;
+const TRANSLATE_ITEM_MAX_CHARS = 2000;
+
+function translateEligible(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length > TRANSLATE_ITEM_MAX_CHARS) return "";
+  // Numbers, dates and punctuation carry nothing to translate and would only
+  // spend neurons, so they never leave the browser.
+  if (!/[\p{L}]/u.test(text)) return "";
+  return text;
+}
+
+// Returns entries (every id on the page) plus the de-duplicated items that are
+// actually sent to the worker. Identical copy collapses to one request row and
+// is then fanned back out to all of its ids.
+function collectTranslationItems() {
+  const entries = [];
+  const byText = new Map();
+  const add = (id, raw, target) => {
+    const text = translateEligible(raw);
+    if (!text) return;
+    entries.push({ id, text, target });
+    if (!byText.has(text)) byText.set(text, id);
+  };
+
+  // 1. Dictionaries first: keying them means anything rendered later through
+  //    label()/commentLabel() (content cards, retry buttons, comment UI) is
+  //    already translated instead of falling back to Chinese.
+  for (const key of Object.keys(ui.zh || {})) add(`ui:${key}`, ui.zh[key]);
+  for (const key of Object.keys(commentUi.zh || {})) add(`ui:comment:${key}`, commentUi.zh[key]);
+
+  // 2. Comment bodies, keyed by id so a re-render keeps the translated text.
+  const list = document.getElementById("commentList");
+  for (const comment of commentsCache.comments || []) add(`comment:${comment.id}`, comment.message);
+
+  // 3. Every visible text node except the comment list, which is already
+  //    covered by the per-id entries above.
+  let index = 0;
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const parent = node.parentElement;
+    const insideComments = list ? list.contains(node) : false;
+    if (parent && !insideComments && !TRANSLATE_SKIP_TAGS.has(parent.tagName) && !parent.closest("[data-no-translate]")) {
+      add(`n:${index}`, node.nodeValue, node);
+      index += 1;
+    }
+    node = walker.nextNode();
+  }
+
+  // 4. Attributes that carry user-visible copy.
+  let attrIndex = 0;
+  document.querySelectorAll("[placeholder],[aria-label],[title],img[alt]").forEach((element) => {
+    if (element.closest("[data-no-translate]")) return;
+    for (const attr of TRANSLATE_ATTRS) {
+      if (!element.hasAttribute(attr)) continue;
+      add(`a:${attrIndex}:${attr}`, element.getAttribute(attr), { element, attr });
+      attrIndex += 1;
+    }
+  });
+
+  const items = [];
+  for (const [text, id] of byText) items.push({ id, text });
+  return { entries, items, byText };
+}
+
+async function requestTranslations(items) {
+  const response = await fetch("/api/translate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ lang: aiLang, items }),
+  });
+  if (!response.ok) throw new Error(`translate responded HTTP ${response.status}`);
+  const data = await response.json().catch(() => ({}));
+  return data.translations || {};
+}
+
+// Groups items by count AND a rough UTF-8 byte budget so a batch full of long
+// entries can never blow past the worker's 256KB body limit.
+function groupTranslateItems(items) {
+  const groups = [];
+  let current = [];
+  let bytes = 0;
+  for (const item of items) {
+    const cost = item.text.length * 3 + 64;
+    if (current.length && (current.length >= TRANSLATE_GROUP_SIZE || bytes + cost > TRANSLATE_GROUP_BYTES)) {
+      groups.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(item);
+    bytes += cost;
+  }
+  if (current.length) groups.push(current);
+  return groups;
+}
+
+function applyTranslations(entries) {
+  if (!aiDict) return;
+  for (const entry of entries) {
+    const value = aiDict[entry.id];
+    if (!value) continue;
+    // Assigning to a text node / attribute is inherently safe: no HTML parsing.
+    if (entry.target instanceof Node) entry.target.nodeValue = value;
+    else if (entry.target?.element) entry.target.element.setAttribute(entry.target.attr, value);
+  }
+}
+
+function waitFor(check, timeout = 2500) {
+  if (check()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const timer = setInterval(() => {
+      if (check() || Date.now() - started > timeout) {
+        clearInterval(timer);
+        resolve(check());
+      }
+    }, 100);
+  });
+}
+
+function showTranslateBanner(text) {
+  let banner = document.getElementById("translateBanner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "translateBanner";
+    banner.className = "translate-banner";
+    banner.setAttribute("role", "status");
+    banner.setAttribute("aria-live", "polite");
+    document.body.append(banner);
+  }
+  banner.textContent = text;
+  banner.hidden = false;
+  return banner;
+}
+
+function hideTranslateBanner() {
+  const banner = document.getElementById("translateBanner");
+  if (banner) banner.hidden = true;
+}
+
+// `code` is the language whose copy is now on screen. Pass the source language
+// (never "") when falling back to untranslated copy: resolving "" finds no
+// language and would leave <html lang=""> — an invalid value that hurts SEO and
+// screen readers.
+function setDocumentDirection(code) {
+  const entry = languages.find((item) => item.code === code);
+  document.documentElement.lang = entry?.html || "zh-CN";
+  // Arabic (and future RTL additions) need the writing direction flipped.
+  document.documentElement.dir = code === "ar" || code === "he" || code === "fa" ? "rtl" : "ltr";
+}
+
+async function startAiTranslation() {
+  if (!isAiLang(lang) || aiTranslationActive) return;
+  aiTranslationActive = true;
+  aiLang = lang;
+  // The page still shows its source language, so the banner uses the source
+  // dictionary on purpose (a translated banner would flash mixed copy).
+  showTranslateBanner(ui.zh.translating);
+  try {
+    // Comments arrive from their own request; wait briefly so their text joins
+    // the same batch instead of costing a second round trip.
+    await waitFor(() => Array.isArray(commentsCache.comments), 2500);
+    const { entries, items, byText } = collectTranslationItems();
+    if (!items.length) {
+      hideTranslateBanner();
+      return;
+    }
+
+    const byId = {};
+    for (const group of groupTranslateItems(items)) {
+      Object.assign(byId, await requestTranslations(group));
+    }
+    // Completeness gate: a single missing entry would leave the page mixing the
+    // original and target languages, so show the original instead.
+    if (!items.every((item) => byId[item.id])) throw new Error("incomplete translation");
+
+    const dict = {};
+    const textDict = {};
+    for (const entry of entries) {
+      const value = byId[byText.get(entry.text)];
+      if (value) {
+        dict[entry.id] = value;
+        textDict[entry.text] = value;
+      }
+    }
+    aiDict = dict;
+    aiTextDict = textDict;
+    applyTranslations(entries);
+    setDocumentDirection(aiLang);
+    const title = document.querySelector("title");
+    if (title && aiDict["ui:siteTitle"]) title.textContent = aiDict["ui:siteTitle"];
+    hideTranslateBanner();
+  } catch (error) {
+    console.warn("[translate] falling back to the original copy", error?.message || error);
+    aiLang = "";
+    aiDict = null;
+    aiTextDict = null;
+    // `lang` is still the AI language here; the document itself never left the
+    // source language, so restore that (data-lang, else the /en/ /ja/ path).
+    setDocumentDirection(normalizeLang(document.body.dataset.lang) || langFromPath() || "zh");
+    showTranslateBanner(ui.zh.translateFailed);
+    setTimeout(hideTranslateBanner, 6000);
+  } finally {
+    aiTranslationActive = false;
+  }
+}
+
+// Incremental pass for content rendered after the first translation (comments
+// that loaded late, anime/games/github cards): translate only text the shared
+// text-level dictionary has never seen, then apply just the new entries.
+async function translateNewContent() {
+  if (!aiLang || aiTranslationActive || !aiTextDict) return;
+  const { entries, items, byText } = collectTranslationItems();
+  const missing = items.filter((item) => !aiTextDict[item.text]);
+  if (!missing.length) {
+    applyTranslations(entries);
+    return;
+  }
+  try {
+    const byId = {};
+    for (const group of groupTranslateItems(missing)) {
+      Object.assign(byId, await requestTranslations(group));
+    }
+    for (const entry of entries) {
+      const value = byId[byText.get(entry.text)];
+      if (value) {
+        aiDict[entry.id] = value;
+        aiTextDict[entry.text] = value;
+      }
+    }
+    applyTranslations(entries);
+    // Comment bodies render through commentMessage(), not as plain DOM entries,
+    // so fresh comment translations need a re-render to show up.
+    if (missing.some((item) => item.id.startsWith("comment:"))) {
+      const list = liveCommentList(document.getElementById("commentList"));
+      if (list && Array.isArray(commentsCache.comments)) renderComments(list, commentsCache.comments);
+    }
+  } catch {
+    // Leave new content untranslated rather than disturbing the page.
+  }
+}
+
+// --- Language selector ------------------------------------------------------
+// zh/ja/en exist as real static pages (switch = navigate). AI languages have no
+// page, so the current document is kept and translated in place.
+function localeHref(code) {
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  if (segments[0] === "en" || segments[0] === "ja") segments.shift();
+  const rest = segments.join("/");
+  const base = root === "." ? "" : `${root}/`;
+  if (code === "zh") return rest ? `${base}${rest}` : "./";
+  return `${base}${code}/${rest}`;
+}
+
+function bindLangSelector() {
+  const menu = document.querySelector(".lang-menu");
+  if (!menu || menu.querySelector("#langSelect")) return;
+  // The static shell hides this menu (it used to hold only a theme icon); a real
+  // select must be reachable by keyboard and screen readers.
+  menu.removeAttribute("aria-hidden");
+
+  const select = document.createElement("select");
+  select.id = "langSelect";
+  select.className = "lang-select";
+  select.setAttribute("aria-label", "Language");
+  for (const item of languages) {
+    const option = document.createElement("option");
+    option.value = item.code;
+    option.textContent = item.label;
+    if (item.code === lang) option.selected = true;
+    select.append(option);
+  }
+  select.addEventListener("change", () => {
+    const code = select.value;
+    storageSet(langKey, code);
+    if (isAiLang(code)) window.location.reload();
+    else window.location.assign(localeHref(code));
+  });
+  menu.prepend(select);
 }
 
 // Bind the complete static document immediately. Runtime settings enhance only

@@ -42,6 +42,8 @@ const state = {
   githubUsername: "shuangyue1124",
   githubCandidates: [],
   citySearch: "",
+  translateStats: null,
+  translateDays: 31,
 };
 
 function esc(value) {
@@ -154,6 +156,12 @@ function dashboard() {
           <button class="btn" type="button" id="telegramTestButton" aria-label="发送一条 Telegram 通知测试">测试 Telegram</button>
         </div>
         <p class="admin-status" role="status">${esc(state.status)}</p>
+      </section>
+
+      <section class="admin-panel" aria-labelledby="translate-title">
+        <h2 id="translate-title">AI 翻译缓存</h2>
+        <p>访客选择的非静态语言（如韩语、法语）由 Workers AI 翻译后按内容哈希缓存到 D1，重复访问不再调用模型。某种语言超过设定天数无人使用，会自动清空该语言的全部缓存。</p>
+        ${translateCacheView()}
       </section>
 
       <section class="admin-panel" aria-labelledby="config-title">
@@ -434,19 +442,32 @@ function localizedFieldset(name, label, value = {}, type = "input", required = t
 
 function commentItem(comment) {
   const status = comment.status || "approved";
+  const name = comment.name || "Anonymous";
+  // Replies keep their own row; the badge shows which comment they answered so
+  // moderation still reads as a conversation.
+  const replyBadge = comment.parentName
+    ? `<span class="admin-badge admin-badge--reply">↩ 回复 @${esc(comment.parentName)}</span>`
+    : "";
+  // A rejected parent hides its replies on the public page even though the
+  // reply itself is still approved, so the admin must see why.
+  const hiddenNote = comment.parentStatus === "rejected" && status === "approved"
+    ? `<p class="admin-comment__note">父评论已驳回，前台隐藏此回复</p>`
+    : "";
   return `
     <article class="admin-comment" data-id="${esc(comment.id)}">
       <div class="admin-comment__head">
         <div>
-          <strong>${esc(comment.name || "Anonymous")}</strong>
+          <strong>${esc(name)}</strong>
           <span class="admin-badge admin-badge--${esc(status)}">${esc(statusLabel(status))}</span>
+          ${replyBadge}
         </div>
         <div class="admin-actions">
-          ${status !== "approved" ? `<button class="btn btn--primary js-review-comment" type="button" data-status="approved" data-id="${esc(comment.id)}" aria-label="批准 ${esc(comment.name || "Anonymous")} 的留言">批准</button>` : ""}
-          ${status !== "rejected" ? `<button class="btn js-review-comment" type="button" data-status="rejected" data-id="${esc(comment.id)}" aria-label="驳回 ${esc(comment.name || "Anonymous")} 的留言">驳回</button>` : ""}
-          <button class="btn btn--danger js-delete-comment" type="button" data-id="${esc(comment.id)}" aria-label="删除 ${esc(comment.name || "Anonymous")} 的留言">删除</button>
+          ${status !== "approved" ? `<button class="btn btn--primary js-review-comment" type="button" data-status="approved" data-id="${esc(comment.id)}" aria-label="批准 ${esc(name)} 的留言">批准</button>` : ""}
+          ${status !== "rejected" ? `<button class="btn js-review-comment" type="button" data-status="rejected" data-id="${esc(comment.id)}" aria-label="驳回 ${esc(name)} 的留言">驳回</button>` : ""}
+          <button class="btn btn--danger js-delete-comment" type="button" data-id="${esc(comment.id)}" aria-label="删除 ${esc(name)} 的留言">删除</button>
         </div>
       </div>
+      ${hiddenNote}
       <p>${esc(comment.message || "")}</p>
       <div class="admin-comment__meta">
         <small>${esc(formatTime(comment.createdAt))}</small>
@@ -465,6 +486,57 @@ function commentItem(comment) {
       ` : ""}
     </article>
   `;
+}
+
+// Translation cache: Workers AI output is cached per content hash in D1, so the
+// admin mainly needs to see which languages are warm and be able to reclaim a
+// language nobody has visited for a month.
+function translateCacheView() {
+  const stats = state.translateStats;
+  if (!stats) return `<p class="admin-status">翻译缓存统计不可用（需要 D1 绑定 COMMENTS_DB）。</p>`;
+
+  const counts = new Map(stats.counts.map((row) => [row.lang, row.chunks]));
+  const usage = new Map(stats.usage.map((row) => [row.lang, row]));
+  const rows = stats.languages.map((lang) => {
+    const used = usage.get(lang);
+    const chunks = counts.get(lang) || 0;
+    return `
+      <tr>
+        <td>${esc(lang)}</td>
+        <td>${chunks}</td>
+        <td>${used ? esc(relativeTime(used.last_used_at)) : "从未使用"}</td>
+        <td>${used?.request_count ?? 0}</td>
+        <td>${chunks ? `<button class="btn btn--compact js-translate-purge" type="button" data-lang="${esc(lang)}" aria-label="清空 ${esc(lang)} 的翻译缓存">清空</button>` : ""}</td>
+      </tr>
+    `;
+  }).join("");
+
+  return `
+    <table class="admin-translate-table">
+      <thead><tr><th>语言</th><th>缓存条数</th><th>最后使用</th><th>请求次数</th><th>操作</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5">暂无缓存译文。</td></tr>`}</tbody>
+    </table>
+    <div class="admin-actions">
+      <label class="admin-field admin-field--inline">
+        <span>清理超过</span>
+        <input type="number" id="translateDays" min="7" max="365" value="${esc(String(state.translateDays))}">
+        <span>天未使用的语言</span>
+      </label>
+      <button class="btn" type="button" id="cleanupTranslateButton" aria-label="清理过期语言的翻译缓存">清理过期缓存</button>
+    </div>
+  `;
+}
+
+function relativeTime(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const diff = Date.now() - date.getTime();
+  const days = Math.floor(diff / 86400000);
+  if (days < 1) {
+    const hours = Math.floor(diff / 3600000);
+    return hours < 1 ? "刚刚" : `${hours} 小时前`;
+  }
+  return `${days} 天前`;
 }
 
 function chatMessage(item) {
@@ -603,13 +675,33 @@ function contentRow(item) {
     </article>`;
 }
 
+// One mutating admin action at a time. render() rebuilds the whole panel, so
+// disabling the clicked button never survived the next render — a busy flag is
+// the only guard that actually holds across re-renders.
+let adminActionBusy = false;
+function withBusy(handler) {
+  return async (...args) => {
+    if (adminActionBusy) return;
+    adminActionBusy = true;
+    try {
+      await handler(...args);
+    } finally {
+      adminActionBusy = false;
+    }
+  };
+}
+
 function bind() {
   document.getElementById("loginForm")?.addEventListener("submit", login);
   document.getElementById("configForm")?.addEventListener("submit", saveConfig);
   document.getElementById("refreshButton")?.addEventListener("click", loadDashboard);
-  document.getElementById("migrateButton")?.addEventListener("click", migrateComments);
-  document.getElementById("cleanupEventsButton")?.addEventListener("click", cleanupEvents);
-  document.getElementById("telegramTestButton")?.addEventListener("click", testTelegram);
+  document.getElementById("migrateButton")?.addEventListener("click", withBusy(migrateComments));
+  document.getElementById("cleanupEventsButton")?.addEventListener("click", withBusy(cleanupEvents));
+  document.getElementById("cleanupTranslateButton")?.addEventListener("click", withBusy(cleanupTranslations));
+  document.querySelectorAll(".js-translate-purge").forEach((button) => {
+    button.addEventListener("click", withBusy(() => purgeTranslation(button.dataset.lang)));
+  });
+  document.getElementById("telegramTestButton")?.addEventListener("click", withBusy(testTelegram));
   document.getElementById("logoutButton")?.addEventListener("click", logout);
   document.getElementById("aiChatForm")?.addEventListener("submit", sendAiChat);
   document.getElementById("statusFilter")?.addEventListener("change", (event) => {
@@ -617,10 +709,10 @@ function bind() {
     loadDashboard();
   });
   document.querySelectorAll(".js-review-comment").forEach((button) => {
-    button.addEventListener("click", () => updateCommentStatus(button.dataset.id, button.dataset.status));
+    button.addEventListener("click", withBusy(() => updateCommentStatus(button.dataset.id, button.dataset.status)));
   });
   document.querySelectorAll(".js-delete-comment").forEach((button) => {
-    button.addEventListener("click", () => deleteComment(button.dataset.id));
+    button.addEventListener("click", withBusy(() => deleteComment(button.dataset.id)));
   });
   document.getElementById("newProfileButton")?.addEventListener("click", () => {
     // 新增域名时以主站（about.shuangyue.space）的已保存配置为底，便于修改；
@@ -708,6 +800,17 @@ async function logout() {
   state.config = emptyConfig;
   state.comments = [];
   state.health = null;
+  // Session-scoped data must not survive into the next login on a shared
+  // machine (profiles, content items, translation stats, chat transcript).
+  state.profiles = [];
+  state.editingProfile = null;
+  state.contactsCatalog = [];
+  state.contentItems = [];
+  state.contentFilter = "all";
+  state.editingContent = null;
+  state.githubCandidates = [];
+  state.translateStats = null;
+  state.chatMessages = [{ role: "assistant", content: "可以问我访问量、热门页面、最近事件、评论审核状态等。数据来自 D1，只读查询。" }];
   state.status = "已退出。";
   render();
 }
@@ -775,6 +878,9 @@ async function updateCommentStatus(id, status) {
 
 async function deleteComment(id) {
   if (!id) return;
+  // Deleting a comment cascades to every reply beneath it, so the confirmation
+  // has to say so before the action runs.
+  if (!window.confirm("删除后不可恢复；该留言的全部回复也会一并删除。确定继续吗？")) return;
   const button = document.querySelector(`.js-delete-comment[data-id="${CSS.escape(id)}"]`);
   if (button) button.disabled = true;
 
@@ -802,6 +908,51 @@ async function migrateComments() {
     await loadDashboard();
   } catch (error) {
     state.status = error.message || "迁移失败。";
+    render();
+  }
+}
+
+async function cleanupTranslations() {
+  const input = document.getElementById("translateDays");
+  const days = Number.parseInt(input?.value || "", 10) || state.translateDays || 31;
+  // Remember the operator's choice, or the next render resets the input.
+  state.translateDays = days;
+  if (!window.confirm(`将删除超过 ${days} 天无人使用的语言及其全部缓存译文（后台接口支持 7~365 天）。确定继续吗？`)) return;
+  const button = document.getElementById("cleanupTranslateButton");
+  if (button) button.disabled = true;
+  state.status = "正在清理过期翻译缓存...";
+  render();
+  try {
+    const response = await api("/api/admin/translate-cleanup", {
+      method: "POST",
+      body: JSON.stringify({ days }),
+    });
+    if (!response.ok) throw new Error(await responseText(response));
+    const data = await response.json();
+    state.status = `翻译缓存已清理：删除 ${data.deletedChunks ?? 0} 条译文，涉及 ${data.deletedLangs ?? 0} 个语言。`;
+    await loadDashboard();
+  } catch (error) {
+    state.status = error.message || "清理失败。";
+    render();
+  }
+}
+
+async function purgeTranslation(lang) {
+  if (!lang) return;
+  if (!window.confirm(`将清空 ${lang} 的全部缓存译文；下次访问该语言会重新调用模型翻译。确定继续吗？`)) return;
+  state.status = `正在清空 ${lang} 的翻译缓存...`;
+  render();
+  try {
+    const response = await api("/api/admin/translate-cleanup", {
+      method: "POST",
+      body: JSON.stringify({ lang }),
+    });
+    if (!response.ok) throw new Error(await responseText(response));
+    const data = await response.json();
+    state.status = `${lang} 缓存已清空：删除 ${data.deletedChunks ?? 0} 条译文。`;
+    await loadDashboard();
+  } catch (error) {
+    state.status = error.message || "清空失败。";
     render();
   }
 }
@@ -892,17 +1043,26 @@ async function sendAiChat(event) {
   }
 }
 
+// Bumped on every loadDashboard call: a slow response from a superseded
+// request must never overwrite the state a newer request already wrote.
+let dashboardSeq = 0;
+
 async function loadDashboard() {
+  const seq = ++dashboardSeq;
   state.loading = true;
   render();
   try {
-    const [configResponse, commentsResponse, healthResponse, profilesResponse, contentResponse] = await Promise.all([
+    const [configResponse, commentsResponse, healthResponse, profilesResponse, contentResponse, translateResponse] = await Promise.all([
       api("/api/admin/config"),
       api(`/api/admin/comments?limit=100&status=${encodeURIComponent(state.statusFilter)}`),
       api("/api/admin/health"),
       api("/api/admin/profiles").catch(() => null),
       api("/api/admin/content?type=all").catch(() => null),
+      api("/api/admin/translate-stats").catch(() => null),
     ]);
+    // A newer load (filter change / refresh) superseded this one: drop the
+    // stale response instead of flashing an outdated comment list back in.
+    if (seq !== dashboardSeq) return;
     if (!configResponse.ok) throw await apiError(configResponse);
     if (!commentsResponse.ok) throw await apiError(commentsResponse);
     if (!healthResponse.ok) throw await apiError(healthResponse);
@@ -925,9 +1085,23 @@ async function loadDashboard() {
         if (Array.isArray(c.items)) state.contentItems = c.items;
       }
     } catch { /* content optional when D1 missing */ }
+    try {
+      if (translateResponse?.ok) {
+        const t = await translateResponse.json();
+        state.translateStats = {
+          usage: Array.isArray(t.usage) ? t.usage : [],
+          counts: Array.isArray(t.counts) ? t.counts : [],
+          languages: Array.isArray(t.languages) ? t.languages : [],
+          staleDays: t.staleDays || 31,
+        };
+        state.translateDays = state.translateStats.staleDays;
+      }
+    } catch { /* translation stats optional when D1 missing */ }
     state.loading = false;
     render();
   } catch (error) {
+    // A superseded request must not clobber auth state either.
+    if (seq !== dashboardSeq) return;
     state.loading = false;
     state.status = error.message || "加载失败，请点击「刷新数据」重试。";
     if (error.status === 401 || error.status === 403) {
