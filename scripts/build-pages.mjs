@@ -6,7 +6,7 @@ import { cities, homeCards, japanPlan, languages, profile, ui } from "../assets/
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const assetVersion = "20261002-bugfix1";
+const assetVersion = "20261003-translate1";
 const siteOrigin = "https://about.shuangyue.space";
 const locales = [
   { code: "zh", prefix: "", html: "zh-CN" },

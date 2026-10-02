@@ -50,6 +50,10 @@ let aiDict = null;
 // Source text -> translation, shared by every id with the same copy; lets the
 // incremental pass (comments, content cards) skip already-translated text.
 let aiTextDict = null;
+// Ids the model could not fit in its output budget. They keep the source
+// language and are offered a manual translate button instead of failing the
+// page (see startAiTranslation).
+let aiSkipped = new Set();
 // Guards against startAiTranslation racing the incremental translateNewContent
 // calls fired by loadComments / loadContentSections.
 let aiTranslationActive = false;
@@ -172,6 +176,8 @@ const commentUi = {
     replyTo: "回复",
     replyingTo: "正在回复",
     cancelReply: "取消回复",
+    translate: "翻译这条",
+    translating: "翻译中…",
   },
   ja: {
     title: "コメント",
@@ -199,6 +205,8 @@ const commentUi = {
     replyTo: "返信",
     replyingTo: "返信中",
     cancelReply: "返信をやめる",
+    translate: "翻訳する",
+    translating: "翻訳中…",
   },
   en: {
     title: "Comments",
@@ -226,6 +234,8 @@ const commentUi = {
     replyTo: "Reply to",
     replyingTo: "Replying to",
     cancelReply: "Cancel reply",
+    translate: "Translate",
+    translating: "Translating…",
   },
 };
 
@@ -578,6 +588,12 @@ function bindComments() {
 function bindReplyButtons(list, form) {
   if (!list || !form) return;
   list.addEventListener("click", (event) => {
+    const translateButton = event.target.closest?.(".js-translate-comment");
+    if (translateButton) {
+      event.preventDefault();
+      translateCommentManually(list, translateButton.dataset.id || "", translateButton);
+      return;
+    }
     const button = event.target.closest?.(".js-reply-comment");
     if (!button) return;
     setReplyTarget(form, button.dataset.id || "", button.dataset.name || "");
@@ -588,6 +604,32 @@ function bindReplyButtons(list, form) {
   form.querySelector(".js-cancel-reply")?.addEventListener("click", () => {
     setReplyTarget(form, "", "");
   });
+}
+
+// A comment too long for one model response stays in the source language and
+// gets a button instead. Translating it alone is cheap: the worker chunks long
+// copy internally, so this succeeds where the all-at-once page pass could not.
+async function translateCommentManually(list, id, button) {
+  const comment = (commentsCache.comments || []).find((item) => item.id === id);
+  if (!comment?.message) return;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = commentLabel("translating");
+  try {
+    const data = await requestTranslations([{ id: `comment:${id}`, text: comment.message }]);
+    const value = data.translations?.[`comment:${id}`];
+    if (!value) throw new Error("no translation returned");
+    if (!aiDict) aiDict = {};
+    if (!aiTextDict) aiTextDict = {};
+    aiDict[`comment:${id}`] = value;
+    aiTextDict[comment.message] = value;
+    aiSkipped.delete(`comment:${id}`);
+    if (aiDict) renderComments(list, commentsCache.comments);
+  } catch (error) {
+    console.warn("[translate] comment failed", error?.message || error);
+    button.disabled = false;
+    button.textContent = original;
+  }
 }
 
 function setReplyTarget(form, id, name) {
@@ -1127,6 +1169,9 @@ function commentItem(comment, options = {}) {
   // reply (parent deleted/rejected) or a reply-to-a-reply.
   const replyTo = comment.parentId && comment.parentId !== topId && comment.parentName ? comment.parentName : "";
   const className = ["comment-item", options.reply ? "comment-item--reply" : ""].filter(Boolean).join(" ");
+  // A comment the model could not fit in one response stays in the source
+  // language; offer a button so the visitor can translate just this one.
+  const canTranslate = aiLang && aiSkipped.has(`comment:${comment.id}`) && !commentMessage(comment);
   return `
     <article class="${className}" data-comment-id="${esc(comment.id || "")}">
       ${replyTo ? `<p class="comment-item__reply-to">${esc(commentLabel("replyTo"))} @${esc(replyTo)}</p>` : ""}
@@ -1138,6 +1183,7 @@ function commentItem(comment, options = {}) {
       <small>${esc(commentLabel("ip"))}: ${esc(comment.ip || "unknown")} · ${esc(commentLabel("location"))}: ${esc(commentLocation(comment))}</small>
       <div class="comment-item__actions">
         <button class="btn btn--compact js-reply-comment" type="button" data-id="${esc(comment.id || "")}" data-name="${esc(comment.name || "")}">${esc(commentLabel("reply"))}</button>
+        ${canTranslate ? `<button class="btn btn--compact js-translate-comment" type="button" data-id="${esc(comment.id || "")}">${esc(commentLabel("translate"))}</button>` : ""}
       </div>
     </article>
   `;
@@ -1169,15 +1215,20 @@ function commentTime(value) {
 // entry came back, so a page is never left half-translated.
 const TRANSLATE_SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "CODE", "PRE", "KBD", "SAMP"]);
 const TRANSLATE_ATTRS = ["placeholder", "aria-label", "title", "alt"];
-// Worker caps: 80 items and 2000 chars per item, 64KB body. Groups also carry
-// a byte budget so a batch of long entries can never exceed the body limit.
+// Worker caps: 80 items per request, 10 per model call, 64KB body. Groups also
+// carry a byte budget so a batch of long entries can never exceed the body limit.
 // TRANSLATE_ITEM_MAX_CHARS must stay equal to MAX_TRANSLATE_ITEM_CHARS in
 // worker.js: when this was larger, the worker silently truncated the source and
 // the page ended up showing a partial translation. A node over the cap is left
 // in the source language rather than risk a half-translated page.
+//
+// 150 is the measured ceiling of the model's output budget (see the matching
+// comment in worker.js), not a guess. A node over it is reported by the API in
+// `skipped` and stays readable in the source language; long comments are
+// translated on demand via the per-comment button instead.
 const TRANSLATE_GROUP_SIZE = 80;
 const TRANSLATE_GROUP_BYTES = 200000;
-const TRANSLATE_ITEM_MAX_CHARS = 2000;
+const TRANSLATE_ITEM_MAX_CHARS = 150;
 
 function translateEligible(value) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
@@ -1317,6 +1368,14 @@ function hideTranslateBanner() {
   if (banner) banner.hidden = true;
 }
 
+// A few strings may exceed what the model can return in one response. Say so
+// quietly instead of letting the visitor assume the whole page is translated.
+function noteUntranslated() {
+  if (!aiSkipped.size) return;
+  showTranslateBanner(ui.zh.translatePartial);
+  setTimeout(hideTranslateBanner, 6000);
+}
+
 // `code` is the language whose copy is now on screen. Pass the source language
 // (never "") when falling back to untranslated copy: resolving "" finds no
 // language and would leave <html lang=""> — an invalid value that hurts SEO and
@@ -1346,12 +1405,16 @@ async function startAiTranslation() {
     }
 
     const byId = {};
+    let skipped = [];
     for (const group of groupTranslateItems(items)) {
       Object.assign(byId, await requestTranslations(group));
     }
     // Completeness gate: a single missing entry would leave the page mixing the
-    // original and target languages, so show the original instead.
-    if (!items.every((item) => byId[item.id])) throw new Error("incomplete translation");
+    // original and target languages, so show the original instead. Copy the
+    // model cannot fit in its output budget is reported as skipped and is
+    // exempt — one long string must not cost the visitor the whole page.
+    const missingIds = items.filter((item) => !byId[item.id]).map((item) => item.id);
+    if (missingIds.length && missingIds.length === items.length) throw new Error("incomplete translation");
 
     const dict = {};
     const textDict = {};
@@ -1364,16 +1427,19 @@ async function startAiTranslation() {
     }
     aiDict = dict;
     aiTextDict = textDict;
+    aiSkipped = new Set(missingIds);
     applyTranslations(entries);
     setDocumentDirection(aiLang);
     const title = document.querySelector("title");
     if (title && aiDict["ui:siteTitle"]) title.textContent = aiDict["ui:siteTitle"];
     hideTranslateBanner();
+    if (missingIds.length) noteUntranslated();
   } catch (error) {
     console.warn("[translate] falling back to the original copy", error?.message || error);
     aiLang = "";
     aiDict = null;
     aiTextDict = null;
+    aiSkipped = new Set();
     // `lang` is still the AI language here; the document itself never left the
     // source language, so restore that (data-lang, else the /en/ /ja/ path).
     setDocumentDirection(normalizeLang(document.body.dataset.lang) || langFromPath() || "zh");

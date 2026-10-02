@@ -1,4 +1,4 @@
-const CACHE_NAME = "sfsy-static-v20261002-bugfix1";
+const CACHE_NAME = "sfsy-static-v20261003-translate1";
 // Query strings must match the assetVersion in scripts/build-pages.mjs: a
 // precache entry under a stale ?v= is never matched by the page's real request,
 // so the precache silently does nothing (this file is hand-maintained, so the
@@ -12,8 +12,8 @@ const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/contact.vcf",
   "/cities/japan-2026.html",
-  "/assets/css/styles.css?v=20261002-bugfix1",
-  "/assets/js/app.js?v=20261002-bugfix1",
+  "/assets/css/styles.css?v=20261003-translate1",
+  "/assets/js/app.js?v=20261003-translate1",
   "/assets/js/data.js",
   "/assets/js/site-profile.js",
   "/assets/images/avatar.webp",

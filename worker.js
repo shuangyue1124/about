@@ -169,7 +169,14 @@ const MAX_TRANSLATE_ITEMS = 80;
 // value here used to slice long copy silently: the model saw only the first
 // 1000 chars, and that partial translation replaced the whole node and was then
 // cached under the truncated text's hash.
-const MAX_TRANSLATE_ITEM_CHARS = 2000;
+//
+// 150 is measured, not guessed: with 10 items per batch (TRANSLATE_BATCH_SIZE),
+// 200 chars per item succeeded for 11 of the 12 AI languages but Hindi failed,
+// while 150 chars was stable across all of them. The ceiling is the model's
+// output-token budget, so it varies with the target language and only shows up
+// under load — a batch that fits can still overflow once the copy is real.
+// Over-cap copy is skipped (reported in `skipped`), never truncated.
+const MAX_TRANSLATE_ITEM_CHARS = 150;
 const MAX_TRANSLATE_ITEM_ID_CHARS = 120;
 const MAX_TRANSLATE_BODY_BYTES = 65536;
 const TRANSLATE_BATCH_SIZE = 10;
@@ -485,15 +492,22 @@ export async function handleTranslate(request, env, ctx) {
     const lang = cleanOneLine(payload.lang, 12).toLowerCase();
     if (!AI_LANGUAGES.has(lang)) return json({ error: "unsupported language" }, 400);
 
-    let items;
-    try {
-      items = sanitizeTranslateItems(payload.items);
-    } catch (error) {
-      // Malformed item (e.g. copy over the per-item cap): the client's bug, so
-      // answer 400 with the reason instead of translating a prefix.
-      return json({ error: String(error?.message || error) }, 400);
+    const rawItems = Array.isArray(payload.items) ? payload.items : [];
+    // Partition up front instead of throwing on the first over-long entry:
+    // sanitizeTranslateItems stops at that entry, so a naive catch would drop
+    // every later item and translate only one long string per request.
+    const longTexts = [];
+    const shortRaw = [];
+    for (const entry of rawItems.slice(0, MAX_TRANSLATE_ITEMS)) {
+      const text = String(entry?.text || "").trim();
+      if (text.length > MAX_TRANSLATE_ITEM_CHARS) longTexts.push({ id: entry?.id, text });
+      else shortRaw.push(entry);
     }
-    if (!items.length) return json({ error: "items are required" }, 400);
+    const items = sanitizeTranslateItems(shortRaw);
+    const longItems = longTexts
+      .map((item) => ({ id: cleanOneLine(item.id, MAX_TRANSLATE_ITEM_ID_CHARS), text: item.text }))
+      .filter((item) => item.id);
+    if (!items.length && !longItems.length) return json({ error: "items are required" }, 400);
 
     const rate = memoryRateLimitCheck("translate", clientIp(request), TRANSLATE_RATE_LIMITS);
     if (rate.limited) return rateLimitedResponse(rate.retryAfter);
@@ -533,26 +547,41 @@ export async function handleTranslate(request, env, ctx) {
       }
     }
 
+    // Per-batch failure tolerance: the model has a hard output ceiling, so a
+    // batch holding copy it cannot fit fails no matter how many times it is
+    // retried. Failing the whole request would take the entire page back to the
+    // source language because of one long string, so a failed batch only drops
+    // its own entries: everything already translated still applies, and the
+    // dropped ids are reported so the client can keep them in the source
+    // language instead of rendering them half-translated.
     let freshCount = 0;
-    try {
-      for (const batch of chunkArray(missing, TRANSLATE_BATCH_SIZE)) {
-        const translated = await translateBatchWithRetry(env, model, languageName, batch.map((entry) => entry.item.text));
-        const saved = batch.map((entry, index) => ({
-          hash: entry.hash,
-          source: entry.item.text,
-          text: cleanMessage(translated[index], MAX_TRANSLATE_ITEM_CHARS * 2),
-        }));
-        for (const entry of saved) byHash.set(entry.hash, entry.text);
-        // Persist each finished batch immediately. If a later batch fails, the
-        // work already paid for stays cached and the client retry only pays for
-        // the remainder — no page is ever left half-translated.
-        await saveTranslations(env, lang, saved);
-        freshCount += saved.length;
+    const skipped = [];
+    for (const batch of chunkArray(missing, TRANSLATE_BATCH_SIZE)) {
+      let translated;
+      try {
+        translated = await translateBatchWithRetry(env, model, languageName, batch.map((entry) => entry.item.text));
+      } catch (error) {
+        console.error("[translate] batch failed, keeping source for", batch.length, "item(s)", error?.message || error);
+        skipped.push(...batch.map((entry) => entry.item.id));
+        continue;
       }
-    } catch (error) {
-      console.error("[translate] batch failed", error?.message || error);
-      return json({ error: "translation failed", lang }, 502);
+      const saved = batch.map((entry, index) => ({
+        hash: entry.hash,
+        source: entry.item.text,
+        text: cleanMessage(translated[index], MAX_TRANSLATE_ITEM_CHARS * 2),
+      }));
+      for (const entry of saved) byHash.set(entry.hash, entry.text);
+      // Persist each finished batch immediately. If a later batch fails, the
+      // work already paid for stays cached and the client retry only pays for
+      // the remainder — no page is ever left half-translated.
+      await saveTranslations(env, lang, saved);
+      freshCount += saved.length;
     }
+
+    // Nothing at all came back (model down, quota exhausted): that is a real
+    // service failure and the client should say so rather than silently
+    // rendering the source language.
+    if (!byHash.size && skipped.length) return json({ error: "translation failed", lang }, 502);
 
     // Null prototype: request-controlled ids like "__proto__" can never poison
     // Object.prototype through this plain assignment loop.
@@ -562,6 +591,55 @@ export async function handleTranslate(request, env, ctx) {
       if (value) translations[item.id] = value;
     }
 
+    // Over-cap copy: translate it in sentence-sized chunks, then rejoin. Checked
+    // against the cache first — the whole item is stored under its own hash, so
+    // a repeat visit costs nothing. Done last and one item at a time, so a single
+    // very long comment can only fail itself (reported in `skipped`, and the UI
+    // then offers a manual retry for it).
+    for (const long of longItems) {
+      if (!long.id) continue;
+      const wholeHash = (await sha256Hex(long.text)).slice(0, 40);
+      const cachedLong = await env.COMMENTS_DB.prepare(
+        "SELECT translated_text FROM translations WHERE lang = ? AND chunk_hash = ?",
+      ).bind(lang, wholeHash).first().catch(() => null);
+      if (cachedLong?.translated_text) {
+        translations[long.id] = cachedLong.translated_text;
+        continue;
+      }
+      const pieces = splitLongText(long.text);
+      if (!pieces.length) {
+        skipped.push(long.id);
+        continue;
+      }
+      try {
+        const parts = [];
+        for (const group of chunkArray(pieces, TRANSLATE_BATCH_SIZE)) {
+          parts.push(...(await translateBatchWithRetry(env, model, languageName, group)));
+        }
+        // Rejoin with the source's own boundary whitespace: a fixed " " would
+        // corrupt CJK text (which has no spaces) and double up after punctuation.
+        // cleanMessage's trim() is safe here because it only strips each
+        // translated chunk, never the source boundaries.
+        const joined = parts
+          .map((value) => cleanMessage(value, MAX_TRANSLATE_ITEM_CHARS * 4))
+          .filter(Boolean)
+          .reduce((acc, value) => (needsSpaceBetween(acc, value) ? `${acc} ${value}` : acc + value), "")
+          .replace(/ {2,}/g, " ")
+          .trim();
+        if (!joined) {
+          skipped.push(long.id);
+          continue;
+        }
+        translations[long.id] = joined;
+        byHash.set(wholeHash, joined);
+        await saveTranslations(env, lang, [{ hash: wholeHash, source: long.text, text: joined }]);
+        freshCount += 1;
+      } catch (error) {
+        console.error("[translate] long item failed", error?.message || error);
+        skipped.push(long.id);
+      }
+    }
+
     const background = (async () => {
       await touchTranslationUsage(env, lang).catch(() => {});
       await maybeCleanupTranslations(env).catch(() => {});
@@ -569,7 +647,7 @@ export async function handleTranslate(request, env, ctx) {
     if (ctx?.waitUntil) ctx.waitUntil(background);
     else background.catch(() => {});
 
-    return json({ lang, model, translations, cachedCount: items.length - freshCount, freshCount });
+    return json({ lang, model, translations, cachedCount: items.length - freshCount, freshCount, skipped });
   } catch (error) {
     // An unapplied migrations/0004 leaves the cache tables missing; say so
     // instead of a generic 503 the operator cannot act on.
@@ -581,6 +659,55 @@ export async function handleTranslate(request, env, ctx) {
   }
 }
 
+// Whether a space is needed between two translated chunks. CJK text has no
+// inter-word spaces, so inserting one would corrupt it; Latin-script text needs
+// the space or words run together.
+function needsSpaceBetween(left, right) {
+  if (!left || !right) return false;
+  if (/[\s]$/.test(left) || /^\s/.test(right)) return false;
+  const cjk = (ch) => /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]/u.test(ch);
+  return !cjk(left[left.length - 1]) && !cjk(right[0]);
+}
+
+// Split at sentence punctuation so each piece keeps its own meaning, then fall
+// back to a word boundary, and only hard-cut as a last resort (a single
+// unbroken run of characters). Never loses or duplicates a character.
+function splitLongText(text, limit = MAX_TRANSLATE_ITEM_CHARS) {
+  const source = String(text || "").trim();
+  if (!source) return [];
+  if (source.length <= limit) return [source];
+
+  const pieces = [];
+  let rest = source;
+  while (rest.length) {
+    if (rest.length <= limit) {
+      pieces.push(rest);
+      break;
+    }
+    const window = rest.slice(0, limit + 1);
+    // Prefer the last sentence end inside the window...
+    let cut = Math.max(
+      window.lastIndexOf("。"), window.lastIndexOf("！"), window.lastIndexOf("？"),
+      window.lastIndexOf("；"),
+      window.lastIndexOf("!"), window.lastIndexOf("?"), window.lastIndexOf(";"),
+      window.lastIndexOf("."),
+    );
+    // ...then a clause boundary...
+    if (cut < Math.floor(limit / 3)) {
+      cut = Math.max(window.lastIndexOf("，"), window.lastIndexOf(","));
+    }
+    // ...then the last space, so a word is never cut in half...
+    if (cut < Math.floor(limit / 3)) {
+      cut = window.lastIndexOf(" ");
+    }
+    // ...and only then a hard cut.
+    if (cut < Math.floor(limit / 3)) cut = limit - 1;
+    pieces.push(rest.slice(0, cut + 1).trim());
+    rest = rest.slice(cut + 1).trim();
+  }
+  return pieces.filter(Boolean);
+}
+
 function sanitizeTranslateItems(value) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
@@ -589,13 +716,12 @@ function sanitizeTranslateItems(value) {
     if (items.length >= MAX_TRANSLATE_ITEMS) break;
     const id = cleanOneLine(entry?.id, MAX_TRANSLATE_ITEM_ID_CHARS);
     const text = cleanMessage(entry?.text, MAX_TRANSLATE_ITEM_CHARS).trim();
-    // Never let cleanMessage's slice() quietly shorten the source: the model
-    // would translate a prefix, the client would write that prefix back over
-    // the whole node, and the truncated result would be cached under the
-    // truncated hash. Over-long copy is the client's bug, so say so instead.
-    if (String(entry?.text || "").trim().length > MAX_TRANSLATE_ITEM_CHARS) {
-      throw new Error(`translation item "${id || "?"}" exceeds ${MAX_TRANSLATE_ITEM_CHARS} characters`);
-    }
+    // cleanMessage's slice() must never quietly shorten the source: the model
+    // would translate a prefix, the client would write that prefix back over the
+    // whole node, and the truncated result would be cached under the truncated
+    // hash. The handler routes over-long copy to splitLongText() before this
+    // point, so this guard only fires if the cap and the splitter disagree.
+    if (String(entry?.text || "").trim().length > MAX_TRANSLATE_ITEM_CHARS) continue;
     if (!id || !text || seen.has(id)) continue;
     seen.add(id);
     items.push({ id, text });

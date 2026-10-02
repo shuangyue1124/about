@@ -7,7 +7,7 @@ import { cities, homeCards, japanPlan, ui } from "../assets/js/data.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // Keep in sync with scripts/build-pages.mjs.
-const assetVersion = "20261002-bugfix1";
+const assetVersion = "20261003-translate1";
 const origin = readArg("--origin");
 const remoteTimeoutMs = 30000;
 

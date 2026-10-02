@@ -372,12 +372,11 @@ async function apiSmoke() {
   }), badAiEnv));
   check("translate 模型返回非法结果 → 502", trBad.status === 502, trBad.status);
 
-  // Copy between the old 1000-char worker cap and the 2000-char frontend cap
-  // used to be sliced silently: the model only ever saw the first 1000 chars,
-  // the client wrote that prefix over the whole node (losing the tail), and the
-  // truncated result was cached under the truncated hash. Long copy must now
-  // reach the model intact, and copy over the shared cap must be refused with a
-  // 400 rather than translated as a prefix.
+  // The model has a hard output ceiling (~150 chars per item, measured against
+  // all 12 AI languages), and copy past it used to fail the whole request — one
+  // long comment took the entire page back to the source language. Long copy
+  // must now be split into model-sized pieces and rejoined, short items in the
+  // same request must survive, and nothing may be truncated.
   const longSeen = [];
   const longAiEnv = {
     ...env,
@@ -390,26 +389,64 @@ async function apiSmoke() {
       },
     },
   };
-  const underCap = "長".repeat(1500);
+  // Three sentences so the splitter has real boundaries to cut on.
+  const longComment = "这是一条很长的留言内容。".repeat(30);
   const trLong = await asJson(await handleTranslate(apiRequest("/api/translate", {
     method: "POST",
-    body: { lang: "ko", items: [{ id: "ui:long", text: underCap }] },
+    body: { lang: "ko", items: [{ id: "comment:long", text: longComment }] },
+  }), longAiEnv));
+  const longOut = trLong.data?.translations?.["comment:long"] || "";
+  check(
+    "translate 超长文本 → 分段翻译而非整页失败",
+    trLong.status === 200 && longSeen.length > 1 && longSeen.every((t) => t.length <= 150),
+    `${trLong.status}/${longSeen.length} 段`
+  );
+  // The mock prefixes every chunk with "KO:", so remove one prefix per chunk
+  // before comparing: what matters is that the source survives the split and
+  // rejoin whole, in order, with nothing dropped at a chunk boundary.
+  const stripChunkPrefixes = (value, count) => {
+    let out = value;
+    for (let i = 0; i < count; i += 1) out = out.replace("KO:", "");
+    return out;
+  };
+  const longPlain = stripChunkPrefixes(longOut, longSeen.length);
+  check(
+    "translate 超长文本 → 内容完整无截断",
+    longPlain.replace(/\s+/g, "") === longComment.replace(/\s+/g, ""),
+    `${longOut.length}/${longComment.length} (${longSeen.length} 段)`
+  );
+  check("translate 超长文本 → 不标记为 skipped", !(trLong.data?.skipped || []).includes("comment:long"), JSON.stringify(trLong.data?.skipped));
+
+  // A long item must not cost the short ones their translation.
+  const trMixed = await asJson(await handleTranslate(apiRequest("/api/translate", {
+    method: "POST",
+    body: {
+      lang: "ko",
+      items: [
+        { id: "ui:home", text: "首页" },
+        { id: "comment:mixed", text: longComment },
+      ],
+    },
   }), longAiEnv));
   check(
-    "translate 1500 字符长文本 → 模型收到完整原文（不被静默截断）",
-    trLong.status === 200 && longSeen[0]?.length === underCap.length && trLong.data?.translations?.["ui:long"] === `KO:${underCap}`,
-    `${trLong.status}/model saw ${longSeen[0]?.length} of ${underCap.length}`
+    "translate 长短混合 → 短文案与长留言都成功",
+    trMixed.status === 200 && trMixed.data?.translations?.["ui:home"] === "KO:首页" && Boolean(trMixed.data?.translations?.["comment:mixed"]),
+    `${trMixed.status}`
   );
 
-  const overCap = "長".repeat(2001);
+  // Absurdly long copy (no punctuation at all) still has to come back whole:
+  // the splitter's hard-cut fallback must not drop or duplicate characters.
+  const hugeNoPunct = "長".repeat(2001);
   const trOver = await asJson(await handleTranslate(apiRequest("/api/translate", {
     method: "POST",
-    body: { lang: "ko", items: [{ id: "ui:over", text: overCap }] },
+    body: { lang: "ko", items: [{ id: "ui:over", text: hugeNoPunct }] },
   }), longAiEnv));
+  const overSegments = Math.ceil(hugeNoPunct.length / 150);
+  const overPlain = stripChunkPrefixes(trOver.data?.translations?.["ui:over"] || "", overSegments);
   check(
-    "translate 超上限文本 → 400 报错（不返回截断译文）",
-    trOver.status === 400 && !trOver.data?.translations?.["ui:over"],
-    `${trOver.status}`
+    "translate 2001 字无标点长串 → 分段后完整无丢失",
+    trOver.status === 200 && overPlain === hugeNoPunct,
+    `${trOver.status}/${overPlain.length}`,
   );
 
   // ---- translation cache admin endpoints ----
