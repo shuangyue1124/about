@@ -28,6 +28,8 @@ export const profile = {
   birthDate: "",
   githubUser: "shuangyue1124",
   githubUrl: "https://github.com/shuangyue1124",
+  instagramUser: "syxl2416",
+  instagramUrl: "https://www.instagram.com/syxl2416/",
 };
 
 export const ui = {
@@ -45,7 +47,7 @@ export const ui = {
     avatarAlt: "朔风霜月的头像",
     heroSubtitle: "在像素世界、旅途与代码里收集灵感。",
     homeMotto: "我们是自己生活的导演，而不是只负责出演的演员。所以，放心大胆地去做吧，不必在意他人的目光，人生只为自己而活。",
-    heroMeta: "学生 · 呼和浩特",
+    heroMeta: "学生 · 呼和浩特 · INFP",
     terminalPrompt: ">_",
     terminalLabel: "复制 GitHub",
     copied: "已复制",
@@ -137,7 +139,7 @@ export const ui = {
     avatarAlt: "朔風霜月のアバター",
     heroSubtitle: "ピクセルの世界、旅、コードのなかで、ひらめきを集めています。",
     homeMotto: "私たちは自分の人生の監督であって、ただ演じるだけの役者ではありません。だから、周りの目を気にせず、思うままに大胆へ進んでください。人生は自分のためにあります。",
-    heroMeta: "学生 · フフホト",
+    heroMeta: "学生 · フフホト · INFP",
     terminalPrompt: ">_",
     terminalLabel: "GitHubをコピー",
     copied: "コピーしました",
@@ -231,7 +233,7 @@ export const ui = {
       "Collecting sparks from pixel worlds, open roads, and code.",
     homeMotto:
       "We are the directors of our own lives, not actors who only play a part. So go ahead boldly, without worrying about how others see you. Our lives are for ourselves.",
-    heroMeta: "Student · Hohhot",
+    heroMeta: "Student · Hohhot · INFP",
     terminalPrompt: ">_",
     terminalLabel: "Copy GitHub",
     copied: "Copied",
@@ -424,6 +426,7 @@ export const contacts = [
   { key: "email", label: "Email", value: "", href: "" },
   { key: "github", label: "GitHub", value: profile.githubUser, href: profile.githubUrl },
   { key: "steam", label: "Steam", value: "", href: "" },
+  { key: "instagram", label: "Instagram", value: "", href: "" },
 ];
 
 const c = (zh, ja, en) => ({ zh, ja, en });

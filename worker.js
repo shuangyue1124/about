@@ -243,6 +243,7 @@ const DEFAULT_CONTACTS = [
   { type: "steam", label: "Steam", value: "CS2 Profile", url: "https://steamcommunity.com/profiles/76561199258450245/", enabled: true, sortOrder: 60 },
   { type: "minecraft", label: "Minecraft", value: "CN_YangYang", url: "", enabled: true, sortOrder: 70 },
   { type: "genshin", label: "原神", value: "847045298", url: "", enabled: true, sortOrder: 80 },
+  { type: "instagram", label: "Instagram", value: "syxl2416", url: "https://www.instagram.com/syxl2416/", enabled: true, sortOrder: 90 },
 ];
 
 function normalizeHostname(value) {
@@ -262,7 +263,7 @@ function defaultProfileFor(hostname) {
   const base = {
     hostname: host, enabled: true, template: "full", language: "auto",
     modules: [...TEMPLATE_MODULES.full],
-    contacts: ["qq", "telegram", "email", "github", "steam"],
+    contacts: ["qq", "telegram", "email", "github", "steam", "instagram"],
     travel: { mode: "all", cities: [] },
     githubUser: "shuangyue1124", title: null, subtitle: null,
   };

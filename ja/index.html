@@ -34,8 +34,8 @@
     <meta name="twitter:image" content="https://about.shuangyue.space/assets/images/og-card.webp">
     <meta name="twitter:image:alt" content="朔風霜月のプロフィールカード">
     <title>朔風霜月｜プロフィールカード</title>
-    <link rel="stylesheet" href="../assets/css/styles.css?v=20261003-translate1">
-    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔風霜月｜プロフィールカード","mainEntity":{"@type":"Person","name":"朔風霜月","alternateName":"shuangyue1124","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/ja/","sameAs":["https://github.com/shuangyue1124"]}}</script>
+    <link rel="stylesheet" href="../assets/css/styles.css?v=20261005-modfix1">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"ProfilePage","name":"朔風霜月｜プロフィールカード","mainEntity":{"@type":"Person","name":"朔風霜月","alternateName":"shuangyue1124","image":"https://about.shuangyue.space/assets/images/avatar.webp","url":"https://about.shuangyue.space/ja/","sameAs":["https://github.com/shuangyue1124","https://www.instagram.com/syxl2416/"]}}</script>
   </head>
   <body data-page="home" data-root=".." data-lang="ja">
     <div id="app">
@@ -62,6 +62,7 @@
         <div class="hero__content">
           <div class="avatar-ring"><img src="/assets/images/avatar.webp" alt="朔風霜月のアバター" width="112" height="112" fetchpriority="high" decoding="async"></div>
           <h1>朔風霜月</h1>
+          <p class="hero__meta">学生 · フフホト · INFP</p>
           <p class="hero__subtitle">ピクセルの世界、旅、コードのなかで、ひらめきを集めています。</p>
           <p class="hero__motto">私たちは自分の人生の監督であって、ただ演じるだけの役者ではありません。だから、周りの目を気にせず、思うままに大胆へ進んでください。人生は自分のためにあります。</p>
           <div class="hero__actions">
@@ -72,7 +73,7 @@
         </div>
       </section>
 
-      <section class="now-status" id="nowStatus" data-now-status hidden aria-labelledby="nowStatusTitle">
+      <section class="now-status" id="nowStatus" data-now-status data-module="profile" hidden aria-labelledby="nowStatusTitle">
         <div class="now-status__head">
           <span class="now-status__dot" aria-hidden="true"></span>
           <h2 id="nowStatusTitle">今の様子</h2>
@@ -83,7 +84,7 @@
         <button class="btn btn--compact now-status__toggle" id="nowStatusToggle" type="button" aria-expanded="false" aria-controls="nowStatusPanel">今日の時間割</button>
         <div class="now-status__panel" id="nowStatusPanel" data-now-panel hidden></div>
       </section>
-      <section class="feature-section" aria-labelledby="home-sections" data-module="about">
+      <section class="feature-section" aria-labelledby="home-sections" data-section="home-cards">
         <h2 id="home-sections">カード内容</h2>
         <div class="feature-list">
     <article class="feature-card feature-card--image-left" data-module="about">
@@ -172,6 +173,6 @@
     </footer>
   </div>
     <noscript><p class="noscript-fallback">JavaScriptがなくても、上のプロフィールと連絡先は利用できます。コメントと共有機能のみ利用できません。</p></noscript>
-    <script type="module" src="../assets/js/app.js?v=20261003-translate1"></script>
+    <script type="module" src="../assets/js/app.js?v=20261005-modfix1"></script>
   </body>
 </html>

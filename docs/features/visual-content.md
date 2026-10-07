@@ -4,7 +4,16 @@
 
 - **Given** 访客通过 NFC、二维码或链接打开首页
 - **When** JavaScript 尚未加载、加载失败或被禁用
-- **Then** 姓名、个人简介、社交与联系入口、保存通讯录按钮仍直接可读可用，只有实时留言和分享增强不可用
+- **Then** 姓名、身份行（城市与 MBTI）、个人简介、社交与联系入口、保存通讯录按钮仍直接可读可用，只有实时留言和分享增强不可用
+
+## 身份行与社交目录
+
+- **Given** 访客打开首页
+- **When** 首屏渲染
+- **Then** 姓名下方输出一行身份（`ui.*.heroMeta`，如「学生 · 呼和浩特 · INFP」），由 `scripts/build-pages.mjs` 的 `heroMetaText` 直接写进静态 HTML，不依赖运行时接口
+- **Given** 访客查看联系方式区或保存到通讯录
+- **When** 渲染联系项
+- **Then** 社交平台（含 Instagram）来自服务端 contact 目录，按 hostname profile 白名单过滤；wx/qq/github/travel 等分站不会返回主站未授权的社交项
 
 ## 保存到通讯录
 

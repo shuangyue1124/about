@@ -980,13 +980,13 @@ function hideDisabledModules() {
   });
   if (!mods.has("comments")) document.querySelector("[data-comments]")?.remove();
   if (!mods.has("contacts")) document.getElementById("contact")?.remove();
-  if (!mods.has("travel")) {
-    // Home travel card is identified by its travel link; travel page keeps shell
-    // but shows an empty state (display control only, no 404 in phase one).
-    document.querySelectorAll(".feature-card").forEach((card) => {
-      if (card.querySelector('a[href*="travel"]') && card.querySelector(".eyebrow")?.textContent?.includes(label("travelTitle").slice(0, 2))) card.remove();
-    });
-  }
+  // An empty home-cards section would render a dangling heading with no body,
+  // so drop the shell once its last card is gone. Card-level filtering already
+  // happened above: each home card carries its own data-module (homeCard's
+  // moduleMap), so no copy-based matching is needed here.
+  document.querySelectorAll("[data-section='home-cards']").forEach((section) => {
+    if (!section.querySelector("[data-module]")) section.remove();
+  });
 }
 
 function applyProfileModule() { /* hero always visible when profile module present */ }
@@ -1006,6 +1006,7 @@ function contactDesc(item) {
     steam: { zh: "打开 Steam 个人资料", ja: "Steamプロフィールを開く", en: "Open Steam profile" },
     minecraft: { zh: "Minecraft 联机", ja: "Minecraftで遊ぶ", en: "Play Minecraft together" },
     genshin: { zh: "原神 UID", ja: "原神 UID", en: "Genshin UID" },
+    instagram: { zh: "查看 Instagram 主页", ja: "Instagram プロフィールを開く", en: "Open Instagram profile" },
   };
   const key = String(item.type || "").toLowerCase();
   return map[key]?.[lang] || map[key]?.zh || "";
@@ -1038,10 +1039,11 @@ function filterTravelDom() {
   const travel = siteProfile?.travel;
   if (!travel) return;
   if (travel.mode === "disabled") {
+    // The whole timeline section is data-module="travel" and is removed by
+    // hideDisabledModules when travel is off, so nothing is left to show here.
+    // Removing city cards as well keeps the about/travel modules consistent.
     document.querySelectorAll(".city-preview").forEach((el) => el.remove());
     document.querySelectorAll(".timeline-group").forEach((el) => el.remove());
-    const empty = document.querySelector(".no-results");
-    if (empty) { empty.hidden = false; }
     return;
   }
   const allSlugs = Array.from(document.querySelectorAll(".city-preview")).map((el) => {
@@ -1063,6 +1065,15 @@ function filterTravelDom() {
   document.querySelectorAll(".timeline-group").forEach((group) => {
     if (!group.querySelector(".city-preview")) group.remove();
   });
+  // An include/exclude filter can empty the timeline: surface the built-in
+  // empty state instead of leaving a bare heading behind.
+  if (!document.querySelector(".city-preview")) {
+    const empty = document.querySelector(".no-results");
+    if (empty) {
+      empty.hidden = false;
+      document.querySelectorAll(".timeline-group").forEach((group) => group.remove());
+    }
+  }
 }
 
 async function loadContentSections() {

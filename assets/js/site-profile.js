@@ -57,7 +57,7 @@ export function defaultProfileFor(hostname) {
     template: "full",
     language: "auto",
     modules: [...TEMPLATES.full],
-    contacts: ["qq", "telegram", "email", "github", "steam"],
+    contacts: ["qq", "telegram", "email", "github", "steam", "instagram"],
     travel: { mode: "all", cities: [] },
     githubUser: "shuangyue1124",
     title: null,

@@ -6,7 +6,7 @@ import { cities, homeCards, japanPlan, languages, profile, ui } from "../assets/
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const assetVersion = "20261003-translate1";
+const assetVersion = "20261005-modfix1";
 const siteOrigin = "https://about.shuangyue.space";
 const locales = [
   { code: "zh", prefix: "", html: "zh-CN" },
@@ -206,7 +206,7 @@ function heroMetaText(lang) {
 function nowStatusCard(locale) {
   const lang = locale.code;
   return `
-      <section class="now-status" id="nowStatus" data-now-status hidden aria-labelledby="nowStatusTitle">
+      <section class="now-status" id="nowStatus" data-now-status data-module="profile" hidden aria-labelledby="nowStatusTitle">
         <div class="now-status__head">
           <span class="now-status__dot" aria-hidden="true"></span>
           <h2 id="nowStatusTitle">${esc(l(lang, "nowStatusTitle"))}</h2>
@@ -229,6 +229,7 @@ function homePage(locale) {
         <div class="hero__content">
           <div class="avatar-ring"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="112" height="112" fetchpriority="high" decoding="async"></div>
           <h1>${esc(l(lang, "heroTitle"))}</h1>
+          <p class="hero__meta">${esc(heroMetaText(lang))}</p>
           <p class="hero__subtitle">${esc(l(lang, "heroSubtitle"))}</p>
           <p class="hero__motto">${esc(l(lang, "homeMotto"))}</p>
           <div class="hero__actions">
@@ -239,7 +240,7 @@ function homePage(locale) {
         </div>
       </section>
       ${nowStatusCard(locale)}
-      <section class="feature-section" aria-labelledby="home-sections" data-module="about">
+      <section class="feature-section" aria-labelledby="home-sections" data-section="home-cards">
         <h2 id="home-sections">${esc(l(lang, "sectionHome"))}</h2>
         <div class="feature-list">${homeCards.map((card, index) => homeCard(locale, depth, card, index)).join("")}</div>
       </section>
@@ -308,6 +309,7 @@ function contactItem(lang, depth, item) {
     email: { zh: "点击发送电子邮件", ja: "メールを送る", en: "Send an email" },
     github: { zh: "查看代码与项目", ja: "コードとプロジェクトを見る", en: "View code and projects" },
     steam: { zh: "打开 Steam 个人资料", ja: "Steamプロフィールを開く", en: "Open Steam profile" },
+    instagram: { zh: "查看 Instagram 主页", ja: "Instagram プロフィールを開く", en: "Open Instagram profile" },
   };
   const desc = descriptions[item.key]?.[lang] || descriptions[item.key]?.zh || "";
   if (item.type === "copy") {
@@ -330,7 +332,7 @@ function travelPage(locale) {
   const pending = cities.filter((city) => city.dateStatus === "pending").length;
   const main = layout(locale, depth, "travel", `
     <main id="main-content" tabindex="-1">
-      <section class="travel-hero">
+      <section class="travel-hero" data-module="travel">
         <div class="travel-hero__text"><p class="eyebrow">${esc(l(lang, "travelTitle"))}</p><h1>${esc(l(lang, "totalCities"))} <span>${cities.length}</span> ${esc(l(lang, "cityUnit"))}</h1><p>${esc(l(lang, "travelIntro"))}</p></div>
         <div class="travel-stats">
           <a class="stat-card" href="${attr(localePath(locale, `cities/${latest.slug}.html`))}"><span>${esc(l(lang, "latest"))}</span><strong>${esc(t(lang, latest.name))}</strong><small>${esc(stopDate(lang, latest))}</small></a>
@@ -339,8 +341,8 @@ function travelPage(locale) {
           <div class="stat-card stat-card--breakdown"><span>${esc(l(lang, "statsPending"))}</span><strong>${pending}</strong><small>${esc(l(lang, "cityUnit"))}</small></div>
         </div>
       </section>
-      <section class="travel-search" id="cities"><label><span>${esc(l(lang, "allCities"))}</span><input type="search" id="citySearch" autocomplete="off" placeholder="${attr(l(lang, "searchPlaceholder"))}"></label></section>
-      <section class="timeline" id="timeline">
+      <section class="travel-search" id="cities" data-module="travel"><label><span>${esc(l(lang, "allCities"))}</span><input type="search" id="citySearch" autocomplete="off" placeholder="${attr(l(lang, "searchPlaceholder"))}"></label></section>
+      <section class="timeline" id="timeline" data-module="travel">
         ${Object.entries(groups).map(([month, items]) => `<div class="timeline-group" data-month="${attr(month)}"><h2>${esc(month)}</h2><div class="city-list">${items.map((city) => cityPreview(locale, depth, city)).join("")}</div></div>`).join("")}
         <p class="no-results" hidden>${esc(l(lang, "noResults"))}</p>
       </section>
@@ -552,7 +554,7 @@ function personJson(locale) {
       alternateName: profile.githubUser,
       image: `${siteOrigin}${profile.avatar}`,
       url: `${siteOrigin}${localePath(locale, "")}`,
-      sameAs: [profile.githubUrl],
+      sameAs: [profile.githubUrl, profile.instagramUrl],
     },
   };
 }

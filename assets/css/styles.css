@@ -570,6 +570,15 @@ textarea {
   letter-spacing: 0;
 }
 
+.hero__meta {
+  margin: -14px 0 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .hero__subtitle,
 .travel-hero p,
 .city-hero p {

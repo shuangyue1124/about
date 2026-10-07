@@ -23,6 +23,7 @@
 - 无 JavaScript 时的保底说明与可读静态正文: `scripts/build-pages.mjs:147-150`, `scripts/build-pages.mjs:346-454`。
 - Web Share API、复制降级和操作反馈: `assets/js/app.js:757-814`。
 - 首页卡片图片来自 `homeCards.image`: `assets/js/data.js:237-339`。
+- 首屏身份行（`ui.*.heroMeta` + MBTI）与社交 contact 目录：`scripts/build-pages.mjs` 的 `heroMetaText` / `personJson`，`worker.js` 的 `DEFAULT_CONTACTS` / `defaultProfileFor`。
 - 城市图片优先来自 `cityImages`，未命中才回退 `regionalImages`: `assets/js/data.js:1331-1397`。
 - 日本十五日三语海报旅记、章节、图说与每日真实足迹: `assets/js/data.js:733-1137`, `scripts/build-pages.mjs:397-523`。
 - 每日足迹插画的源图目录（待补）与产物校验: `assets/js/data.js:1056-1135`, `scripts/check-data.mjs:170-199`, `scripts/verify-image-assets.mjs:188-206`。
