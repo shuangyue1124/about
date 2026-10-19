@@ -9,6 +9,13 @@ export default {
       return handleContent(request, env);
     }
 
+    // Same-origin proxy for the QQ avatar: the page CSP only allows images from
+    // 'self', and a stable local URL lets the picture follow the QQ account
+    // without rebuilding the site.
+    if (url.pathname === "/api/avatar" || url.pathname === "/api/avatar/") {
+      return handleAvatar(request, env);
+    }
+
     if (url.pathname === "/api/events" || url.pathname === "/api/events/") {
       return handleEvents(request, env);
     }
@@ -934,6 +941,82 @@ export async function handleContent(request, env) {
     return json({ items: gated.map(publicContentItem) });
   } catch (error) {
     return serviceErrorResponse(error);
+  }
+}
+
+// --- QQ avatar proxy -------------------------------------------------------
+// The QQ avatar URL is stable; the picture behind it changes when the account
+// owner uploads a new one. Serving it through this Worker keeps the page CSP
+// (`img-src 'self'`) intact, avoids hotlink surprises, and means the card
+// avatar follows QQ without a redeploy.
+const AVATAR_UPSTREAM_SIZE = 640;
+const AVATAR_CACHE_SECONDS = 1800;
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+const AVATAR_TIMEOUT_MS = 8000;
+
+function avatarFresh(response) {
+  const fetchedAt = Date.parse(response.headers.get("x-avatar-fetched-at") || "");
+  return Number.isFinite(fetchedAt) && Date.now() - fetchedAt < AVATAR_CACHE_SECONDS * 1000;
+}
+
+async function resolveQqUin(env) {
+  const override = String(env?.QQ_UIN || "").replace(/\D/g, "");
+  if (override.length >= 5) return override;
+  try {
+    const contacts = await loadAllContacts(env);
+    const qq = contacts.find((item) => item.type === "qq" && item.enabled !== false && /^\d{5,12}$/.test(String(item.value || "").replace(/\D/g, "")));
+    if (qq) return String(qq.value).replace(/\D/g, "");
+  } catch { /* fall back to the built-in catalog */ }
+  const fallback = DEFAULT_CONTACTS.find((item) => item.type === "qq");
+  return String(fallback?.value || "").replace(/\D/g, "");
+}
+
+export async function handleAvatar(request, env) {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*" } });
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("method not allowed", { status: 405, headers: { "cache-control": "no-store" } });
+  }
+  const uin = await resolveQqUin(env);
+  if (!uin) return new Response("avatar not configured", { status: 404, headers: { "cache-control": "no-store" } });
+
+  const cache = typeof caches !== "undefined" && caches.default ? caches.default : null;
+  const cacheKey = new Request(`https://about.shuangyue.space/__cache/qq-avatar/${uin}`, { method: "GET" });
+  if (cache) {
+    try {
+      const hit = await cache.match(cacheKey);
+      if (hit && avatarFresh(hit)) return hit;
+    } catch { /* cache is an optimisation only */ }
+  }
+
+  try {
+    const upstream = await fetch(`https://q1.qlogo.cn/g?b=qq&nk=${encodeURIComponent(uin)}&s=${AVATAR_UPSTREAM_SIZE}`, {
+      headers: { accept: "image/*", "user-agent": "Mozilla/5.0 (compatible; shuangyue-about/1.0)" },
+      signal: AbortSignal.timeout(AVATAR_TIMEOUT_MS),
+      cf: { cacheTtl: AVATAR_CACHE_SECONDS, cacheEverything: true },
+    });
+    const contentType = String(upstream.headers.get("content-type") || "").toLowerCase();
+    if (!upstream.ok || !contentType.startsWith("image/")) throw new Error(`avatar upstream ${upstream.status} ${contentType}`);
+    const body = await upstream.arrayBuffer();
+    if (!body.byteLength || body.byteLength > AVATAR_MAX_BYTES) throw new Error("avatar upstream payload rejected");
+
+    const response = new Response(request.method === "HEAD" ? null : body, {
+      status: 200,
+      headers: {
+        "content-type": contentType,
+        "content-length": String(body.byteLength),
+        "cache-control": `public, max-age=${AVATAR_CACHE_SECONDS}, stale-while-revalidate=86400`,
+        "x-avatar-source": "qq",
+        "x-avatar-fetched-at": new Date().toISOString(),
+      },
+    });
+    if (cache && request.method === "GET") {
+      try { await cache.put(cacheKey, response.clone()); } catch { /* ignore */ }
+    }
+    return response;
+  } catch (error) {
+    console.error("[avatar] upstream failed", error?.message || error);
+    // The page falls back to /assets/images/avatar.webp on any non-2xx answer.
+    return new Response("avatar unavailable", { status: 502, headers: { "cache-control": "no-store" } });
   }
 }
 

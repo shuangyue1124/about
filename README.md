@@ -276,6 +276,15 @@ CSS 会优先使用这些本地 woff2 文件，然后回退到 `Styrene B` / `Ti
 f7c63320decb47d584bb78fbd6144167
 ```
 
+## 头像与专题内容
+
+头像不需要重新部署就能跟随 QQ 更换：
+
+- 页面头像使用 `/api/avatar`（`functions/api/avatar.js` → `handleAvatar`）同源代理 QQ 头像，QQ 号默认取 `contact_items` 里的 `qq`，可用环境变量 `QQ_UIN` 覆盖。上游图片与响应各缓存 30 分钟，换头像后最迟半小时在线上生效。
+- 代理失败（弱网、上游不可用）时前端自动回退到 `assets/images/avatar.webp`。想同步这份离线兜底以及由它生成的 favicon、PWA 图标和 og-card，运行 `npm run sync:avatar` 后再 `npm run build`。
+
+首页与 `/anime/`、`/games/`、`/github/` 的三个专区优先读取后台维护的 `content_items`。表里没有条目时，`assets/js/app.js` 会用 `assets/js/data.js` 的 `contentFallbacks` 渲染三语内置内容，不会再显示旅行页专用的「没有找到匹配的城市。」。
+
 ## 更新旅行与城市内容
 
 首页「年龄」不再硬编码：在 `assets/js/data.js` 的 `profile.birthDate` 填写 `YYYY-MM-DD` 后，`npm run build` 会自动计算年龄并显示为「N 岁 · 学生 · 呼和浩特」；留空则只显示「学生 · 呼和浩特」。`npm run check:data` 会校验生日格式。

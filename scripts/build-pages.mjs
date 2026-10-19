@@ -6,7 +6,7 @@ import { cities, homeCards, japanPlan, languages, profile, ui } from "../assets/
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const assetVersion = "20261005-modfix1";
+const assetVersion = "20261019-avatar-content";
 const siteOrigin = "https://about.shuangyue.space";
 const locales = [
   { code: "zh", prefix: "", html: "zh-CN" },
@@ -166,7 +166,7 @@ function layout(locale, depth, page, content, currentPath = "") {
     <a class="skip-link" href="#main-content">${esc(l(lang, "skipToContent"))}</a>
     <header class="topbar">
       <a class="brand" href="${attr(localePath(locale, ""))}">
-        <span class="brand__mark brand__mark--avatar"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="36" height="36" decoding="async"></span>
+        <span class="brand__mark brand__mark--avatar"><img src="/api/avatar" data-avatar-fallback="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="36" height="36" decoding="async"></span>
         <span><span class="brand__name">${esc(l(lang, "heroTitle"))}</span><span class="brand__kicker">${esc(l(lang, "brandKicker"))}</span></span>
       </a>
       <nav class="topnav" aria-label="${attr(l(lang, "primaryNavigation"))}">
@@ -227,7 +227,7 @@ function homePage(locale) {
       <section class="hero hero--home" id="top" data-module="profile">
         <div class="hero__painting" aria-hidden="true"></div>
         <div class="hero__content">
-          <div class="avatar-ring"><img src="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="112" height="112" fetchpriority="high" decoding="async"></div>
+          <div class="avatar-ring"><img src="/api/avatar" data-avatar-fallback="${attr(profile.avatar)}" alt="${attr(l(lang, "avatarAlt"))}" width="112" height="112" fetchpriority="high" decoding="async"></div>
           <h1>${esc(l(lang, "heroTitle"))}</h1>
           <p class="hero__meta">${esc(heroMetaText(lang))}</p>
           <p class="hero__subtitle">${esc(l(lang, "heroSubtitle"))}</p>

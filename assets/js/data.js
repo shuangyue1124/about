@@ -89,6 +89,8 @@ export const ui = {
     searchPlaceholder: "搜索城市、风景、美食或省份",
     allCities: "全部城市",
     noResults: "没有找到匹配的城市。",
+    contentEmpty: "这一栏还在整理，先去看看别的内容吧。",
+    contentLink: "查看详情",
     travelIntro:
       "从呼和浩特出发，把山川、古城、夜市和列车窗外的光都收进足迹里。最新一站，是横跨东京与关西的十五日日本旅记。",
     japanIntro:
@@ -181,6 +183,8 @@ export const ui = {
     searchPlaceholder: "都市、風景、料理、地域を検索",
     allCities: "すべての都市",
     noResults: "一致する都市がありません。",
+    contentEmpty: "このコーナーはまだ準備中です。",
+    contentLink: "詳しく見る",
     travelIntro:
       "フフホトを出発点に、山河、古都、夜市、そして車窓の光を足跡に残してきました。最新の章は、東京から関西まで続く15日間の日本旅行記です。",
     japanIntro:
@@ -275,6 +279,8 @@ export const ui = {
     searchPlaceholder: "Search city, scenery, food, or region",
     allCities: "All Cities",
     noResults: "No matching cities found.",
+    contentEmpty: "This section is still being put together.",
+    contentLink: "View details",
     travelIntro:
       "Starting from Hohhot, collecting mountains, old towns, night markets, and train-window light into a map of footsteps. The newest chapter is a fifteen-day journey from Tokyo to Kansai.",
     japanIntro:
@@ -415,6 +421,183 @@ export const homeCards = [
     },
   },
 ];
+
+// 动漫 / 游戏 / GitHub 三个专区的内容兜底。
+// 这三块的数据来自 D1 的 content_items，但线上表还是空的，接口只返回
+// {"items":[]}，页面于是渲染出一句属于旅行页的「没有找到匹配的城市。」。
+// 在后台补条目之前，先用这份三语内容把专区填满；content_items 一旦有条目，
+// loadContentSections 会优先渲染真实数据（见 assets/js/app.js）。
+export const contentFallbacks = {
+  anime: [
+    {
+      slug: "shinkai-skies",
+      title: {
+        zh: "新海诚：雨、云与列车",
+        ja: "新海誠：雨と雲と列車",
+        en: "Shinkai skies: rain, clouds, trains",
+      },
+      summary: {
+        zh: "《天气之子》《你的名字。》《铃芽之旅》里的天空总能撑起整段情绪：雨落下来，云散开，列车把告别送到下一站。",
+        ja: "『天気の子』『君の名は。』『すずめの戸締まり』の空は、雨が降り、雲が晴れ、列車が別れを次の駅へ運んでいきます。",
+        en: "Weathering With You, Your Name, and Suzume all lean on the same sky: rain falls, clouds open, and a train carries the goodbye to the next station.",
+      },
+      tags: {
+        zh: ["天气之子", "你的名字。", "铃芽之旅"],
+        ja: ["天気の子", "君の名は。", "すずめの戸締まり"],
+        en: ["Weathering With You", "Your Name", "Suzume"],
+      },
+    },
+    {
+      slug: "86-eighty-six",
+      title: {
+        zh: "《86 -不存在的战区-》",
+        ja: "『86―エイティシックス―』",
+        en: "86 -Eighty Six-",
+      },
+      summary: {
+        zh: "无人机、共和国，还有一块「不存在」的战区。战争题材的锋利感，把少年少女的告别写得又冷静又疼。",
+        ja: "無人機、共和国、そして「存在しない」戦区。戦争ものを描く鋭さのなかで、少年少女の別れが静かに痛みます。",
+        en: "Drones, the Republic, and a district that officially does not exist. The war is sharp, and every farewell lands with a quiet ache.",
+      },
+      tags: {
+        zh: ["86", "战争题材", "轻小说改编"],
+        ja: ["86", "戦争もの", "ライトノベル原作"],
+        en: ["86", "War story", "Light novel"],
+      },
+    },
+    {
+      slug: "lycoris-recoil",
+      title: {
+        zh: "《莉可丽丝》：枪战与咖啡店",
+        ja: "『リコリス・リコイル』：銃撃と喫茶店",
+        en: "Lycoris Recoil: gunfights and a café",
+      },
+      summary: {
+        zh: "枪战、咖啡店和两个女孩的日常，紧张和松弛被放进同一间小店，看完会想再去一次京都的街角。",
+        ja: "銃撃戦と喫茶店、二人の女の子の日常。緊張と緩和が同じ店に並び、見終わったあと京都の街角へ行きたくなります。",
+        en: "Gunfights, a café, and two girls' everyday life. Tension and ease share the same little shop, and afterwards you want to walk a Kyoto street corner again.",
+      },
+      tags: {
+        zh: ["莉可丽丝", "日常", "轻小说"],
+        ja: ["リコリス・リコイル", "日常", "ライトノベル"],
+        en: ["Lycoris Recoil", "Slice of life", "Light novel"],
+      },
+    },
+  ],
+  games: [
+    {
+      slug: "minecraft",
+      title: {
+        zh: "Minecraft：方块里的长途",
+        ja: "Minecraft：ブロックの中の長い旅",
+        en: "Minecraft: a long trip in blocks",
+      },
+      summary: {
+        zh: "从一间木屋开始，挖矿、修铁路、在服务器里看日落。走得越远，越像在给一张地图写旅行笔记。",
+        ja: "木の小屋から始めて、採掘し、線路を敷き、サーバーで夕日を眺めます。遠くへ行くほど、地図に旅の記録を書き足している気分になります。",
+        en: "It starts with a wooden hut, then mining, railways, and sunsets on a server. The farther you walk, the more it feels like writing travel notes onto a map.",
+      },
+      tags: {
+        zh: ["Minecraft", "建造", "生存"],
+        ja: ["Minecraft", "建築", "サバイバル"],
+        en: ["Minecraft", "Building", "Survival"],
+      },
+    },
+    {
+      slug: "genshin",
+      title: {
+        zh: "原神：在提瓦特慢慢走",
+        ja: "原神：テイワットをゆっくり歩く",
+        en: "Genshin: walking Teyvat slowly",
+      },
+      summary: {
+        zh: "比起赶进度，更喜欢沿着海岸线和山脊走，听风声、看云影，顺手把路过的宝箱和故事都收进背包。",
+        ja: "進行度を追うより、海岸線や尾根を歩き、風の音と雲の影を眺めながら、道端の宝箱と物語をかばんに集めるのが好きです。",
+        en: "More than chasing progress, I like walking coastlines and ridges, listening to the wind, and tucking passing chests and stories into the bag.",
+      },
+      tags: {
+        zh: ["原神", "开放世界", "探索"],
+        ja: ["原神", "オープンワールド", "探索"],
+        en: ["Genshin", "Open world", "Exploration"],
+      },
+    },
+    {
+      slug: "cs2",
+      title: {
+        zh: "CS2：和朋友开一局",
+        ja: "CS2：友だちと一戦",
+        en: "CS2: one more round with friends",
+      },
+      summary: {
+        zh: "不追求段位，只想在语音里和朋友吵吵闹闹地打几局。赢了继续，输了也继续，反正下一局总能翻盘。",
+        ja: "ランクを追うより、ボイスチャットで友だちと騒ぎながら数ラウンド遊ぶのが目的。勝っても負けても、次のラウンドで巻き返せばいい。",
+        en: "Not chasing ranks — just a few rounds of noisy voice chat with friends. Win or lose, there is always the next round to turn it around.",
+      },
+      tags: {
+        zh: ["CS2", "射击", "联机"],
+        ja: ["CS2", "シューター", "協力プレイ"],
+        en: ["CS2", "Shooter", "With friends"],
+      },
+    },
+  ],
+  github: [
+    {
+      slug: "this-site",
+      title: {
+        zh: "这个名片站本身",
+        ja: "この名刺サイト自体",
+        en: "This card site itself",
+      },
+      summary: {
+        zh: "多语言、静态部署、城市数据和水墨风格都是在这个仓库里慢慢长出来的：页面由脚本生成，留言和内容存在 D1，发布走 Cloudflare Pages。",
+        ja: "多言語、静的デプロイ、都市データ、水墨風の表現は、このリポジトリで少しずつ育ってきました。ページはスクリプトで生成し、コメントとコンテンツは D1、公開は Cloudflare Pages です。",
+        en: "Multilingual pages, static deployment, city data, and the ink style all grew inside this repository: pages are generated by scripts, comments and content live in D1, and publishing runs on Cloudflare Pages.",
+      },
+      tags: {
+        zh: ["Cloudflare Pages", "多语言", "静态站点"],
+        ja: ["Cloudflare Pages", "多言語", "静的サイト"],
+        en: ["Cloudflare Pages", "i18n", "Static site"],
+      },
+    },
+    {
+      slug: "github-profile",
+      title: {
+        zh: "GitHub：shuangyue1124",
+        ja: "GitHub：shuangyue1124",
+        en: "GitHub: shuangyue1124",
+      },
+      summary: {
+        zh: "代码、实验和小工具都放在这里。想看看这个站点之外还在折腾什么，直接打开主页就好。",
+        ja: "コード、実験、小さなツールはここに置いています。このサイト以外に何を作っているかは、プロフィールを開けば分かります。",
+        en: "Code, experiments, and small tools live here. Open the profile to see what is being built beyond this site.",
+      },
+      tags: {
+        zh: ["GitHub", "开源", "代码"],
+        ja: ["GitHub", "オープンソース", "コード"],
+        en: ["GitHub", "Open source", "Code"],
+      },
+      url: "https://github.com/shuangyue1124",
+    },
+    {
+      slug: "next-ideas",
+      title: {
+        zh: "还在整理的方向",
+        ja: "まだ整理中の方向",
+        en: "Still taking shape",
+      },
+      summary: {
+        zh: "把想法整理成打开就能用的网页：行程表、旅行海报、轻量的查询小工具。做完一个就放到 GitHub，也顺手记在这张名片里。",
+        ja: "アイデアを、開けばすぐ使えるページにします。旅程表、旅のポスター、軽い検索ツールなど。できたものは GitHub に置き、この名刺にも残します。",
+        en: "Turning ideas into pages that work the moment they open: itineraries, travel posters, and small lookup tools. Each finished piece goes to GitHub and gets noted on this card.",
+      },
+      tags: {
+        zh: ["小工具", "行程表", "旅行海报"],
+        ja: ["小さなツール", "旅程表", "旅のポスター"],
+        en: ["Small tools", "Itineraries", "Travel posters"],
+      },
+    },
+  ],
+};
 
 // Static contact skeleton only (no sensitive values).
 // Real values are served per-hostname by GET /api/site and rendered dynamically.

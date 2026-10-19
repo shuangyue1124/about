@@ -787,6 +787,22 @@ textarea {
   line-height: 1.78;
 }
 
+.feature-card__text .content-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--green-dark);
+  font-weight: 650;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(53, 88, 74, 0.28);
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.feature-card__text .content-link:hover {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
 .tag-row {
   display: flex;
   flex-wrap: wrap;

@@ -78,7 +78,7 @@ function shell(content) {
     <header class="topbar">
       <a class="brand" href="./" aria-label="返回首页">
         <span class="brand__mark brand__mark--avatar">
-          <img src="/assets/images/avatar.webp" alt="朔风霜月头像" loading="lazy">
+          <img src="/api/avatar" data-avatar-fallback="/assets/images/avatar.webp" alt="朔风霜月头像" loading="lazy" onerror="this.onerror=null;this.src='/assets/images/avatar.webp'">
         </span>
         <span>
           <span class="brand__name">朔风霜月</span>

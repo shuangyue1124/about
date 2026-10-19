@@ -1,4 +1,4 @@
-import { languages, ui } from "./data.js";
+import { contentFallbacks, languages, ui } from "./data.js";
 import {
   MODULE_IDS,
   filterTravelCities,
@@ -391,8 +391,18 @@ function bindPosterGallery() {
 
 function bindAvatarFallback() {
   document.querySelectorAll(".avatar-ring img, .brand__mark img").forEach((img) => {
-    const fail = () => img.classList.add("is-broken");
-    img.addEventListener("error", fail, { once: true });
+    // /api/avatar proxies the live QQ picture; when the Worker, the upstream
+    // CDN, or the network fails, swap once to the bundled avatar instead of
+    // showing a broken image.
+    const fallback = img.dataset.avatarFallback || "";
+    const fail = () => {
+      if (fallback && img.getAttribute("src") !== fallback) {
+        img.setAttribute("src", fallback);
+        return;
+      }
+      img.classList.add("is-broken");
+    };
+    img.addEventListener("error", fail);
     if (img.complete && img.naturalWidth === 0) fail();
   });
 }
@@ -1076,6 +1086,54 @@ function filterTravelDom() {
   }
 }
 
+function contentTri(value) {
+  if (value && typeof value === "object") return value[lang] || value.zh || value.ja || value.en || "";
+  return String(value || "");
+}
+
+function contentTags(value) {
+  if (!value || typeof value !== "object") return [];
+  const list = value[lang] || value.zh || value.ja || value.en;
+  return Array.isArray(list) ? list.map((tag) => String(tag || "").trim()).filter(Boolean).slice(0, 4) : [];
+}
+
+function contentSectionLabel(type) {
+  const key = type === "anime" ? "animeTitle" : type === "games" ? "gamesTitle" : "githubTitle";
+  return label(key);
+}
+
+// Covers may come from the admin form as "assets/..." or "/assets/..."; resolve
+// them against the site root so /anime/ does not look for /anime/assets/.
+function contentCover(value) {
+  const raw = String(value || "").trim();
+  if (/^https?:\/\//i.test(raw)) return ""; // CSP img-src is same-origin only.
+  if (raw.startsWith("/")) return raw;
+  if (raw.startsWith("assets/")) return `/${raw}`;
+  return "";
+}
+
+function contentCard(item, index, type) {
+  const title = contentTri(item?.title);
+  const summary = contentTri(item?.summary);
+  const tags = contentTags(item?.tags);
+  const cover = contentCover(item?.cover);
+  const url = String(item?.url || "");
+  const safeUrl = /^https?:\/\//i.test(url) ? url : "";
+  const classes = cover
+    ? `feature-card ${index % 2 ? "feature-card--image-right" : "feature-card--image-left"}`
+    : "feature-card feature-card--no-art";
+  const media = cover
+    ? `<div class="ink-art"><img src="${esc(cover)}" alt="" loading="lazy" decoding="async"></div>`
+    : "";
+  return `<article class="${classes}">${media}<div class="feature-card__text"><p class="eyebrow">${esc(contentSectionLabel(type))}</p><h3>${esc(title)}</h3><p>${esc(summary)}</p>${tags.length ? `<div class="tag-row">${tags.map((tag) => `<span>${esc(tag)}</span>`).join("")}</div>` : ""}${safeUrl ? `<p><a class="content-link" href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(label("contentLink"))} →</a></p>` : ""}</div></article>`;
+}
+
+function fallbackContent(type) {
+  const key = type === "game" ? "games" : type;
+  const items = contentFallbacks[key];
+  return Array.isArray(items) ? items : [];
+}
+
 async function loadContentSections() {
   const lists = document.querySelectorAll("[data-content-list]");
   if (!lists.length) return;
@@ -1085,24 +1143,28 @@ async function loadContentSections() {
     // Respect profile gating client-side as well (server already gates).
     const need = type === "anime" ? "anime" : type === "games" ? "games" : type === "github" ? "github" : "";
     if (need && !moduleEnabled(need)) { list.innerHTML = ""; continue; }
+    let items = [];
     try {
       const apiType = type === "games" ? "game" : type;
       const res = await fetch(`/api/content?type=${encodeURIComponent(apiType)}`, { headers: { accept: "application/json" } });
-      if (!res.ok) throw new Error("content unavailable");
-      const data = await res.json();
-      const items = Array.isArray(data.items) ? data.items : [];
-      if (!items.length) {
-        list.innerHTML = `<p class="comment-list__empty">${esc(label("noResults"))}</p>`;
-        continue;
+      if (res.ok) {
+        const data = await res.json();
+        items = Array.isArray(data.items) ? data.items : [];
       }
-      list.innerHTML = items.slice(0, 12).map((item) => {
-        const title = item.title?.[lang] || item.title?.zh || "";
-        const summary = item.summary?.[lang] || item.summary?.zh || "";
-        return `<article class="feature-card"><div class="feature-card__text"><p class="eyebrow">${esc(type)}</p><h3>${esc(title)}</h3><p>${esc(summary)}</p>${item.url ? `<p><a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.url)}</a></p>` : ""}</div></article>`;
-      }).join("");
     } catch {
-      list.innerHTML = `<p class="comment-list__empty">${esc(label("noResults"))}</p>`;
+      // Weak network or a cold Worker: fall through to the built-in content
+      // instead of leaving the section blank.
+      items = [];
     }
+    // content_items is still empty on production, so an empty/failed response
+    // used to print the travel-only "没有找到匹配的城市。" here. Real rows always
+    // win; otherwise the curated fallback keeps the section readable.
+    if (!items.length) items = fallbackContent(type);
+    if (!items.length) {
+      list.innerHTML = `<p class="comment-list__empty">${esc(label("contentEmpty"))}</p>`;
+      continue;
+    }
+    list.innerHTML = items.slice(0, 12).map((item, index) => contentCard(item, index, type)).join("");
   }
 }
 

@@ -51,6 +51,9 @@ function isLocal(value) {
   if (!text) return false;
   if (/^(https?:|mailto:|tel:|data:|javascript:|blob:|#)/i.test(text)) return false;
   if (text.startsWith("//")) return false;
+  // /api/* is served by Pages Functions at runtime, so it never exists as a
+  // file under public/ (e.g. the /api/avatar QQ proxy on every page header).
+  if (/^\/api\//i.test(text)) return false;
   return true;
 }
 
