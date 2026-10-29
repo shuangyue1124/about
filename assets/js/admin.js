@@ -35,6 +35,9 @@ const state = {
   chatDataAt: "",
   profiles: [],
   editingProfile: null,
+  ipRules: [],
+  editingIpRule: null,
+  ipRuleTest: null,
   contactsCatalog: [],
   contentItems: [],
   contentFilter: "all",
@@ -263,6 +266,30 @@ function dashboard() {
           ${state.profiles.length ? state.profiles.map(profileRow).join("") : '<p class="comment-list__empty">暂无域名配置（将使用内置默认）。</p>'}
         </div>
         ${state.editingProfile ? profileEditor(state.editingProfile) : ""}
+      </section>
+
+      <section class="admin-panel admin-panel--wide" aria-labelledby="ip-rules-title">
+        <div class="admin-comment-toolbar">
+          <div>
+            <h2 id="ip-rules-title">IP / CIDR 覆盖规则</h2>
+            <p>仅使用 Cloudflare 注入的 <code>CF-Connecting-IP</code> 做展示匹配；未命中、规则禁用或 D1 不可用时自动回退当前域名 Profile。数字越小优先级越高，同优先级时前缀越长越优先。IP 规则不是访问控制。</p>
+          </div>
+          <div class="admin-actions">
+            <button class="btn btn--primary" type="button" id="newIpRuleButton">新增 IP 规则</button>
+          </div>
+        </div>
+        <div class="admin-list">
+          ${state.ipRules.length ? state.ipRules.map(ipRuleRow).join("") : '<p class="comment-list__empty">暂无 IP 规则（所有访客继续按域名显示）。</p>'}
+        </div>
+        ${state.editingIpRule ? ipRuleEditor(state.editingIpRule) : ""}
+        <form class="admin-form" id="ipRuleTestForm">
+          <h3>测试匹配</h3>
+          <p>填入一个客户端 IP 和访问域名，只返回是否命中及生效 Profile，不会读取真实访客数据。</p>
+          <label><span>客户端 IP</span><input name="ip" placeholder="203.0.113.10 或 2001:db8::1" required></label>
+          <label><span>访问域名</span><input name="hostname" value="about.shuangyue.space" placeholder="about.shuangyue.space" required></label>
+          <div class="admin-actions"><button class="btn" type="submit">测试匹配</button></div>
+          ${state.ipRuleTest ? `<pre class="admin-chat-meta">${esc(state.ipRuleTest)}</pre>` : ""}
+        </form>
       </section>
 
       <section class="admin-panel admin-panel--wide" aria-labelledby="content-title">
@@ -649,6 +676,48 @@ function profileEditor(p) {
     </form>`;
 }
 
+function ipRuleRow(rule) {
+  return `
+    <article class="admin-comment" data-id="${esc(rule.id)}">
+      <div class="admin-comment__head">
+        <div><strong>${esc(rule.selector)}</strong><span class="admin-badge ${rule.enabled !== false ? "admin-badge--approved" : "admin-badge--rejected"}">${rule.enabled !== false ? "启用" : "禁用"}</span>
+        <small>→ ${esc(rule.targetHostname)} · 优先级 ${esc(rule.priority)} · ${esc(rule.note || "无备注")}</small></div>
+        <div class="admin-actions">
+          <button class="btn js-edit-ip-rule" type="button" data-id="${esc(rule.id)}">编辑</button>
+          <button class="btn js-toggle-ip-rule" type="button" data-id="${esc(rule.id)}">${rule.enabled !== false ? "禁用" : "启用"}</button>
+          <button class="btn btn--danger js-delete-ip-rule" type="button" data-id="${esc(rule.id)}">删除</button>
+        </div>
+      </div>
+    </article>`;
+}
+
+function ipTargetOptions(selected) {
+  const hosts = [];
+  for (const profile of state.profiles) {
+    const host = profile?.hostname;
+    if (host && !hosts.includes(host)) hosts.push(host);
+  }
+  if (selected && !hosts.includes(selected)) hosts.unshift(selected);
+  return hosts.map((host) => `<option value="${esc(host)}" ${host === selected ? "selected" : ""}>${esc(host)}</option>`).join("");
+}
+
+function ipRuleEditor(rule) {
+  return `
+    <form class="admin-form" id="ipRuleForm">
+      <h3>${rule.id ? "编辑 IP 规则" : "新增 IP 规则"}</h3>
+      <input name="id" type="hidden" value="${esc(rule.id || "")}">
+      <label><span>IP 或 CIDR <b class="admin-required">*必填</b></span><input name="selector" value="${esc(rule.selector || "")}" placeholder="203.0.113.10 或 203.0.113.0/24" required></label>
+      <label><span>目标 Profile <b class="admin-required">*必填</b></span><select name="targetHostname" required>${ipTargetOptions(rule.targetHostname || "about.shuangyue.space")}</select></label>
+      <label><span>优先级（越小越优先）</span><input name="priority" type="number" min="0" max="10000" value="${esc(rule.priority ?? 100)}"></label>
+      <label><span>备注</span><input name="note" maxlength="200" value="${esc(rule.note || "")}" placeholder="如：办公室出口"></label>
+      <label class="admin-toggle"><input name="enabled" type="checkbox" ${rule.enabled !== false ? "checked" : ""}><span>启用该规则</span></label>
+      <div class="admin-actions">
+        <button class="btn btn--primary" type="submit">保存 IP 规则</button>
+        <button class="btn" type="button" id="cancelEditIpRule">取消</button>
+      </div>
+    </form>`;
+}
+
 function filteredContentItems() {
   if (state.contentFilter === "all") return state.contentItems;
   return state.contentItems.filter((i) => i.type === state.contentFilter);
@@ -735,6 +804,21 @@ function bind() {
   }));
   document.querySelectorAll(".js-toggle-profile").forEach((b) => b.addEventListener("click", () => toggleProfile(b.dataset.hostname)));
   document.querySelectorAll(".js-delete-profile").forEach((b) => b.addEventListener("click", () => deleteProfile(b.dataset.hostname)));
+  document.getElementById("newIpRuleButton")?.addEventListener("click", () => {
+    state.editingIpRule = { selector: "", targetHostname: "about.shuangyue.space", priority: 100, enabled: true, note: "" };
+    state.ipRuleTest = null;
+    render();
+  });
+  document.getElementById("cancelEditIpRule")?.addEventListener("click", () => { state.editingIpRule = null; render(); });
+  document.getElementById("ipRuleForm")?.addEventListener("submit", saveIpRule);
+  document.getElementById("ipRuleTestForm")?.addEventListener("submit", testIpRule);
+  document.querySelectorAll(".js-edit-ip-rule").forEach((button) => button.addEventListener("click", () => {
+    state.editingIpRule = state.ipRules.find((rule) => rule.id === button.dataset.id) || null;
+    state.ipRuleTest = null;
+    render();
+  }));
+  document.querySelectorAll(".js-toggle-ip-rule").forEach((button) => button.addEventListener("click", () => toggleIpRule(button.dataset.id)));
+  document.querySelectorAll(".js-delete-ip-rule").forEach((button) => button.addEventListener("click", () => deleteIpRule(button.dataset.id)));
   // 旅行模式切换时显隐城市列表：仅 include / exclude 需要选城市。
   document.querySelectorAll('input[name="travelMode"]').forEach((r) => r.addEventListener("change", () => {
     const v = document.querySelector('input[name="travelMode"]:checked')?.value;
@@ -804,6 +888,9 @@ async function logout() {
   // machine (profiles, content items, translation stats, chat transcript).
   state.profiles = [];
   state.editingProfile = null;
+  state.ipRules = [];
+  state.editingIpRule = null;
+  state.ipRuleTest = null;
   state.contactsCatalog = [];
   state.contentItems = [];
   state.contentFilter = "all";
@@ -1052,11 +1139,12 @@ async function loadDashboard() {
   state.loading = true;
   render();
   try {
-    const [configResponse, commentsResponse, healthResponse, profilesResponse, contentResponse, translateResponse] = await Promise.all([
+    const [configResponse, commentsResponse, healthResponse, profilesResponse, ipRulesResponse, contentResponse, translateResponse] = await Promise.all([
       api("/api/admin/config"),
       api(`/api/admin/comments?limit=100&status=${encodeURIComponent(state.statusFilter)}`),
       api("/api/admin/health"),
       api("/api/admin/profiles").catch(() => null),
+      api("/api/admin/ip-profiles").catch(() => null),
       api("/api/admin/content?type=all").catch(() => null),
       api("/api/admin/translate-stats").catch(() => null),
     ]);
@@ -1079,6 +1167,12 @@ async function loadDashboard() {
         if (Array.isArray(p.profiles)) state.profiles = p.profiles;
       }
     } catch { /* profiles optional when D1 missing */ }
+    try {
+      if (ipRulesResponse?.ok) {
+        const r = await ipRulesResponse.json();
+        if (Array.isArray(r.rules)) state.ipRules = r.rules;
+      }
+    } catch { /* IP rules optional when D1 missing */ }
     try {
       if (contentResponse?.ok) {
         const c = await contentResponse.json();
@@ -1180,6 +1274,96 @@ async function deleteProfile(hostname) {
     if (state.editingProfile?.hostname === hostname) state.editingProfile = null;
     await loadDashboard();
   } catch (error) { state.status = error.message || "删除失败。"; render(); }
+}
+
+async function saveIpRule(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const payload = {
+    id: String(form.get("id") || ""),
+    selector: String(form.get("selector") || "").trim(),
+    targetHostname: String(form.get("targetHostname") || "").trim().toLowerCase(),
+    priority: Number.parseInt(form.get("priority") || "100", 10) || 0,
+    note: String(form.get("note") || "").trim(),
+    enabled: form.get("enabled") === "on",
+  };
+  if (!payload.selector || !payload.targetHostname) {
+    state.status = "IP/CIDR 和目标 Profile 不能为空。";
+    render();
+    return;
+  }
+  state.status = "正在保存 IP 规则...";
+  render();
+  try {
+    const path = payload.id
+      ? `/api/admin/ip-profiles/${encodeURIComponent(payload.id)}`
+      : "/api/admin/ip-profiles";
+    const res = await api(path, {
+      method: payload.id ? "PUT" : "POST",
+      body: JSON.stringify({ rule: payload }),
+    });
+    if (!res.ok) throw new Error(await responseText(res));
+    state.status = "IP 规则已保存，60 秒内生效。";
+    state.editingIpRule = null;
+    state.ipRuleTest = null;
+    await loadDashboard();
+  } catch (error) {
+    state.status = error.message || "IP 规则保存失败。";
+    render();
+  }
+}
+
+async function toggleIpRule(id) {
+  const rule = state.ipRules.find((item) => item.id === id);
+  if (!rule) return;
+  state.status = "正在切换 IP 规则...";
+  render();
+  try {
+    const res = await api(`/api/admin/ip-profiles/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify({ rule: { ...rule, enabled: !(rule.enabled !== false) } }),
+    });
+    if (!res.ok) throw new Error(await responseText(res));
+    state.status = "IP 规则已更新。";
+    await loadDashboard();
+  } catch (error) {
+    state.status = error.message || "IP 规则更新失败。";
+    render();
+  }
+}
+
+async function deleteIpRule(id) {
+  const rule = state.ipRules.find((item) => item.id === id);
+  if (!window.confirm(`确定删除 IP 规则 ${rule?.selector || id} 吗？`)) return;
+  try {
+    const res = await api(`/api/admin/ip-profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(await responseText(res));
+    state.status = "IP 规则已删除。";
+    if (state.editingIpRule?.id === id) state.editingIpRule = null;
+    state.ipRuleTest = null;
+    await loadDashboard();
+  } catch (error) {
+    state.status = error.message || "IP 规则删除失败。";
+    render();
+  }
+}
+
+async function testIpRule(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const ip = String(form.get("ip") || "").trim();
+  const hostname = String(form.get("hostname") || "").trim().toLowerCase();
+  state.ipRuleTest = "正在测试...";
+  render();
+  try {
+    const res = await api(`/api/admin/ip-profiles/test?ip=${encodeURIComponent(ip)}&hostname=${encodeURIComponent(hostname)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "测试失败");
+    state.ipRuleTest = JSON.stringify(data, null, 2);
+  } catch (error) {
+    state.ipRuleTest = error.message || "测试失败";
+  }
+  render();
 }
 
 async function saveContent(event) {

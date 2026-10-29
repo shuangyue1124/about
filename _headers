@@ -32,7 +32,7 @@
   Content-Type: text/vcard; charset=utf-8
 
 /contact.vcf
-  Cache-Control: public, max-age=600
+  Cache-Control: no-store
   Content-Type: text/vcard; charset=utf-8
   Content-Disposition: inline; filename="shuofeng-shuanyue.vcf"
 

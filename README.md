@@ -85,6 +85,17 @@ npx wrangler secret put ADMIN_PASSWORD
 
 后台密码读取兼容这些绑定名：`ADMIN_PASSWORD`、`ADMIN_SECRET`、`SFSY_ADMIN_PASSWORD`、`SITE_ADMIN_PASSWORD`。也兼容 Cloudflare Secrets Store 绑定名 `SECRETS`、`SECRET_STORE`、`ADMIN_SECRETS`，其中保存同名密钥即可。
 
+## IP / CIDR 内容覆盖
+
+后台「IP / CIDR 覆盖规则」允许把固定来源网络映射到已有的域名 Profile。运行时只信任 Cloudflare 注入的 `CF-Connecting-IP`，不会使用可由客户端伪造的 `X-Forwarded-For` 选择内容；规则未命中、被禁用或 D1 不可用时回退当前 hostname 的 Profile。
+
+- 规则按 `priority` 升序匹配，数字越小越优先；同优先级时前缀更长者优先。
+- 规则以标准 IPv4/IPv6 CIDR 保存，主机位会归零，例如 `203.0.113.42/24` 保存为 `203.0.113.0/24`。
+- 规则只引用 `site_profiles.hostname`，模块、联系方式和旅行配置仍由该 Profile 统一维护。
+- 这是展示分流，不是访问控制；敏感内容仍需 Cloudflare Access、登录或其他鉴权。
+- `/contact.vcf` 由 Pages Function 动态生成并按 `CF-Connecting-IP` 过滤联系方式，响应为 `no-store`，Service Worker 不缓存它。
+- 规则列表使用 `ip-profile-rules:v1`（KV + 每个 isolate 内存缓存，60 秒）；后台保存、启停或删除会立即清理缓存。
+
 ## 留言区存储
 
 留言区只要求用户填写名称和留言内容，不要求邮箱、注册或登录。服务端会自动记录：
@@ -128,15 +139,17 @@ npx wrangler d1 execute about-comments --file migrations/0002_site_events.sql
 npx wrangler d1 execute about-comments --file migrations/0003_site_profiles.sql
 # 留言回复（parent_id）+ AI 翻译缓存表
 npx wrangler d1 execute about-comments --file migrations/0004_comment_replies_and_translations.sql
+npx wrangler d1 execute about-comments --file migrations/0005_ip_profile_rules.sql
 ```
 
 生产环境执行（ Pages 项目绑定的就是同一个数据库）：
 
 ```powershell
 npx wrangler d1 execute about-comments --file migrations/0004_comment_replies_and_translations.sql --remote
+npx wrangler d1 execute about-comments --file migrations/0005_ip_profile_rules.sql --remote
 ```
 
-> **部署顺序硬约束**：migrations/0004 之后，评论写入（`saveComment`）固定写 `parent_id` 列、翻译 API 读写 `translations` 表。**必须先对生产 D1 执行该 migration，再推送触发 Pages 部署**；顺序颠倒会让所有评论提交和翻译请求返回 503（响应体中会提示运行该 migration）。
+> **部署顺序硬约束**：migrations/0004 之后，评论写入（`saveComment`）固定写 `parent_id` 列、翻译 API 读写 `translations` 表；migrations/0005 之后，后台 IP 规则接口依赖 `ip_profile_rules` 表。**必须先对生产 D1 执行对应 migration，再推送触发 Pages 部署**；顺序颠倒会让评论、翻译或 IP 规则接口返回错误。
 
 创建 KV namespace 作为公开评论缓存和旧数据迁移来源：
 

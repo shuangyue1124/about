@@ -207,6 +207,8 @@ const memory = {
   // Site profiles: hostname -> { profile, expiresAt }. Per-isolate only (0 KV writes
   // on the hot path); KV holds a 60s JSON copy for cross-isolate reuse, D1 is source.
   profiles: new Map(),
+  ipProfileRules: null,
+  ipProfileRulesExpiresAt: 0,
   contacts: null,
   contactsExpiresAt: 0,
   // Per-isolate fixed-window counters for high-frequency endpoints.
@@ -224,6 +226,8 @@ const memory = {
 // --- Multi-hostname site profiles (incremental, no rewrite) ---
 // Keep in sync with assets/js/site-profile.js (same defaults + sanitizers).
 const PROFILE_CACHE_TTL_SECONDS = 60;
+const IP_PROFILE_RULES_CACHE_KEY = "ip-profile-rules:v1";
+const IP_PROFILE_RULES_MAX = 500;
 const TEMPLATE_MODULES = {
   full: ["profile", "about", "contacts", "travel", "anime", "games", "github", "comments"],
   contact: ["profile", "contacts"],
@@ -263,6 +267,142 @@ function requestHostname(request) {
   } catch {
     return "";
   }
+}
+
+// --- Trusted client IP + CIDR matching for IP profile overrides ------------
+// Only CF-Connecting-IP is trusted for content selection. X-Forwarded-For is
+// intentionally ignored here: it is user-controlled unless a trusted proxy
+// strips and rewrites it. The rate limiter keeps its historical fallback, but
+// that path must never decide which profile a visitor receives.
+function parseIpv4Value(value) {
+  const parts = String(value || "").trim().split(".");
+  if (parts.length !== 4) return null;
+  let result = 0n;
+  for (const part of parts) {
+    if (!/^(0|[1-9]\d{0,2})$/.test(part)) return null;
+    const octet = Number(part);
+    if (octet > 255) return null;
+    result = (result << 8n) | BigInt(octet);
+  }
+  return result;
+}
+
+function formatIpv4Value(value) {
+  return [24n, 16n, 8n, 0n].map((shift) => String(Number((value >> shift) & 255n))).join(".");
+}
+
+function parseIpv6Value(value) {
+  let text = String(value || "").trim().toLowerCase();
+  if (!text || text.includes("%")) return null;
+  if (text.includes(".")) {
+    const lastColon = text.lastIndexOf(":");
+    if (lastColon < 0) return null;
+    const embedded = parseIpv4Value(text.slice(lastColon + 1));
+    if (embedded === null) return null;
+    text = `${text.slice(0, lastColon)}:${Number((embedded >> 16n) & 0xffffn).toString(16)}:${Number(embedded & 0xffffn).toString(16)}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const left = halves[0] ? halves[0].split(":") : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const validGroup = (group) => /^[0-9a-f]{1,4}$/.test(group);
+  if (!left.every(validGroup) || !right.every(validGroup)) return null;
+  if (halves.length === 1) {
+    if (left.length !== 8) return null;
+  } else if (left.length + right.length >= 8) {
+    return null;
+  }
+  const groups = halves.length === 1
+    ? left
+    : [...left, ...Array(8 - left.length - right.length).fill("0"), ...right];
+  return groups.reduce((result, group) => (result << 16n) | BigInt(`0x${group}`), 0n);
+}
+
+function formatIpv6Value(value) {
+  const groups = Array.from({ length: 8 }, (_, index) => Number((value >> BigInt((7 - index) * 16)) & 0xffffn));
+  let bestStart = -1;
+  let bestLength = 0;
+  for (let index = 0; index < groups.length;) {
+    if (groups[index] !== 0) {
+      index += 1;
+      continue;
+    }
+    let end = index;
+    while (end < groups.length && groups[end] === 0) end += 1;
+    if (end - index > bestLength) {
+      bestStart = index;
+      bestLength = end - index;
+    }
+    index = end;
+  }
+  const hex = groups.map((group) => group.toString(16));
+  if (bestLength < 2) return hex.join(":");
+  const left = hex.slice(0, bestStart).join(":");
+  const right = hex.slice(bestStart + bestLength).join(":");
+  if (!left && !right) return "::";
+  if (!left) return `::${right}`;
+  if (!right) return `${left}::`;
+  return `${left}::${right}`;
+}
+
+function parseIpAddress(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const ipv4 = parseIpv4Value(text);
+  if (ipv4 !== null) return { family: "ipv4", bits: 32, value: ipv4, canonical: formatIpv4Value(ipv4) };
+  const ipv6 = parseIpv6Value(text);
+  if (ipv6 !== null) return { family: "ipv6", bits: 128, value: ipv6, canonical: formatIpv6Value(ipv6) };
+  return null;
+}
+
+function normalizeIpAddress(value) {
+  return parseIpAddress(value)?.canonical || "";
+}
+
+// Accepts a bare address or CIDR. Host bits are cleared so 203.0.113.5/24 and
+// 203.0.113.0/24 are stored as the same rule.
+export function normalizeCidr(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const slash = text.indexOf("/");
+  if (slash !== -1 && slash !== text.lastIndexOf("/")) return null;
+  const addressText = slash === -1 ? text : text.slice(0, slash);
+  const address = parseIpAddress(addressText);
+  if (!address) return null;
+  const prefixText = slash === -1 ? String(address.bits) : text.slice(slash + 1);
+  if (!/^\d{1,3}$/.test(prefixText)) return null;
+  const prefixLen = Number(prefixText);
+  if (prefixLen < 0 || prefixLen > address.bits) return null;
+  const hostBits = BigInt(address.bits - prefixLen);
+  const mask = hostBits === BigInt(address.bits)
+    ? 0n
+    : ((1n << BigInt(address.bits)) - 1n) ^ ((1n << hostBits) - 1n);
+  const network = address.value & mask;
+  const canonicalAddress = address.family === "ipv4" ? formatIpv4Value(network) : formatIpv6Value(network);
+  return {
+    selector: `${canonicalAddress}/${prefixLen}`,
+    family: address.family,
+    prefixLen,
+    network,
+    bits: address.bits,
+  };
+}
+
+export function ipMatchesCidr(ip, cidr) {
+  const address = parseIpAddress(ip);
+  const rule = normalizeCidr(cidr);
+  if (!address || !rule || address.family !== rule.family) return false;
+  const hostBits = BigInt(rule.bits - rule.prefixLen);
+  const mask = hostBits === BigInt(rule.bits)
+    ? 0n
+    : ((1n << BigInt(rule.bits)) - 1n) ^ ((1n << hostBits) - 1n);
+  return (address.value & mask) === rule.network;
+}
+
+function trustedProfileClientIp(request) {
+  const header = request.headers.get("CF-Connecting-IP") || "";
+  if (header.includes(",")) return "";
+  return normalizeIpAddress(header);
 }
 
 function defaultProfileFor(hostname) {
@@ -382,9 +522,9 @@ export async function handleComments(request, env, ctx) {
 
   try {
     if (request.method === "GET") {
-      // Display control only (no 404 in this phase): a hostname whose profile
-      // excludes the comments module gets an empty public list, same as content.
-      const profile = await loadSiteProfile(env, requestHostname(request));
+      // Display control only (no 404 in this phase): the effective profile
+      // (IP override first, then hostname) must include the comments module.
+      const { profile } = await resolveRequestProfile(request, env);
       if (profile.enabled && !profile.modules.includes("comments")) {
         return json({ comments: [] });
       }
@@ -867,15 +1007,17 @@ export async function handleSite(request, env) {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: publicApiHeaders() });
   if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
   try {
-    const hostname = requestHostname(request);
+    const resolved = await resolveRequestProfile(request, env);
+    const profile = resolved.profile;
     const settings = await loadSiteConfig(env);
-    const profile = await loadSiteProfile(env, hostname);
     const allContacts = await loadAllContacts(env);
     const contacts = filterContactsForProfile(allContacts, profile);
     const cf = request.cf || {};
     return json({
       settings: publicSiteSettings(settings),
       hostname: profile.hostname,
+      requestedHostname: resolved.requestedHostname,
+      matchedBy: resolved.matchedBy,
       profile: {
         hostname: profile.hostname,
         template: profile.template,
@@ -907,9 +1049,8 @@ export async function handleContent(request, env) {
     const url = new URL(request.url);
     const rawType = cleanOneLine(url.searchParams.get("type"), 20).toLowerCase();
     const slug = cleanOneLine(url.searchParams.get("slug"), 120).toLowerCase();
-    const hostname = requestHostname(request);
-    const profile = await loadSiteProfile(env, hostname);
-    // A hostname whose modules exclude e.g. github must not receive github items.
+    const { profile } = await resolveRequestProfile(request, env);
+    // An effective profile whose modules exclude e.g. github must not receive github items.
     const moduleFor = (t) => {
       if (t === "anime") return "anime";
       if (t === "game") return "games";
@@ -1021,8 +1162,7 @@ export async function handleAvatar(request, env) {
 }
 
 export async function handleVcard(request, env) {
-  const hostname = requestHostname(request);
-  const profile = await loadSiteProfile(env, hostname);
+  const { profile } = await resolveRequestProfile(request, env);
   const allContacts = await loadAllContacts(env);
   const contacts = filterContactsForProfile(allContacts, profile);
   const body = buildVcard(contacts);
@@ -1030,7 +1170,9 @@ export async function handleVcard(request, env) {
     status: 200,
     headers: {
       "content-type": "text/vcard; charset=utf-8",
-      "cache-control": "private, max-age=60",
+      // The payload can differ by source IP. Never let an intermediary or the
+      // browser reuse a card generated on another network.
+      "cache-control": "no-store",
       "content-disposition": 'inline; filename="shuofeng-shuanyue.vcf"',
     },
   });
@@ -1263,6 +1405,64 @@ export async function handleAdmin(request, env, ctx) {
       }
     }
 
+    // ---- IP profile rules (highest-priority matching CIDR overrides host) ----
+    if (path === "/api/admin/ip-profiles/test" && request.method === "GET") {
+      const ip = normalizeIpAddress(url.searchParams.get("ip"));
+      if (!ip) return jsonAdmin({ error: "valid ip is required" }, 400);
+      const hostname = normalizeHostname(url.searchParams.get("hostname")) || "about.shuangyue.space";
+      const resolved = await resolveProfileForContext(env, hostname, ip);
+      return jsonAdmin({
+        matched: resolved.matchedBy === "ip",
+        matchedBy: resolved.matchedBy,
+        requestedHostname: resolved.requestedHostname,
+        effectiveHostname: resolved.profile.hostname,
+        rule: resolved.rule ? {
+          id: resolved.rule.id,
+          selector: resolved.rule.selector,
+          targetHostname: resolved.rule.targetHostname,
+          priority: resolved.rule.priority,
+          enabled: resolved.rule.enabled,
+          note: resolved.rule.note,
+        } : null,
+      });
+    }
+    if (path === "/api/admin/ip-profiles" && request.method === "GET") {
+      return jsonAdmin({ rules: await loadIpProfileRules(env, { includeDisabled: true }) });
+    }
+    if (path === "/api/admin/ip-profiles" && request.method === "POST") {
+      try {
+        const payload = await request.json().catch(() => ({}));
+        return jsonAdmin({ rule: await saveIpProfileRule(env, payload.rule || payload) });
+      } catch (error) {
+        return jsonAdmin({ error: error?.message || "rule save failed" }, error?.status || 400);
+      }
+    }
+    if (path.startsWith("/api/admin/ip-profiles/")) {
+      const id = cleanOneLine(decodeURIComponent(path.slice("/api/admin/ip-profiles/".length)), 80);
+      if (!id) return jsonAdmin({ error: "rule id is required" }, 400);
+      if (request.method === "GET") {
+        const rules = await loadIpProfileRules(env, { includeDisabled: true });
+        const rule = rules.find((item) => item.id === id);
+        if (!rule) return jsonAdmin({ error: "rule not found" }, 404);
+        return jsonAdmin({ rule });
+      }
+      if (request.method === "PUT") {
+        try {
+          const payload = await request.json().catch(() => ({}));
+          return jsonAdmin({ rule: await saveIpProfileRule(env, { ...(payload.rule || payload), id }) });
+        } catch (error) {
+          return jsonAdmin({ error: error?.message || "rule save failed" }, error?.status || 400);
+        }
+      }
+      if (request.method === "DELETE") {
+        try {
+          return jsonAdmin(await deleteIpProfileRule(env, id));
+        } catch (error) {
+          return jsonAdmin({ error: error?.message || "rule delete failed" }, error?.status || 400);
+        }
+      }
+    }
+
     // ---- Contact catalog (admin sees all, public sees filtered subset) ----
     if (path === "/api/admin/contacts" && request.method === "GET") {
       return jsonAdmin({ contacts: await loadAllContacts(env, { includeDisabled: true }) });
@@ -1444,8 +1644,9 @@ async function clearLoginFailures(env, ip, knownCount = -1) {
 async function ensureSchema(env) {
   if (!env.COMMENTS_DB || memory.schemaReady) return;
   // Production schema is managed by migrations/0001_comments_d1.sql,
-  // migrations/0002_site_events.sql, migrations/0003_site_profiles.sql and
-  // migrations/0004_comment_replies_and_translations.sql.
+  // migrations/0002_site_events.sql, migrations/0003_site_profiles.sql,
+  // migrations/0004_comment_replies_and_translations.sql and
+  // migrations/0005_ip_profile_rules.sql.
   // The DDL bootstrap below only runs for local preview where
   // RUNTIME_SCHEMA_BOOTSTRAP is set.
   if (env.RUNTIME_SCHEMA_BOOTSTRAP !== "1") return;
@@ -1508,6 +1709,20 @@ async function ensureSchema(env) {
     )
   `).run();
   await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_site_profiles_hostname ON site_profiles (hostname)").run();
+  await env.COMMENTS_DB.prepare(`
+    CREATE TABLE IF NOT EXISTS ip_profile_rules (
+      id TEXT PRIMARY KEY,
+      selector TEXT NOT NULL UNIQUE,
+      family TEXT NOT NULL,
+      prefix_len INTEGER NOT NULL,
+      target_hostname TEXT NOT NULL,
+      priority INTEGER NOT NULL DEFAULT 100,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      note TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL
+    )
+  `).run();
+  await env.COMMENTS_DB.prepare("CREATE INDEX IF NOT EXISTS idx_ip_profile_rules_enabled_priority ON ip_profile_rules (enabled, priority, prefix_len DESC)").run();
   await env.COMMENTS_DB.prepare(`
     CREATE TABLE IF NOT EXISTS content_items (
       id TEXT PRIMARY KEY,
@@ -2107,6 +2322,200 @@ async function loadSiteProfile(env, hostname) {
   const fallback = sanitizeProfile(defaultProfileFor(host), host);
   memory.profiles.set(host, { profile: fallback, expiresAt: now + Math.min(PROFILE_CACHE_TTL_SECONDS, 15) * 1000 });
   return fallback;
+}
+
+// --- IP profile rules: D1 source, KV + memory cache for the hot path. ---
+// Rules only reference an existing hostname profile. That keeps modules,
+// contacts, travel and translations in one place and makes IP an override,
+// never a second profile system.
+function profileHostnameValid(value) {
+  const host = normalizeHostname(value);
+  if (!host || host.length > 253) return false;
+  const labels = host.split(".");
+  return labels.length >= 2 && labels.every((label) =>
+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)
+  );
+}
+
+function ipRuleError(message, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function sanitizeIpProfileRule(input) {
+  const cidr = normalizeCidr(input?.selector ?? input?.cidr);
+  if (!cidr) throw ipRuleError("IP/CIDR 格式不正确");
+  const targetHostname = normalizeHostname(input?.targetHostname ?? input?.target_hostname);
+  if (!profileHostnameValid(targetHostname)) throw ipRuleError("目标域名格式不正确");
+  const id = cleanOneLine(input?.id, 80) || crypto.randomUUID();
+  const priority = boundedInt(input?.priority, 100, 0, 10000);
+  return {
+    id,
+    selector: cidr.selector,
+    family: cidr.family,
+    prefixLen: cidr.prefixLen,
+    targetHostname,
+    priority,
+    enabled: input?.enabled !== false,
+    note: cleanOneLine(input?.note, 200),
+    updatedAt: input?.updatedAt || input?.updated_at || "",
+  };
+}
+
+function parseIpProfileRuleRow(row) {
+  try {
+    return sanitizeIpProfileRule({
+      id: row.id,
+      selector: row.selector,
+      targetHostname: row.target_hostname,
+      priority: row.priority,
+      enabled: Number(row.enabled) !== 0,
+      note: row.note,
+      updatedAt: row.updated_at,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function sortIpProfileRules(rules) {
+  return rules.sort((a, b) =>
+    a.priority - b.priority ||
+    b.prefixLen - a.prefixLen ||
+    a.selector.localeCompare(b.selector) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+async function loadIpProfileRules(env, options = {}) {
+  const now = Date.now();
+  let rules = memory.ipProfileRules;
+  if (!rules || memory.ipProfileRulesExpiresAt <= now) {
+    rules = null;
+    if (env?.COMMENTS_KV) {
+      try {
+        const cached = await env.COMMENTS_KV.get(IP_PROFILE_RULES_CACHE_KEY, "json");
+        if (Array.isArray(cached)) {
+          rules = cached.map((rule) => {
+            try { return sanitizeIpProfileRule(rule); } catch { return null; }
+          }).filter(Boolean);
+        }
+      } catch { /* fall through to D1 */ }
+    }
+    if (!rules && env?.COMMENTS_DB) {
+      try {
+        await ensureSchema(env);
+        const rows = await env.COMMENTS_DB.prepare(`
+          SELECT id, selector, family, prefix_len, target_hostname, priority, enabled, note, updated_at
+          FROM ip_profile_rules ORDER BY priority ASC, prefix_len DESC, selector ASC LIMIT ${IP_PROFILE_RULES_MAX}
+        `).all();
+        rules = (rows.results || []).map(parseIpProfileRuleRow).filter(Boolean);
+      } catch { /* fall back to no rules */ }
+    }
+    rules = sortIpProfileRules(rules || []);
+    memory.ipProfileRules = rules;
+    memory.ipProfileRulesExpiresAt = now + PROFILE_CACHE_TTL_SECONDS * 1000;
+    if (env?.COMMENTS_KV) {
+      env.COMMENTS_KV.put(IP_PROFILE_RULES_CACHE_KEY, JSON.stringify(rules), { expirationTtl: PROFILE_CACHE_TTL_SECONDS }).catch(() => {});
+    }
+  }
+  return options.includeDisabled ? [...rules] : rules.filter((rule) => rule.enabled);
+}
+
+async function invalidateIpProfileRules(env) {
+  memory.ipProfileRules = null;
+  memory.ipProfileRulesExpiresAt = 0;
+  if (env?.COMMENTS_KV) await env.COMMENTS_KV.delete(IP_PROFILE_RULES_CACHE_KEY).catch(() => {});
+}
+
+async function saveIpProfileRule(env, input) {
+  if (!env?.COMMENTS_DB) throw ipRuleError("D1 rules storage is not configured", 503);
+  const rule = sanitizeIpProfileRule(input);
+  rule.updatedAt = new Date().toISOString();
+  await ensureSchema(env);
+  const duplicate = await env.COMMENTS_DB.prepare(
+    "SELECT id FROM ip_profile_rules WHERE selector = ? AND id <> ?"
+  ).bind(rule.selector, rule.id).first();
+  if (duplicate) throw ipRuleError("该 IP/CIDR 规则已存在", 409);
+  try {
+    await env.COMMENTS_DB.prepare(`
+      INSERT INTO ip_profile_rules (id, selector, family, prefix_len, target_hostname, priority, enabled, note, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        selector = excluded.selector,
+        family = excluded.family,
+        prefix_len = excluded.prefix_len,
+        target_hostname = excluded.target_hostname,
+        priority = excluded.priority,
+        enabled = excluded.enabled,
+        note = excluded.note,
+        updated_at = excluded.updated_at
+    `).bind(
+      rule.id, rule.selector, rule.family, rule.prefixLen, rule.targetHostname,
+      rule.priority, rule.enabled ? 1 : 0, rule.note, rule.updatedAt
+    ).run();
+  } catch (error) {
+    if (/unique/i.test(String(error?.message || ""))) throw ipRuleError("该 IP/CIDR 规则已存在", 409);
+    throw error;
+  }
+  await invalidateIpProfileRules(env);
+  return rule;
+}
+
+async function deleteIpProfileRule(env, id) {
+  const ruleId = cleanOneLine(id, 80);
+  if (!ruleId) throw ipRuleError("规则 ID 不能为空");
+  if (!env?.COMMENTS_DB) throw ipRuleError("D1 rules storage is not configured", 503);
+  await ensureSchema(env);
+  const result = await env.COMMENTS_DB.prepare("DELETE FROM ip_profile_rules WHERE id = ?").bind(ruleId).run();
+  await invalidateIpProfileRules(env);
+  return { ok: true, deleted: result.meta?.changes || 0 };
+}
+
+export function matchIpProfileRule(rules, ip) {
+  const client = parseIpAddress(ip);
+  if (!client) return null;
+  let best = null;
+  for (const rule of rules || []) {
+    if (!rule || rule.enabled === false || !ipMatchesCidr(client.canonical, rule.selector)) continue;
+    if (
+      !best ||
+      rule.priority < best.priority ||
+      (rule.priority === best.priority && rule.prefixLen > best.prefixLen) ||
+      (rule.priority === best.priority && rule.prefixLen === best.prefixLen && rule.selector.localeCompare(best.selector) < 0)
+    ) {
+      best = rule;
+    }
+  }
+  return best;
+}
+
+async function resolveProfileForContext(env, hostname, ip) {
+  const requestedHostname = normalizeHostname(hostname) || "about.shuangyue.space";
+  const clientIp = normalizeIpAddress(ip);
+  if (clientIp) {
+    const rules = await loadIpProfileRules(env);
+    const rule = matchIpProfileRule(rules, clientIp);
+    if (rule) {
+      return {
+        requestedHostname,
+        matchedBy: "ip",
+        rule,
+        profile: await loadSiteProfile(env, rule.targetHostname),
+      };
+    }
+  }
+  return {
+    requestedHostname,
+    matchedBy: "host",
+    rule: null,
+    profile: await loadSiteProfile(env, requestedHostname),
+  };
+}
+
+async function resolveRequestProfile(request, env) {
+  return resolveProfileForContext(env, requestHostname(request), trustedProfileClientIp(request));
 }
 
 async function listSiteProfiles(env) {

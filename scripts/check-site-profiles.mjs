@@ -8,6 +8,11 @@ import {
   resolveAutoLanguage,
   sanitizeProfile,
 } from "../assets/js/site-profile.js";
+import {
+  ipMatchesCidr,
+  matchIpProfileRule,
+  normalizeCidr,
+} from "../worker.js";
 import { handleAdmin, handleContent, handleSite, handleVcard } from "../worker.js";
 
 const failures = [];
@@ -298,6 +303,124 @@ assert(vis2.items.some((i) => i.id === softId), "restored item visible again");
 await handleAdmin(await adminReq(`/api/admin/content/${encodeURIComponent(softId)}?permanent=1`, { method: "DELETE", cookie: ck }), gEnv);
 const adminList2 = await (await handleAdmin(await adminReq("/api/admin/content?type=all", { cookie: ck }), gEnv)).json();
 assert(!(adminList2.items || []).some((i) => i.id === softId), "permanently deleted row gone from admin");
+
+// 17. IP/CIDR normalization and precedence
+assert(normalizeCidr("203.0.113.42/24")?.selector === "203.0.113.0/24", "IPv4 CIDR clears host bits");
+assert(normalizeCidr("2001:0db8::1/32")?.selector === "2001:db8::/32", "IPv6 CIDR canonicalizes and clears host bits");
+assert(normalizeCidr("203.0.113.10")?.selector === "203.0.113.10/32", "bare IPv4 becomes /32");
+assert(normalizeCidr("2001:db8::1")?.selector === "2001:db8::1/128", "bare IPv6 becomes /128");
+assert(normalizeCidr("999.1.1.1/24") === null && normalizeCidr("203.0.113.0/33") === null, "invalid IP/CIDR rejected");
+assert(ipMatchesCidr("203.0.113.42", "203.0.113.0/24"), "IPv4 CIDR match");
+assert(ipMatchesCidr("2001:db8:1::5", "2001:db8::/32"), "IPv6 CIDR match");
+assert(!ipMatchesCidr("2001:db8::1", "203.0.113.0/24"), "IP families never cross-match");
+const tieRules = [
+  { id: "wide", selector: "203.0.113.0/24", priority: 100, prefixLen: 24, enabled: true },
+  { id: "pinned", selector: "203.0.113.42/32", priority: 100, prefixLen: 32, enabled: true },
+  { id: "urgent", selector: "203.0.113.0/24", priority: 10, prefixLen: 24, enabled: true },
+];
+assert(matchIpProfileRule(tieRules, "203.0.113.42")?.id === "urgent", "lower priority number wins before prefix length");
+assert(matchIpProfileRule(tieRules.filter((rule) => rule.id !== "urgent"), "203.0.113.42")?.id === "pinned", "same priority uses longest prefix");
+assert(matchIpProfileRule([{ ...tieRules[0], enabled: false }], "203.0.113.42") === null, "disabled rule never matches");
+
+// 18. Public handlers honor CF-Connecting-IP and fall back to hostname
+function ipRulesD1(profiles, rules) {
+  const db = {
+    profiles: { ...profiles },
+    rules: rules.map((rule) => ({ ...rule })),
+    prepare(sql) {
+      return {
+        values: [],
+        bind(...values) { this.values = values; return this; },
+        async first() {
+          if (sql.includes("FROM site_profiles WHERE hostname = ?")) {
+            return db.profiles[this.values[0]] || null;
+          }
+          if (sql.includes("FROM ip_profile_rules WHERE selector = ?")) {
+            return db.rules.find((rule) => rule.selector === this.values[0] && rule.id !== this.values[1]) || null;
+          }
+          return null;
+        },
+        async all() {
+          if (sql.includes("FROM ip_profile_rules")) return { results: db.rules.map((rule) => ({ ...rule })) };
+          return { results: [] };
+        },
+        async run() {
+          if (sql.includes("INSERT INTO ip_profile_rules")) {
+            const [id, selector, family, prefix_len, target_hostname, priority, enabled, note, updated_at] = this.values;
+            const existing = db.rules.find((rule) => rule.id === id);
+            const next = { id, selector, family, prefix_len, target_hostname, priority, enabled, note, updated_at };
+            if (existing) Object.assign(existing, next);
+            else db.rules.push(next);
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes("DELETE FROM ip_profile_rules WHERE id = ?")) {
+            const before = db.rules.length;
+            db.rules = db.rules.filter((rule) => rule.id !== this.values[0]);
+            return { meta: { changes: before - db.rules.length } };
+          }
+          return { meta: { changes: 1 } };
+        },
+      };
+    },
+  };
+  return db;
+}
+
+const ipProfiles = {
+  "about.shuangyue.space": { profile_json: JSON.stringify(defaultProfileFor("about.shuangyue.space")) },
+  "wx.shuangyue.space": { profile_json: JSON.stringify(defaultProfileFor("wx.shuangyue.space")) },
+  "ip-target.shuangyue.space": {
+    profile_json: JSON.stringify({ ...defaultProfileFor("ip-target.shuangyue.space"), contacts: ["email"] }),
+  },
+};
+const ipDb = ipRulesD1(ipProfiles, [
+  { id: "office-wide", selector: "203.0.113.0/24", family: "ipv4", prefix_len: 24, target_hostname: "ip-target.shuangyue.space", priority: 200, enabled: 1, note: "office", updated_at: "2026-01-01T00:00:00Z" },
+  { id: "office-pinned", selector: "203.0.113.42/32", family: "ipv4", prefix_len: 32, target_hostname: "wx.shuangyue.space", priority: 50, enabled: 1, note: "pinned", updated_at: "2026-01-01T00:00:00Z" },
+  { id: "office-v6", selector: "2001:db8::/48", family: "ipv6", prefix_len: 48, target_hostname: "ip-target.shuangyue.space", priority: 100, enabled: 1, note: "v6", updated_at: "2026-01-01T00:00:00Z" },
+]);
+const ipEnv = { COMMENTS_KV: new IsoKv(), COMMENTS_DB: ipDb, ADMIN_PASSWORD: "pw-for-test" };
+async function siteWithIp(ip, extraHeaders = {}) {
+  const headers = { ...(ip ? { "CF-Connecting-IP": ip } : {}), ...extraHeaders };
+  return (await handleSite(new Request("https://about.shuangyue.space/api/site", { headers }), ipEnv)).json();
+}
+const ipPinned = await siteWithIp("203.0.113.42");
+assert(ipPinned.matchedBy === "ip" && ipPinned.hostname === "wx.shuangyue.space", "IP rule beats hostname and priority wins");
+assert(ipPinned.contacts.length === 2 && !JSON.stringify(ipPinned).includes("163.com"), "IP profile keeps contact filtering");
+const ipWide = await siteWithIp("203.0.113.7");
+assert(ipWide.hostname === "ip-target.shuangyue.space" && ipWide.contacts[0]?.type === "email", "CIDR rule selects target profile");
+const ipV6 = await siteWithIp("2001:db8:0:1::5");
+assert(ipV6.matchedBy === "ip" && ipV6.hostname === "ip-target.shuangyue.space", "IPv6 rule selects target profile");
+const ipMiss = await siteWithIp("198.51.100.9");
+assert(ipMiss.matchedBy === "host" && ipMiss.hostname === "about.shuangyue.space", "unmatched IP falls back to hostname");
+const ipSpoof = await siteWithIp("", { "X-Forwarded-For": "203.0.113.42" });
+assert(ipSpoof.matchedBy === "host" && ipSpoof.hostname === "about.shuangyue.space", "X-Forwarded-For cannot select a profile");
+
+// 19. Admin rule CRUD, cache invalidation, and vCard cache policy
+const ipLogin = await handleAdmin(await adminReq("/api/admin/login", { method: "POST", body: { password: "pw-for-test" } }), ipEnv);
+const ipToken = (ipLogin.headers.get("set-cookie") || "").match(/sfsy_admin=([^;]+)/)?.[1] || "";
+const ipAdmin = `sfsy_admin=${ipToken}`;
+assert(ipLogin.status === 200 && ipToken, "admin login works for IP rules");
+const ipList = await (await handleAdmin(await adminReq("/api/admin/ip-profiles", { cookie: ipAdmin }), ipEnv)).json();
+assert(ipList.rules?.length === 3, "admin lists all IP rules");
+const ipTest = await (await handleAdmin(await adminReq("/api/admin/ip-profiles/test?ip=203.0.113.42&hostname=about.shuangyue.space", { cookie: ipAdmin }), ipEnv)).json();
+assert(ipTest.matched && ipTest.effectiveHostname === "wx.shuangyue.space", "admin test endpoint reports effective profile");
+const duplicate = await handleAdmin(await adminReq("/api/admin/ip-profiles", { method: "POST", body: { rule: { selector: "203.0.113.0/24", targetHostname: "qq.shuangyue.space", priority: 1 } }, cookie: ipAdmin }), ipEnv);
+assert(duplicate.status === 409, "duplicate normalized CIDR rejected");
+const createdRes = await handleAdmin(await adminReq("/api/admin/ip-profiles", { method: "POST", body: { rule: { selector: "198.51.100.7/24", targetHostname: "qq.shuangyue.space", priority: 10, note: "test" } }, cookie: ipAdmin }), ipEnv);
+const created = await createdRes.json();
+assert(createdRes.status === 200 && created.rule?.selector === "198.51.100.0/24", "admin creates canonical CIDR rule");
+const ipNew = await siteWithIp("198.51.100.8");
+assert(ipNew.hostname === "qq.shuangyue.space" && ipNew.contacts[0]?.type === "qq", "new rule invalidates cache and applies immediately");
+const disableRes = await handleAdmin(await adminReq(`/api/admin/ip-profiles/${encodeURIComponent(created.rule.id)}`, { method: "PUT", body: { rule: { ...created.rule, enabled: false } }, cookie: ipAdmin }), ipEnv);
+assert(disableRes.status === 200, "admin disables IP rule");
+const ipDisabled = await siteWithIp("198.51.100.8");
+assert(ipDisabled.hostname === "about.shuangyue.space", "disabled rule falls back to hostname");
+const deleteRes = await handleAdmin(await adminReq(`/api/admin/ip-profiles/${encodeURIComponent(created.rule.id)}`, { method: "DELETE", cookie: ipAdmin }), ipEnv);
+assert(deleteRes.status === 200, "admin deletes IP rule");
+const ipAfterDelete = await siteWithIp("198.51.100.8");
+assert(ipAfterDelete.hostname === "about.shuangyue.space", "deleted rule no longer applies");
+const ipVcard = await handleVcard(new Request("https://about.shuangyue.space/contact.vcf", { headers: { "CF-Connecting-IP": "203.0.113.42" } }), ipEnv);
+assert(ipVcard.headers.get("cache-control") === "no-store", "IP-sensitive vCard is never cached");
 
 if (failures.length) {
   console.error(`\ncheck-site-profiles failed:\n- ${failures.join("\n- ")}`);
